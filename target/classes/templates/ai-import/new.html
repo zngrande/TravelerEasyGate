@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 行程打碎解析 - Useful Travel</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 700px; margin: 40px auto; }
+        textarea { width: 100%; height: 320px; padding: 12px; box-sizing: border-box; font-size: 14px; }
+        button { margin-top: 16px; padding: 10px 24px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+        a.back { display: inline-block; margin-bottom: 20px; }
+        .hint { color: #64748b; font-size: 13px; margin-top: 8px; }
+        .loading { display: none; color: #2563eb; margin-top: 12px; }
+        .error-box { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
+
+        .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .tab-btn { padding: 8px 16px; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 6px; cursor: pointer; }
+        .tab-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        .upload-box { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 40px; text-align: center; }
+        .upload-box input[type="file"] { margin-top: 12px; }
+    </style>
+</head>
+<body>
+    <a class="back" th:href="@{/agency/dashboard}">← 返回行程列表</a>
+    <h1>AI 行程打碎解析</h1>
+    <p>把客戶給的行程文字、別家旅行社的企劃書貼進來或直接上傳 PDF/Word，AI 會自動拆解成 Day 1、Day 2... 的景點/餐廳/住宿/交通卡片，讓你確認後一鍵轉成正式行程。</p>
+
+    <div th:if="${uploadError}" class="error-box" th:text="${uploadError}"></div>
+
+    <div class="tabs">
+        <button type="button" class="tab-btn active" id="tab-text-btn" onclick="switchTab('text')">貼上文字</button>
+        <button type="button" class="tab-btn" id="tab-file-btn" onclick="switchTab('file')">上傳 PDF / Word</button>
+    </div>
+
+    <!-- 貼上文字 -->
+    <div class="tab-panel active" id="tab-text">
+        <form id="parseForm" method="post" th:action="@{/ai-import/new}" onsubmit="showLoading('loadingHintText')">
+            <textarea name="rawText" placeholder="例：
+Day1：桃園機場接機→夜宿花蓮
+Day2：太魯閣國家公園（含中餐）→清水斷崖→夜宿瑞穗
+Day3：瑞穗牧場→花蓮機場送機 (含早餐)
+..." required></textarea>
+            <button type="submit">開始 AI 解析</button>
+            <div class="loading" id="loadingHintText">⏳ AI 解析中，請稍候（通常 5~15 秒）...</div>
+        </form>
+    </div>
+
+    <!-- 上傳 PDF / Word -->
+    <div class="tab-panel" id="tab-file">
+        <form id="uploadForm" method="post" th:action="@{/ai-import/upload}"
+              enctype="multipart/form-data" onsubmit="showLoading('loadingHintFile')">
+            <div class="upload-box">
+                <div>支援 .pdf 或 .docx 檔案（不支援舊版 .doc、掃描版 PDF）</div>
+                <input type="file" name="file" accept=".pdf,.docx" required />
+            </div>
+            <button type="submit">上傳並開始 AI 解析</button>
+            <div class="loading" id="loadingHintFile">⏳ 讀取檔案並解析中，請稍候...</div>
+        </form>
+    </div>
+
+    <script>
+        function switchTab(name) {
+            document.getElementById('tab-text').classList.toggle('active', name === 'text');
+            document.getElementById('tab-file').classList.toggle('active', name === 'file');
+            document.getElementById('tab-text-btn').classList.toggle('active', name === 'text');
+            document.getElementById('tab-file-btn').classList.toggle('active', name === 'file');
+        }
+        function showLoading(id) {
+            document.getElementById(id).style.display = 'block';
+        }
+    </script>
+</body>
+</html>

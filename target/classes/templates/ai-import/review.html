@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>確認 AI 解析結果 - Useful Travel</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 800px; margin: 40px auto; }
+        a.back { display: inline-block; margin-bottom: 20px; }
+        .status-badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 12px; }
+        .status-parsed { background: #dcfce7; color: #166534; }
+        .status-failed { background: #fee2e2; color: #991b1b; }
+        .status-confirmed { background: #dbeafe; color: #1e40af; }
+
+        .day-block { border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; padding: 14px; }
+        .day-block h3 { margin-top: 0; }
+        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+        .item-row:last-child { border-bottom: none; }
+        .type-tag { font-size: 11px; background: #eef2ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; margin-right: 8px; }
+        .matched-tag { font-size: 11px; background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 10px; }
+        .unmatched-tag { font-size: 11px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; }
+        .note { color: #64748b; font-size: 12px; margin-top: 2px; }
+
+        .confirm-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px; }
+        .confirm-box label { display: block; font-weight: bold; margin-top: 10px; }
+        .confirm-box input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+        .confirm-box button { margin-top: 16px; padding: 10px 24px; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+
+        .error-box { background: #fee2e2; color: #991b1b; padding: 14px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <a class="back" th:href="@{/agency/dashboard}">← 返回行程列表</a>
+    <h1>AI 解析結果確認</h1>
+    <span class="status-badge"
+          th:classappend="${aiImport.status == 'parsed'} ? ' status-parsed' : (${aiImport.status == 'failed'} ? ' status-failed' : ' status-confirmed')"
+          th:text="${aiImport.status}">
+    </span>
+
+    <div th:if="${aiImport.status == 'failed'}" class="error-box" style="margin-top:16px;">
+        解析失敗：<span th:text="${aiImport.errorMessage}"></span>
+        <div th:if="${aiImport.errorMessage != null and #strings.contains(aiImport.errorMessage, 'credit balance')}" style="margin-top:8px;">
+            → 這是 Anthropic 帳號額度不足，去 <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> 的 Plans & Billing 儲值。
+        </div>
+        <div th:if="${aiImport.errorMessage != null and #strings.contains(aiImport.errorMessage, 'anthropic.api.key')}" style="margin-top:8px;">
+            → 請確認 <code>application.properties</code> 裡的 <code>anthropic.api.key</code> 是否已正確設定。
+        </div>
+    </div>
+
+    <div th:if="${aiImport.status == 'parsed'}">
+        <div class="confirm-box">
+            <p>確認下面拆解出來的內容沒問題後，填一下行程名稱跟國家，就可以轉成正式行程去排版看板調整。</p>
+            <form method="post" th:action="@{'/ai-import/' + ${aiImport.IPID} + '/confirm'}">
+                <label>行程名稱</label>
+                <input type="text" name="title" placeholder="例：花蓮經典三日遊" required />
+                <label>國家 / 地區</label>
+                <input type="text" name="country" placeholder="例：台灣" required />
+                <button type="submit">✓ 確認無誤，轉成正式行程</button>
+            </form>
+        </div>
+
+        <div class="day-block" th:each="entry : ${dayItemsMap}">
+            <h3 th:text="'Day ' + ${entry.key.dayNumber} + (${entry.key.theme} != null ? ' — ' + ${entry.key.theme} : '')"></h3>
+            <div class="item-row" th:each="item : ${entry.value}">
+                <div>
+                    <span class="type-tag" th:text="${item.itemType}"></span>
+                    <strong th:text="${item.name}"></strong>
+                    <span th:if="${item.timeSlot}" style="color:#94a3b8;font-size:12px;" th:text="'（' + ${item.timeSlot} + '）'"></span>
+                    <div class="note" th:if="${item.note != null and !item.note.isEmpty()}" th:text="${item.note}"></div>
+                </div>
+                <span th:if="${item.matchedPid != null}" class="matched-tag">✓ 已比對到公司資料庫</span>
+                <span th:if="${item.matchedPid == null}" class="unmatched-tag">新項目</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

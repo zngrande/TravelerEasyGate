@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>景點資料庫 - Useful Travel</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 900px; margin: 40px auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        form.search { display: flex; gap: 10px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; }
+        .btn { display: inline-block; padding: 8px 16px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; }
+        .tag { font-size: 12px; background: #eef2ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>景點 / 餐廳 / 飯店資料庫</h1>
+        <div>
+            <a th:href="@{/agency/dashboard}">← 返回行程列表</a>
+            &nbsp;|&nbsp;
+            <a th:href="@{/poi/new}" class="btn">＋ 新增資料</a>
+        </div>
+    </header>
+
+    <form class="search" method="get" th:action="@{/poi}">
+        <input type="text" name="keyword" placeholder="搜尋名稱或城市" th:value="${keyword}" />
+        <select name="category">
+            <option value="">全部類型</option>
+            <option value="attraction" th:selected="${category == 'attraction'}">景點</option>
+            <option value="restaurant" th:selected="${category == 'restaurant'}">餐廳</option>
+            <option value="hotel" th:selected="${category == 'hotel'}">飯店</option>
+            <option value="rest_stop" th:selected="${category == 'rest_stop'}">休息站</option>
+        </select>
+        <button type="submit">搜尋</button>
+    </form>
+
+    <table th:if="${!pois.isEmpty()}">
+        <thead>
+            <tr>
+                <th>名稱</th>
+                <th>類型</th>
+                <th>國家/城市</th>
+                <th>建議停留時間</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="poi : ${pois}">
+                <td th:text="${poi.name}"></td>
+                <td><span class="tag" th:text="${poi.category}"></span></td>
+                <td th:text="${poi.country} + ' / ' + ${poi.city}"></td>
+                <td th:text="${poi.suggestedStayMin} + ' 分鐘'"></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p th:if="${pois.isEmpty()}" style="color:#888;">沒有符合條件的資料。</p>
+</body>
+</html>
