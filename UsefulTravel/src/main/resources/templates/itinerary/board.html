@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>行程排版看板 - Useful Travel</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; margin: 0; background: #f5f6f8; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; background: #1e293b; color: #fff; }
+        header a { color: #cbd5e1; text-decoration: none; margin-right: 16px; }
+        .layout { display: flex; height: calc(100vh - 56px); }
+
+        /* 左側 POI 資料庫側欄 */
+        .sidebar { width: 280px; background: #fff; border-right: 1px solid #e2e8f0; overflow-y: auto; padding: 16px; box-sizing: border-box; }
+        .sidebar h3 { margin-top: 0; }
+        .poi-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+        .poi-card .name { font-weight: bold; }
+        .poi-card .meta { font-size: 12px; color: #64748b; margin: 4px 0; }
+        .poi-card button { font-size: 12px; padding: 4px 8px; cursor: pointer; }
+
+        /* 中間 Day 分頁 */
+        .main { flex: 1; padding: 16px 24px; overflow-y: auto; }
+        .day-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .day-tab { padding: 8px 16px; border-radius: 20px; background: #e2e8f0; cursor: pointer; border: none; }
+        .day-tab.active { background: #2563eb; color: #fff; }
+
+        .day-panel { display: none; }
+        .day-panel.active { display: block; }
+
+        .item-list { list-style: none; padding: 0; margin: 0; }
+        .item-row { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; cursor: grab; }
+        .item-row .type-tag { font-size: 11px; background: #eef2ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; margin-right: 8px; }
+        .item-row .remove-btn { color: #ef4444; background: none; border: none; cursor: pointer; }
+
+        .route-info { font-size: 12px; color: #64748b; padding: 4px 0 4px 14px; }
+        .route-info.backtrack { color: #dc2626; font-weight: bold; }
+
+        .empty-hint { color: #94a3b8; padding: 20px; text-align: center; border: 2px dashed #e2e8f0; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <header>
+        <div>Useful Travel — 行程排版看板</div>
+        <div><a th:href="@{/agency/dashboard}">← 返回行程列表</a></div>
+    </header>
+
+    <div class="layout">
+        <!-- 左側：景點/餐廳/飯店資料庫，點擊加入目前選中的天 -->
+        <aside class="sidebar">
+            <h3>景點 / 餐廳 / 飯店資料庫</h3>
+            <div th:each="poi : ${poiList}" class="poi-card">
+                <div class="name" th:text="${poi.name}"></div>
+                <div class="meta" th:text="${poi.category} + ' · ' + ${poi.city}"></div>
+                <button th:attr="onclick=|addToCurrentDay(${poi.PID}, '${poi.name}', 'attraction')|">加入目前這天</button>
+            </div>
+            <p th:if="${poiList.isEmpty()}" style="font-size:13px;color:#94a3b8;">
+                資料庫還沒有景點，先到「景點/飯店資料庫」新增。
+            </p>
+            <a th:href="@{/poi/new}" style="font-size:13px;">＋ 新增景點資料</a>
+        </aside>
+
+        <!-- 中間：每日行程拖曳排版 -->
+        <main class="main">
+            <div class="day-tabs" id="dayTabs">
+                <button th:each="day, iter : ${days}"
+                        class="day-tab" th:classappend="${iter.index == 0} ? ' active' : ''"
+                        th:text="'Day ' + ${day.dayNumber}"
+                        th:attr="onclick=|switchDay(${day.IDID})|"
+                        th:id="'tab-' + ${day.IDID}">
+                </button>
+            </div>
+
+            <div th:each="day, iter : ${days}"
+                 class="day-panel" th:classappend="${iter.index == 0} ? ' active' : ''"
+                 th:id="'panel-' + ${day.IDID}"
+                 th:attr="data-idid=${day.IDID}">
+                <ul class="item-list" th:id="'list-' + ${day.IDID}"></ul>
+                <div class="empty-hint" th:id="'empty-' + ${day.IDID}">
+                    這天還沒有安排行程，從左側資料庫點「加入目前這天」開始排。
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script th:inline="javascript">
+        let currentDayId = /*[[${days[0] != null ? days[0].IDID : null}]]*/ null;
+        const itineraryId = /*[[${itineraryId}]]*/ 0;
+
+        function switchDay(idid) {
+            currentDayId = idid;
+            document.querySelectorAll('.day-tab').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.day-panel').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + idid).classList.add('active');
+            document.getElementById('panel-' + idid).classList.add('active');
+            loadDay(idid);
+        }
+
+        async function loadDay(idid) {
+            const [items, routes] = await Promise.all([
+                fetch(`/itinerary/day/${idid}/items`).then(r => r.json()),
+                fetch(`/itinerary/day/${idid}/routes`).then(r => r.json())
+            ]);
+
+            const list = document.getElementById('list-' + idid);
+            const emptyHint = document.getElementById('empty-' + idid);
+            list.innerHTML = '';
+
+            if (items.length === 0) {
+                emptyHint.style.display = 'block';
+            } else {
+                emptyHint.style.display = 'none';
+            }
+
+            const typeLabel = { attraction: '景點', meal: '餐廳', hotel: '住宿', transport: '交通', optional: '自費', free_time: '自由活動' };
+
+            items.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.className = 'item-row';
+                li.dataset.iiid = item.IIID;
+                const label = item.customName || ('#' + item.PID);
+                li.innerHTML = `
+                    <span><span class="type-tag">${typeLabel[item.itemType] || item.itemType}</span>${label}</span>
+                    <button class="remove-btn" onclick="removeItem(${idid}, ${item.IIID})">移除</button>
+                `;
+                list.appendChild(li);
+
+                // 顯示這一項跟下一項之間的拉車資訊
+                const route = routes.find(r => r.fromItemId === item.IIID);
+                if (route) {
+                    const info = document.createElement('div');
+                    info.className = 'route-info' + (route.backtrack ? ' backtrack' : '');
+                    info.textContent = (route.backtrack ? '⚠ 疑似迴頭路 · ' : '🚗 ')
+                        + `約 ${route.distanceKm} 公里 · 車程約 ${route.durationMin} 分鐘`;
+                    list.appendChild(info);
+                }
+            });
+
+            // 啟用拖曳排序
+            if (list._sortable) list._sortable.destroy();
+            list._sortable = new Sortable(list, {
+                animation: 150,
+                onEnd: () => saveOrder(idid)
+            });
+        }
+
+        function saveOrder(idid) {
+            const list = document.getElementById('list-' + idid);
+            const order = Array.from(list.querySelectorAll('.item-row')).map(el => parseInt(el.dataset.iiid));
+            fetch(`/itinerary/day/${idid}/reorder`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order })
+            }).then(() => loadDay(idid)); // 重新載入以更新拉車距離/迴頭路警示
+        }
+
+        function addToCurrentDay(pid, name, itemType) {
+            if (!currentDayId) { alert('請先選擇一天'); return; }
+            const params = new URLSearchParams({ PID: pid, itemType, customName: name });
+            fetch(`/itinerary/day/${currentDayId}/items?` + params.toString(), { method: 'POST' })
+                .then(() => loadDay(currentDayId));
+        }
+
+        function removeItem(idid, iiid) {
+            fetch(`/itinerary/day/${idid}/items/${iiid}`, { method: 'DELETE' })
+                .then(() => loadDay(idid));
+        }
+
+        // 初始載入第一天
+        if (currentDayId) loadDay(currentDayId);
+    </script>
+</body>
+</html>

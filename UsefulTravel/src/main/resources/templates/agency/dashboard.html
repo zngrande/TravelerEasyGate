@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>儀表板 - Useful Travel</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 900px; margin: 40px auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        nav a { margin-right: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; }
+        .status { padding: 3px 10px; border-radius: 10px; font-size: 12px; background: #eee; }
+        .btn { display: inline-block; padding: 8px 16px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; }
+        .empty { color: #888; margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Useful Travel</h1>
+        <div>
+            <span th:text="'你好，' + ${name}"></span>
+            &nbsp;|&nbsp;
+            <a th:href="@{/logout}">登出</a>
+        </div>
+    </header>
+
+    <nav>
+        <a th:href="@{/agency/dashboard}">行程列表</a>
+        <a th:href="@{/poi}">景點/飯店資料庫</a>
+        <a th:href="@{/itinerary/new}" class="btn">＋ 建立新行程</a>
+    </nav>
+
+    <table th:if="${!itineraries.isEmpty()}">
+        <thead>
+            <tr>
+                <th>行程名稱</th>
+                <th>國家</th>
+                <th>天數</th>
+                <th>出發日期</th>
+                <th>狀態</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="it : ${itineraries}">
+                <td th:text="${it.title}"></td>
+                <td th:text="${it.country}"></td>
+                <td th:text="${it.daysCount} + ' 天'"></td>
+                <td th:text="${it.startDate}"></td>
+                <td><span class="status" th:text="${it.status}"></span></td>
+                <td><a th:href="@{'/itinerary/' + ${it.ITID} + '/board'}">編輯行程</a></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p class="empty" th:if="${itineraries.isEmpty()}">目前還沒有任何行程，點右上角「＋ 建立新行程」開始規劃。</p>
+</body>
+</html>
