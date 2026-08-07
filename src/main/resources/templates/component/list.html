@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>元件庫 - Useful Travel</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 800px; margin: 40px auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; }
+        .tag { font-size: 12px; background: #eef2ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; }
+        form.new-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+        form.new-form label { display: block; font-weight: bold; margin-top: 10px; }
+        form.new-form input, form.new-form select { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+        form.new-form button { margin-top: 16px; padding: 10px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>元件庫</h1>
+        <a th:href="@{/agency/dashboard}">← 返回行程列表</a>
+    </header>
+    <p>把航班、餐食等級、住宿等級、自費項目建成標準元件，之後在各行程的「報價元件」裡直接掛上去，B2B 報價單會自動加總。</p>
+
+    <table th:if="${!components.isEmpty()}">
+        <thead>
+            <tr><th>名稱</th><th>類型</th><th>預設單價</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+            <tr th:each="c : ${components}">
+                <td th:text="${c.name}"></td>
+                <td><span class="tag" th:text="${c.type}"></span></td>
+                <td th:text="${c.defaultPrice}"></td>
+                <td th:text="${c.description}"></td>
+            </tr>
+        </tbody>
+    </table>
+    <p th:if="${components.isEmpty()}" style="color:#888;">目前還沒有任何元件。</p>
+
+    <h2>新增元件</h2>
+    <form class="new-form" method="post" th:action="@{/component/new}">
+        <label>類型</label>
+        <select name="type" required>
+            <option value="flight">航班</option>
+            <option value="meal">餐食</option>
+            <option value="hotel_grade">住宿等級</option>
+            <option value="optional_tour">自費項目</option>
+        </select>
+
+        <label>名稱</label>
+        <input type="text" name="name" placeholder="例：桃園-花蓮 台鐵自強號" required />
+
+        <label>預設單價</label>
+        <input type="number" step="0.01" name="defaultPrice" placeholder="例：500" />
+
+        <label>說明（選填）</label>
+        <input type="text" name="description" />
+
+        <button type="submit">新增</button>
+    </form>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>行程報價元件 - Useful Travel</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 700px; margin: 40px auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; }
+        form.attach-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+        form.attach-form label { display: block; font-weight: bold; margin-top: 10px; }
+        form.attach-form input, form.attach-form select { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+        form.attach-form button { margin-top: 16px; padding: 10px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>行程報價元件</h1>
+        <div>
+            <a th:href="@{'/itinerary/' + ${itineraryId} + '/board'}">← 返回排版看板</a>
+            &nbsp;|&nbsp;
+            <a th:href="@{/component}">管理元件庫</a>
+        </div>
+    </header>
+
+    <table th:if="${!attached.isEmpty()}">
+        <thead><tr><th>元件</th><th>數量</th><th>單價(若有覆寫)</th></tr></thead>
+        <tbody>
+            <tr th:each="ic : ${attached}">
+                <td th:text="'元件 #' + ${ic.CPID}"></td>
+                <td th:text="${ic.quantity}"></td>
+                <td th:text="${ic.priceOverride}"></td>
+            </tr>
+        </tbody>
+    </table>
+    <p th:if="${attached.isEmpty()}" style="color:#888;">這個行程還沒有掛任何報價元件，B2B 匯出的報價表會是空的。</p>
+
+    <h2>掛上元件</h2>
+    <form class="attach-form" method="post" th:action="@{'/itinerary/' + ${itineraryId} + '/components'}">
+        <label>選擇元件</label>
+        <select name="componentId" required>
+            <option th:each="c : ${allComponents}" th:value="${c.CPID}"
+                    th:text="${c.name} + ' (' + ${c.type} + ') — ' + ${c.defaultPrice}"></option>
+        </select>
+
+        <label>數量</label>
+        <input type="number" name="quantity" value="1" min="1" required />
+
+        <label>單價覆寫（選填，留空就用元件的預設單價）</label>
+        <input type="number" step="0.01" name="priceOverride" />
+
+        <button type="submit">掛上這個行程</button>
+    </form>
+</body>
+</html>

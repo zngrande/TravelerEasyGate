@@ -1,0 +1,237 @@
+package com.example.UsefulTravel.service;
+
+import com.example.UsefulTravel.DAO.ExportHistoryDAO;
+import com.example.UsefulTravel.DAO.ItineraryComponentDAO;
+import com.example.UsefulTravel.DAO.ItineraryDAO;
+import com.example.UsefulTravel.DAO.TravelComponentDAO;
+import com.example.UsefulTravel.entity.*;
+import org.apache.poi.xwpf.usermodel.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.io.ByteArrayOutputStream;
+import java.math.BigDecimal;
+import java.util.List;
+
+/**
+ * ExportService - 「智慧美編與多格式一鍵輸出」目前先做 Word (.docx)
+ *
+ * - format = "b2b": 同業版, 含每日行程 + 報價明細表 (成本/售價)
+ * - format = "b2c": 客戶版, 只有美化過的行程內容, 完全不顯示任何價格/成本資訊
+ *
+ * TODO 下一步: PDF 匯出 (需要另外接 HTML→PDF 或 iText, 目前先跳過避免跟 PDFBox 版本衝突)
+ *              自動帶入景點圖片 (需要圖片資源庫模組先做完)
+ */
+@Service
+public class ExportService {
+
+    private final ItineraryDAO itineraryDAO;
+    private final ItineraryService itineraryService;
+    private final ItineraryComponentDAO itineraryComponentDAO;
+    private final TravelComponentDAO travelComponentDAO;
+    private final ExportHistoryDAO exportHistoryDAO;
+
+    @Autowired
+    public ExportService(ItineraryDAO itineraryDAO, ItineraryService itineraryService,
+                          ItineraryComponentDAO itineraryComponentDAO, TravelComponentDAO travelComponentDAO,
+                          ExportHistoryDAO exportHistoryDAO) {
+        this.itineraryDAO = itineraryDAO;
+        this.itineraryService = itineraryService;
+        this.itineraryComponentDAO = itineraryComponentDAO;
+        this.travelComponentDAO = travelComponentDAO;
+        this.exportHistoryDAO = exportHistoryDAO;
+    }
+
+    /**
+     * 產生企劃書 Word 檔的位元組內容, 並記錄一筆 export_history
+     */
+    public byte[] generateWordDocument(int ITID, String format, Integer generatedByUID) throws Exception {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) throw new IllegalArgumentException("找不到這筆行程");
+
+        boolean isB2B = "b2b".equalsIgnoreCase(format);
+
+        try (XWPFDocument doc = new XWPFDocument()) {
+            addTitlePage(doc, itinerary, isB2B);
+            addDaysContent(doc, itinerary.getITID());
+            if (isB2B) {
+                addQuoteTable(doc, itinerary.getITID());
+            }
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            doc.write(out);
+            byte[] bytes = out.toByteArray();
+
+            ExportHistory history = new ExportHistory(
+                    ITID, isB2B ? "docx-b2b" : "docx-b2c",
+                    null /* 本地下載, 沒有存到雲端儲存空間 */,
+                    generatedByUID);
+            exportHistoryDAO.save(history);
+
+            return bytes;
+        }
+    }
+
+    // ---------------- 內部組版邏輯 ----------------
+
+    private void addTitlePage(XWPFDocument doc, Itinerary itinerary, boolean isB2B) {
+        XWPFParagraph title = doc.createParagraph();
+        title.setAlignment(ParagraphAlignment.CENTER);
+        XWPFRun titleRun = title.createRun();
+        titleRun.setText(itinerary.getTitle());
+        titleRun.setBold(true);
+        titleRun.setFontSize(26);
+        titleRun.setColor("1E3A8A");
+
+        XWPFParagraph subtitle = doc.createParagraph();
+        subtitle.setAlignment(ParagraphAlignment.CENTER);
+        XWPFRun subtitleRun = subtitle.createRun();
+        String dateRange = (itinerary.getStartDate() != null)
+                ? itinerary.getStartDate() + " ~ " + itinerary.getEndDate()
+                : "";
+        subtitleRun.setText(itinerary.getCountry() + " · " + itinerary.getDaysCount() + " 天"
+                + (dateRange.isBlank() ? "" : " · " + dateRange));
+        subtitleRun.setFontSize(13);
+        subtitleRun.setColor("64748B");
+
+        XWPFParagraph tag = doc.createParagraph();
+        tag.setAlignment(ParagraphAlignment.CENTER);
+        XWPFRun tagRun = tag.createRun();
+        tagRun.setText(isB2B ? "【同業專用 — 內含報價資訊，請勿外流客戶】" : "為您精心規劃的專屬旅程");
+        tagRun.setItalic(true);
+        tagRun.setFontSize(11);
+        tagRun.setColor(isB2B ? "B91C1C" : "16A34A");
+
+        doc.createParagraph(); // 空行
+    }
+
+    private void addDaysContent(XWPFDocument doc, int ITID) {
+        List<ItineraryDay> days = itineraryService.getDays(ITID);
+
+        for (ItineraryDay day : days) {
+            XWPFParagraph dayHeading = doc.createParagraph();
+            XWPFRun dayRun = dayHeading.createRun();
+            dayRun.setText("Day " + day.getDayNumber() + (day.getTheme() != null ? "　" + day.getTheme() : ""));
+            dayRun.setBold(true);
+            dayRun.setFontSize(16);
+            dayRun.setColor("2563EB");
+
+            List<ItineraryItem> items = itineraryService.getItems(day.getIDID());
+            List<RouteSegment> routes = itineraryService.getRoutes(day.getIDID());
+
+            if (items.isEmpty()) {
+                XWPFParagraph empty = doc.createParagraph();
+                empty.createRun().setText("（尚未安排行程內容）");
+            }
+
+            for (ItineraryItem item : items) {
+                XWPFParagraph p = doc.createParagraph();
+                p.setIndentationLeft(300);
+
+                XWPFRun typeRun = p.createRun();
+                typeRun.setText("【" + typeLabel(item.getItemType()) + "】");
+                typeRun.setBold(true);
+                typeRun.setColor("4338CA");
+
+                XWPFRun nameRun = p.createRun();
+                nameRun.setText(" " + item.getCustomName());
+                nameRun.setFontSize(12);
+
+                if (item.getNote() != null && !item.getNote().isBlank()) {
+                    XWPFRun noteRun = p.createRun();
+                    noteRun.setText("　" + item.getNote());
+                    noteRun.setColor("64748B");
+                    noteRun.setFontSize(10);
+                }
+
+                // 顯示這一項跟下一項之間的拉車距離
+                routes.stream()
+                        .filter(r -> r.getFromItemId() == item.getIIID())
+                        .findFirst()
+                        .ifPresent(route -> {
+                            XWPFParagraph routeP = doc.createParagraph();
+                            routeP.setIndentationLeft(500);
+                            XWPFRun routeRun = routeP.createRun();
+                            String prefix = route.isBacktrack() ? "⚠ 疑似迴頭路 · " : "🚗 ";
+                            routeRun.setText(prefix + "約 " + route.getDistanceKm() + " 公里，車程約 "
+                                    + route.getDurationMin() + " 分鐘");
+                            routeRun.setFontSize(9);
+                            routeRun.setItalic(true);
+                            routeRun.setColor("94A3B8");
+                        });
+            }
+            doc.createParagraph(); // 每天結束空一行
+        }
+    }
+
+    private String typeLabel(String itemType) {
+        if (itemType == null) return "項目";
+        return switch (itemType) {
+            case "attraction" -> "景點";
+            case "meal" -> "餐廳";
+            case "hotel" -> "住宿";
+            case "transport" -> "交通";
+            case "optional" -> "自費";
+            case "free_time" -> "自由活動";
+            case "highlight" -> "亮點";
+            default -> itemType;
+        };
+    }
+
+    private void addQuoteTable(XWPFDocument doc, int ITID) {
+        XWPFParagraph heading = doc.createParagraph();
+        XWPFRun headingRun = heading.createRun();
+        headingRun.setText("報價明細");
+        headingRun.setBold(true);
+        headingRun.setFontSize(16);
+        headingRun.setColor("B91C1C");
+
+        List<ItineraryComponent> components = itineraryComponentDAO.findByItinerary(ITID);
+
+        if (components.isEmpty()) {
+            XWPFParagraph empty = doc.createParagraph();
+            empty.createRun().setText("（尚未加入任何報價元件，請到行程管理頁面新增航班/餐食/住宿/自費等元件）");
+            return;
+        }
+
+        XWPFTable table = doc.createTable(components.size() + 1, 4);
+        setCell(table, 0, 0, "項目", true);
+        setCell(table, 0, 1, "類型", true);
+        setCell(table, 0, 2, "數量", true);
+        setCell(table, 0, 3, "單價", true);
+
+        BigDecimal total = BigDecimal.ZERO;
+        int rowIndex = 1;
+        for (ItineraryComponent ic : components) {
+            TravelComponent tc = travelComponentDAO.findById(ic.getCPID());
+            BigDecimal unitPrice = ic.getPriceOverride() != null ? ic.getPriceOverride()
+                    : (tc != null && tc.getDefaultPrice() != null ? tc.getDefaultPrice() : BigDecimal.ZERO);
+
+            setCell(table, rowIndex, 0, tc != null ? tc.getName() : "（元件已刪除）", false);
+            setCell(table, rowIndex, 1, tc != null ? tc.getType() : "", false);
+            setCell(table, rowIndex, 2, String.valueOf(ic.getQuantity()), false);
+            setCell(table, rowIndex, 3, unitPrice.toPlainString(), false);
+
+            total = total.add(unitPrice.multiply(BigDecimal.valueOf(ic.getQuantity())));
+            rowIndex++;
+        }
+
+        XWPFParagraph totalP = doc.createParagraph();
+        totalP.setAlignment(ParagraphAlignment.RIGHT);
+        XWPFRun totalRun = totalP.createRun();
+        totalRun.setText("總計：" + total.toPlainString() + " 元");
+        totalRun.setBold(true);
+        totalRun.setFontSize(13);
+    }
+
+    private void setCell(XWPFTable table, int row, int col, String text, boolean header) {
+        XWPFTableCell cell = table.getRow(row).getCell(col);
+        cell.removeParagraph(0);
+        XWPFParagraph p = cell.addParagraph();
+        XWPFRun run = p.createRun();
+        run.setText(text);
+        run.setBold(header);
+        if (header) run.setColor("FFFFFF");
+        if (header) cell.setColor("2563EB");
+    }
+}

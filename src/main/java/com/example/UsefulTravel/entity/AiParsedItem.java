@@ -1,0 +1,69 @@
+package com.example.UsefulTravel.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "ai_parsed_item")
+public class AiParsedItem {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "APIID")
+    private int APIID;
+
+    @Column(name = "APDID")
+    private int APDID;
+
+    @Column(name = "item_type")
+    private String itemType; // attraction / meal / hotel / transport / highlight
+
+    @Column(name = "name")
+    private String name;
+
+    @Column(name = "time_slot")
+    private String timeSlot; // morning / noon / afternoon / evening / breakfast / lunch / dinner
+
+    @Column(name = "note")
+    private String note;
+
+    @Column(name = "matched_pid")
+    private Integer matchedPid; // 自動比對到公司 POI 資料庫的結果
+
+    @Column(name = "sort_order")
+    private int sortOrder;
+
+    public AiParsedItem() {}
+
+    public AiParsedItem(int APDID, String itemType, String name, String timeSlot, String note, int sortOrder) {
+        this.APDID = APDID;
+        this.itemType = itemType;
+        this.name = name;
+        this.timeSlot = timeSlot;
+        this.note = note;
+        this.sortOrder = sortOrder;
+    }
+
+    public int getAPIID() { return APIID; }
+    public void setAPIID(int APIID) { this.APIID = APIID; }
+
+    public int getAPDID() { return APDID; }
+    public void setAPDID(int APDID) { this.APDID = APDID; }
+
+    public String getItemType() { return itemType; }
+    public void setItemType(String itemType) { this.itemType = itemType; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getTimeSlot() { return timeSlot; }
+    public void setTimeSlot(String timeSlot) { this.timeSlot = timeSlot; }
+
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
+
+    public Integer getMatchedPid() { return matchedPid; }
+    public void setMatchedPid(Integer matchedPid) { this.matchedPid = matchedPid; }
+
+    public int getSortOrder() { return sortOrder; }
+    public void setSortOrder(int sortOrder) { this.sortOrder = sortOrder; }
+}

@@ -1,8 +1,10 @@
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\AgencyController.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\AiImportController.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\AuthController.java
+C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\ExportController.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\ItineraryController.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\PoiController.java
+C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\TravelComponentController.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AgencyDAO.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AgencyDAOImpl.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiImportDAO.java
@@ -11,6 +13,10 @@ C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiParsedDayD
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiParsedDayDAOImpl.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiParsedItemDAO.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiParsedItemDAOImpl.java
+C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ExportHistoryDAO.java
+C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ExportHistoryDAOImpl.java
+C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryComponentDAO.java
+C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryComponentDAOImpl.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryDAO.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryDAOImpl.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryDayDAO.java
@@ -43,6 +49,7 @@ C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\service\AiParseS
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\service\AnthropicClient.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\service\AuthService.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\service\DocumentExtractionService.java
+C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\service\ExportService.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\service\ItineraryService.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\service\PoiService.java
 C:\zngrande\UsefulTravel\src\main\java\com\example\UsefulTravel\service\RouteService.java

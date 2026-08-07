@@ -14,8 +14,10 @@ com\example\UsefulTravel\service\ItineraryService.class
 com\example\UsefulTravel\entity\ItineraryItem.class
 com\example\UsefulTravel\DAO\RouteSegmentDAOImpl.class
 com\example\UsefulTravel\entity\PoiImage.class
+com\example\UsefulTravel\DAO\ExportHistoryDAOImpl.class
 com\example\UsefulTravel\controller\AgencyController.class
 com\example\UsefulTravel\DAO\AgencyDAOImpl.class
+com\example\UsefulTravel\controller\TravelComponentController.class
 com\example\UsefulTravel\DAO\ItineraryItemDAO.class
 com\example\UsefulTravel\entity\Agency.class
 com\example\UsefulTravel\service\DocumentExtractionService.class
@@ -25,6 +27,7 @@ com\example\UsefulTravel\DAO\AiImportDAO.class
 com\example\UsefulTravel\entity\TravelComponent.class
 com\example\UsefulTravel\DAO\AgencyDAO.class
 com\example\UsefulTravel\DAO\ItineraryDAOImpl.class
+com\example\UsefulTravel\DAO\ItineraryComponentDAOImpl.class
 com\example\UsefulTravel\service\RouteService.class
 com\example\UsefulTravel\DAO\AiParsedItemDAO.class
 com\example\UsefulTravel\DAO\StaffUserDAOImpl.class
@@ -39,12 +42,16 @@ com\example\UsefulTravel\entity\RouteSegment.class
 com\example\UsefulTravel\DAO\ItineraryDAO.class
 com\example\UsefulTravel\entity\StaffUser.class
 com\example\UsefulTravel\controller\AiImportController.class
+com\example\UsefulTravel\DAO\ItineraryComponentDAO.class
 com\example\UsefulTravel\controller\AuthController.class
 com\example\UsefulTravel\entity\Poi.class
 com\example\UsefulTravel\DAO\RouteSegmentDAO.class
 com\example\UsefulTravel\DAO\StaffUserDAO.class
 com\example\UsefulTravel\service\DocumentExtractionService$ExtractResult.class
 com\example\UsefulTravel\entity\Itinerary.class
+com\example\UsefulTravel\controller\ExportController.class
 com\example\UsefulTravel\service\PoiService.class
 com\example\UsefulTravel\DAO\PoiDAO.class
+com\example\UsefulTravel\DAO\ExportHistoryDAO.class
 com\example\UsefulTravel\service\AuthService.class
+com\example\UsefulTravel\service\ExportService.class
