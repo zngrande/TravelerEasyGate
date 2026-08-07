@@ -33,6 +33,9 @@ public class AiImport {
     @Column(name = "result_itinerary_id")
     private Integer resultItineraryId;
 
+    @Column(name = "template_style")
+    private String templateStyle = "default"; // wenqing / luxury / corporate / default
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -68,6 +71,9 @@ public class AiImport {
 
     public Integer getResultItineraryId() { return resultItineraryId; }
     public void setResultItineraryId(Integer resultItineraryId) { this.resultItineraryId = resultItineraryId; }
+
+    public String getTemplateStyle() { return templateStyle; }
+    public void setTemplateStyle(String templateStyle) { this.templateStyle = templateStyle; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

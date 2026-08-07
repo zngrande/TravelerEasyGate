@@ -50,10 +50,11 @@ public class ExportService {
         if (itinerary == null) throw new IllegalArgumentException("找不到這筆行程");
 
         boolean isB2B = "b2b".equalsIgnoreCase(format);
+        StylePalette palette = resolvePalette(itinerary.getTemplateStyle());
 
         try (XWPFDocument doc = new XWPFDocument()) {
-            addTitlePage(doc, itinerary, isB2B);
-            addDaysContent(doc, itinerary.getITID());
+            addTitlePage(doc, itinerary, isB2B, palette);
+            addDaysContent(doc, itinerary.getITID(), palette);
             if (isB2B) {
                 addQuoteTable(doc, itinerary.getITID());
             }
@@ -72,16 +73,34 @@ public class ExportService {
         }
     }
 
+    // ---------------- 模板樣式配色 ----------------
+
+    /**
+     * 四種模板風格的配色/語氣, 對應 AI 解析時判斷出來的 template_style
+     */
+    private record StylePalette(String titleColor, String dayHeadingColor, String typeTagColor,
+                                 String subtitleTone, String b2cTagline) {}
+
+    private StylePalette resolvePalette(String style) {
+        if (style == null) style = "default";
+        return switch (style) {
+            case "wenqing" -> new StylePalette("78716C", "57534E", "92400E", "64748B", "一段慢下來，好好感受的旅程");
+            case "luxury" -> new StylePalette("92400E", "B45309", "78350F", "78350F", "為您量身打造的頂級尊榮之旅");
+            case "corporate" -> new StylePalette("1E3A8A", "1D4ED8", "3730A3", "334155", "企業員工旅遊行程規劃書");
+            default -> new StylePalette("1E3A8A", "2563EB", "4338CA", "64748B", "為您精心規劃的專屬旅程");
+        };
+    }
+
     // ---------------- 內部組版邏輯 ----------------
 
-    private void addTitlePage(XWPFDocument doc, Itinerary itinerary, boolean isB2B) {
+    private void addTitlePage(XWPFDocument doc, Itinerary itinerary, boolean isB2B, StylePalette palette) {
         XWPFParagraph title = doc.createParagraph();
         title.setAlignment(ParagraphAlignment.CENTER);
         XWPFRun titleRun = title.createRun();
         titleRun.setText(itinerary.getTitle());
         titleRun.setBold(true);
         titleRun.setFontSize(26);
-        titleRun.setColor("1E3A8A");
+        titleRun.setColor(palette.titleColor());
 
         XWPFParagraph subtitle = doc.createParagraph();
         subtitle.setAlignment(ParagraphAlignment.CENTER);
@@ -92,12 +111,12 @@ public class ExportService {
         subtitleRun.setText(itinerary.getCountry() + " · " + itinerary.getDaysCount() + " 天"
                 + (dateRange.isBlank() ? "" : " · " + dateRange));
         subtitleRun.setFontSize(13);
-        subtitleRun.setColor("64748B");
+        subtitleRun.setColor(palette.subtitleTone());
 
         XWPFParagraph tag = doc.createParagraph();
         tag.setAlignment(ParagraphAlignment.CENTER);
         XWPFRun tagRun = tag.createRun();
-        tagRun.setText(isB2B ? "【同業專用 — 內含報價資訊，請勿外流客戶】" : "為您精心規劃的專屬旅程");
+        tagRun.setText(isB2B ? "【同業專用 — 內含報價資訊，請勿外流客戶】" : palette.b2cTagline());
         tagRun.setItalic(true);
         tagRun.setFontSize(11);
         tagRun.setColor(isB2B ? "B91C1C" : "16A34A");
@@ -105,7 +124,7 @@ public class ExportService {
         doc.createParagraph(); // 空行
     }
 
-    private void addDaysContent(XWPFDocument doc, int ITID) {
+    private void addDaysContent(XWPFDocument doc, int ITID, StylePalette palette) {
         List<ItineraryDay> days = itineraryService.getDays(ITID);
 
         for (ItineraryDay day : days) {
@@ -114,7 +133,7 @@ public class ExportService {
             dayRun.setText("Day " + day.getDayNumber() + (day.getTheme() != null ? "　" + day.getTheme() : ""));
             dayRun.setBold(true);
             dayRun.setFontSize(16);
-            dayRun.setColor("2563EB");
+            dayRun.setColor(palette.dayHeadingColor());
 
             List<ItineraryItem> items = itineraryService.getItems(day.getIDID());
             List<RouteSegment> routes = itineraryService.getRoutes(day.getIDID());
@@ -131,7 +150,7 @@ public class ExportService {
                 XWPFRun typeRun = p.createRun();
                 typeRun.setText("【" + typeLabel(item.getItemType()) + "】");
                 typeRun.setBold(true);
-                typeRun.setColor("4338CA");
+                typeRun.setColor(palette.typeTagColor());
 
                 XWPFRun nameRun = p.createRun();
                 nameRun.setText(" " + item.getCustomName());

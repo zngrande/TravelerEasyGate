@@ -39,6 +39,7 @@ public class AiParseService {
 
         JSON 格式規則:
         {
+          "template_style": "wenqing | luxury | corporate | default",
           "days": [
             {
               "day_number": 1,
@@ -54,6 +55,12 @@ public class AiParseService {
             }
           ]
         }
+
+        template_style 判斷規則 (依照原文的文字風格/用詞判斷, 只能選以下四種之一):
+        - "wenqing" (文青風): 原文用詞抒情、感性, 常見詩意描述、生活風格用語, 較少制式條列
+        - "luxury" (高端奢華風): 原文強調五星、尊榮、獨家、頂級、私人管家等高端字眼
+        - "corporate" (企業員工旅遊簡報風): 原文用詞正式、條列、商務用語多, 像公司內部簡報或制式報價單
+        - "default": 看不出明顯風格, 或原文很簡短沒有太多形容詞時使用
 
         規則:
         - item_type=attraction 是景點/活動; meal 是餐食; hotel 是住宿; transport 是航班/高鐵/包車等交通;
@@ -95,6 +102,8 @@ public class AiParseService {
         try {
             String jsonText = anthropicClient.complete(SYSTEM_PROMPT, rawText, 4000);
             JsonNode root = objectMapper.readTree(stripCodeFence(jsonText));
+
+            aiImport.setTemplateStyle(normalizeStyle(root.path("template_style").asText("default")));
 
             for (JsonNode dayNode : root.path("days")) {
                 AiParsedDay day = new AiParsedDay(
@@ -143,6 +152,15 @@ public class AiParseService {
         return (s == null || s.isBlank() || "null".equalsIgnoreCase(s)) ? null : s;
     }
 
+    // 保險起見, AI 有時可能回傳不在預期範圍內的值, 一律 fallback 成 default
+    private String normalizeStyle(String style) {
+        if (style == null) return "default";
+        return switch (style.toLowerCase()) {
+            case "wenqing", "luxury", "corporate" -> style.toLowerCase();
+            default -> "default";
+        };
+    }
+
     // Claude 有時仍會習慣性包 ```json ... ``` , 保險起見去掉
     private String stripCodeFence(String text) {
         String trimmed = text.trim();
@@ -172,6 +190,62 @@ public class AiParseService {
     }
 
     /**
+     * 把 AI 解析出來的單一項目寫進公司 POI 資料庫 (時間預設 NULL, 之後線控自己補)
+     * 加入後會把這個暫存項目的 matchedPid 更新成新建立的 POI, 畫面上會顯示「已比對」
+     *
+     * @return 新建立的 Poi
+     */
+    public Poi addItemToPoi(int AID, int APIID) {
+        AiParsedItem item = aiParsedItemDAO.findById(APIID);
+        if (item == null) throw new IllegalArgumentException("找不到這個項目");
+        if (item.getMatchedPid() != null) throw new IllegalStateException("這個項目已經比對過 POI 資料庫了");
+
+        String category = mapItemTypeToPoiCategory(item.getItemType());
+        if (category == null) {
+            throw new IllegalArgumentException("「" + typeDisplayName(item.getItemType()) + "」不是景點/餐廳/住宿類型，無法加入 POI 資料庫");
+        }
+
+        Poi poi = new Poi(AID, category, item.getName(), null, null, null, null, null);
+        poi.setSuggestedStayMin(null); // 依需求: 時間預設 NULL, 之後再由線控補
+        poi.setDescription(item.getNote());
+        poiDAO.save(poi);
+
+        item.setMatchedPid(poi.getPID());
+        aiParsedItemDAO.save(item);
+
+        return poi;
+    }
+
+    // AI 解析出的 item_type 對應到 POI 資料庫的 category (transport/highlight 沒有對應, 不能加入)
+    private String mapItemTypeToPoiCategory(String itemType) {
+        if (itemType == null) return null;
+        return switch (itemType) {
+            case "attraction" -> "attraction";
+            case "meal" -> "restaurant";
+            case "hotel" -> "hotel";
+            default -> null; // transport / highlight 不是實體地點, 不能加入 POI
+        };
+    }
+
+    private String typeDisplayName(String itemType) {
+        if (itemType == null) return "此項目";
+        return switch (itemType) {
+            case "transport" -> "交通";
+            case "highlight" -> "亮點文案";
+            default -> itemType;
+        };
+    }
+
+    // 取得單一暫存項目所屬的 AiImport IPID (給 controller 導回 review 頁面用)
+    public int getIpidByItem(int APIID) {
+        AiParsedItem item = aiParsedItemDAO.findById(APIID);
+        if (item == null) throw new IllegalArgumentException("找不到這個項目");
+        AiParsedDay day = aiParsedDayDAO.findById(item.getAPDID());
+        if (day == null) throw new IllegalArgumentException("找不到對應的解析紀錄");
+        return day.getIPID();
+    }
+
+    /**
      * 線控確認暫存資料無誤後, 轉成正式行程
      * (matchedPid 有值就直接連結公司 POI, 沒有就當自訂項目, 名稱先用 AI 解析出來的文字)
      */
@@ -184,6 +258,10 @@ public class AiParseService {
 
         Itinerary itinerary = itineraryService.createItinerary(
                 aiImport.getAID(), aiImport.getCreatedBy(), title, country, daysCount, LocalDate.now());
+
+        // 把 AI 判斷出來的文件風格帶到正式行程上, 匯出企劃書時會套用同樣風格
+        itineraryService.updateTemplateStyle(itinerary.getITID(), aiImport.getTemplateStyle());
+        itinerary.setTemplateStyle(aiImport.getTemplateStyle());
 
         List<ItineraryDay> realDays = itineraryService.getDays(itinerary.getITID());
 

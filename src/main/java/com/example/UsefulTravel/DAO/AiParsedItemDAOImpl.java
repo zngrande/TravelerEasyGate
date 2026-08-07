@@ -21,7 +21,16 @@ public class AiParsedItemDAOImpl implements AiParsedItemDAO {
     @Override
     @Transactional
     public void save(AiParsedItem item) {
-        em.persist(item);
+        if (item.getAPIID() == 0) {
+            em.persist(item);
+        } else {
+            em.merge(item);
+        }
+    }
+
+    @Override
+    public AiParsedItem findById(int APIID) {
+        return em.find(AiParsedItem.class, APIID);
     }
 
     @Override

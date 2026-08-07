@@ -25,6 +25,11 @@ public class AiParsedDayDAOImpl implements AiParsedDayDAO {
     }
 
     @Override
+    public AiParsedDay findById(int APDID) {
+        return em.find(AiParsedDay.class, APDID);
+    }
+
+    @Override
     public List<AiParsedDay> findByImport(int IPID) {
         return em.createQuery(
                 "SELECT d FROM AiParsedDay d WHERE d.IPID = :ipid ORDER BY d.dayNumber ASC", AiParsedDay.class)

@@ -215,3 +215,9 @@ CREATE TABLE ai_parsed_item (
     FOREIGN KEY (APDID) REFERENCES ai_parsed_day(APDID) ON DELETE CASCADE,
     FOREIGN KEY (matched_pid) REFERENCES poi(PID)
 ) ENGINE=InnoDB;
+
+-- ------------------------------------------------------------
+-- 11. 模板樣式記錄 (AI 解析時順便判斷原文件的風格, 輸出企劃書時套用同樣風格)
+-- ------------------------------------------------------------
+ALTER TABLE ai_import ADD COLUMN template_style VARCHAR(30) DEFAULT 'default';
+ALTER TABLE itinerary ADD COLUMN template_style VARCHAR(30) DEFAULT 'default';

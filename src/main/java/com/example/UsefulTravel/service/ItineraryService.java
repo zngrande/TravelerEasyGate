@@ -68,6 +68,15 @@ public class ItineraryService {
         return routeSegmentDAO.findByDay(IDID);
     }
 
+    // 更新這個行程匯出企劃書時要套用的模板風格 (wenqing/luxury/corporate/default)
+    public void updateTemplateStyle(int ITID, String style) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary != null) {
+            itinerary.setTemplateStyle(style);
+            itineraryDAO.save(itinerary);
+        }
+    }
+
     /**
      * 把一個 POI (或自訂項目) 加到某一天的行程尾端
      */

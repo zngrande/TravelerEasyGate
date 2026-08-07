@@ -40,6 +40,9 @@ public class Itinerary {
     @Column(name = "status")
     private String status = "draft"; // draft / confirmed / departed / completed
 
+    @Column(name = "template_style")
+    private String templateStyle = "default"; // wenqing / luxury / corporate / default (匯出企劃書時套用的風格)
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -85,6 +88,9 @@ public class Itinerary {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public String getTemplateStyle() { return templateStyle; }
+    public void setTemplateStyle(String templateStyle) { this.templateStyle = templateStyle; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

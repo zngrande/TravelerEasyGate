@@ -70,6 +70,21 @@ public class AiImportController {
         }
     }
 
+    // POST /ai-import/item/{apiid}/add-to-poi → 把 AI 解析出的單一項目寫進公司 POI 資料庫
+    @PostMapping("/item/{apiid}/add-to-poi")
+    public String addToPoi(@PathVariable("apiid") int APIID, HttpSession session, Model model) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+
+        int IPID = aiParseService.getIpidByItem(APIID);
+        try {
+            aiParseService.addItemToPoi(AID, APIID);
+        } catch (Exception e) {
+            // 加入失敗 (例如類型不支援、已經比對過) 就靜默導回, review 頁面上狀態不會變
+        }
+        return "redirect:/ai-import/" + IPID + "/review";
+    }
+
     // GET /ai-import/{id}/review → 顯示 AI 拆解出來的景點卡片讓線控確認
     @GetMapping("/{id}/review")
     public String review(@PathVariable("id") int IPID, HttpSession session, Model model) {
