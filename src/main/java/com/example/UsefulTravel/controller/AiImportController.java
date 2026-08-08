@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.LinkedHashMap;
@@ -29,6 +30,13 @@ public class AiImportController {
         this.documentExtractionService = documentExtractionService;
     }
 
+    // 檔案超過 application.properties 設定的大小上限時, 顯示友善訊息而不是讓連線直接斷掉
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public String handleFileTooLarge(Model model) {
+        model.addAttribute("uploadError", "檔案太大了，目前上限是 50MB，請壓縮檔案或分批處理後再上傳。");
+        return "ai-import/new";
+    }
+
     // GET /ai-import/new → 貼上文字的表單
     @GetMapping("/new")
     public String newForm(HttpSession session) {
@@ -38,18 +46,22 @@ public class AiImportController {
 
     // POST /ai-import/new → 呼叫 Claude 解析, 完成後導去 review 頁
     @PostMapping("/new")
-    public String parse(@RequestParam String rawText, HttpSession session) {
+    public String parse(@RequestParam String rawText,
+                         @RequestParam(defaultValue = "auto") String templateStyle,
+                         HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null || UID == null) return "redirect:/login";
 
-        AiImport result = aiParseService.parseText(AID, UID, rawText);
+        AiImport result = aiParseService.parseText(AID, UID, rawText, "text", templateStyle);
         return "redirect:/ai-import/" + result.getIPID() + "/review";
     }
 
     // POST /ai-import/upload → 上傳 PDF/Word, 抽出文字後跟貼上文字走同一套 AI 解析流程
     @PostMapping("/upload")
-    public String uploadAndParse(@RequestParam("file") MultipartFile file, HttpSession session, Model model) {
+    public String uploadAndParse(@RequestParam("file") MultipartFile file,
+                                  @RequestParam(defaultValue = "auto") String templateStyle,
+                                  HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null || UID == null) return "redirect:/login";
@@ -61,7 +73,7 @@ public class AiImportController {
 
         try {
             DocumentExtractionService.ExtractResult extracted = documentExtractionService.extract(file);
-            AiImport result = aiParseService.parseText(AID, UID, extracted.text, extracted.sourceType);
+            AiImport result = aiParseService.parseText(AID, UID, extracted.text, extracted.sourceType, templateStyle);
             return "redirect:/ai-import/" + result.getIPID() + "/review";
         } catch (Exception e) {
             model.addAttribute("uploadError",

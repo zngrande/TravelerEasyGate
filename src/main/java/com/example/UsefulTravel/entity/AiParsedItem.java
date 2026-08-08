@@ -29,6 +29,9 @@ public class AiParsedItem {
     @Column(name = "matched_pid")
     private Integer matchedPid; // 自動比對到公司 POI 資料庫的結果
 
+    @Column(name = "stay_minutes")
+    private Integer stayMinutes; // AI 預估的停留時間(分鐘), 景點/餐廳/住宿才會有值
+
     @Column(name = "sort_order")
     private int sortOrder;
 
@@ -63,6 +66,9 @@ public class AiParsedItem {
 
     public Integer getMatchedPid() { return matchedPid; }
     public void setMatchedPid(Integer matchedPid) { this.matchedPid = matchedPid; }
+
+    public Integer getStayMinutes() { return stayMinutes; }
+    public void setStayMinutes(Integer stayMinutes) { this.stayMinutes = stayMinutes; }
 
     public int getSortOrder() { return sortOrder; }
     public void setSortOrder(int sortOrder) { this.sortOrder = sortOrder; }

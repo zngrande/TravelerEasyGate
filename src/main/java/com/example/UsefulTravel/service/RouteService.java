@@ -20,9 +20,15 @@ import java.util.List;
  *   2. 目前用「經緯度直線距離 (Haversine)」當作暫時的估算值, 讓系統先能跑起來
  *   3. 迴頭路判斷目前用簡化版: 若這一段的方位角和前一段方位角夾角超過閾值就標記,
  *      正式版建議改用 Google Directions API 回傳的實際路線來判斷
+ *
+ * 通勤時間規則 (依需求): 以估算出來的時間 (未來接 Google Distance Matrix API 後就是它回傳的時間) 為基準,
+ *   乘以 1.5 倍當作實際安全通勤時間緩衝, 再四捨五入到最接近的 30 分鐘 (只會是整點或 30 分)
  */
 @Service
 public class RouteService {
+
+    private static final double SAFETY_MULTIPLIER = 1.5;
+    private static final int ROUND_TO_MINUTES = 30;
 
     private final RouteSegmentDAO routeSegmentDAO;
     private final PoiDAO poiDAO;
@@ -49,18 +55,27 @@ public class RouteService {
                     fromPoi.getLatitude().doubleValue(), fromPoi.getLongitude().doubleValue(),
                     toPoi.getLatitude().doubleValue(), toPoi.getLongitude().doubleValue());
 
-            // 粗估車程: 市區均速抓 30km/h (正式版改用 Google Directions API 的實際時間)
-            int estimatedMin = (int) Math.round((distanceKm / 30.0) * 60);
+            // 粗估車程: 市區均速抓 30km/h (正式版改用 Google Distance Matrix API 的實際時間)
+            double rawMinutes = (distanceKm / 30.0) * 60;
+
+            // 通勤安全緩衝: 1.5倍後四捨五入到最近的30分鐘 (符合行事曆時間軸只顯示整點/30分的需求)
+            int bufferedMin = roundToNearest30(rawMinutes * SAFETY_MULTIPLIER);
 
             boolean backtrack = i > 0 && isBacktrack(items, i, fromPoi, toPoi);
 
             RouteSegment segment = new RouteSegment(
                     IDID, from.getIIID(), to.getIIID(),
                     BigDecimal.valueOf(distanceKm).setScale(2, java.math.RoundingMode.HALF_UP),
-                    estimatedMin, backtrack
+                    bufferedMin, backtrack
             );
             routeSegmentDAO.save(segment);
         }
+    }
+
+    // 四捨五入到最近的 30 分鐘 (最少 30 分鐘, 不會出現 0 分鐘的通勤時間)
+    private int roundToNearest30(double minutes) {
+        int rounded = (int) (Math.round(minutes / ROUND_TO_MINUTES) * ROUND_TO_MINUTES);
+        return Math.max(rounded, ROUND_TO_MINUTES);
     }
 
     // 簡化版迴頭路判斷: 之後有更好的資料再優化, 目前先保守回傳 false, 避免誤判

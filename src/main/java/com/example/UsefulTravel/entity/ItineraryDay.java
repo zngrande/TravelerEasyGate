@@ -2,6 +2,7 @@ package com.example.UsefulTravel.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 @Entity
 @Table(name = "itinerary_day")
@@ -23,6 +24,9 @@ public class ItineraryDay {
 
     @Column(name = "theme")
     private String theme;
+
+    @Column(name = "start_time")
+    private LocalTime startTime = LocalTime.of(9, 0); // 這天的出發時間, 預設早上9點, 用來算時間軸
 
     public ItineraryDay() {}
 
@@ -47,4 +51,7 @@ public class ItineraryDay {
 
     public String getTheme() { return theme; }
     public void setTheme(String theme) { this.theme = theme; }
+
+    public LocalTime getStartTime() { return startTime; }
+    public void setStartTime(LocalTime startTime) { this.startTime = startTime; }
 }

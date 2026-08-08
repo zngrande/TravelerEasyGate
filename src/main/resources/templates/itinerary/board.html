@@ -27,10 +27,32 @@
         .day-panel { display: none; }
         .day-panel.active { display: block; }
 
+        .day-content { display: flex; gap: 20px; align-items: flex-start; }
+
+        /* 時間軸 (仿 iPhone 行事曆) */
+        .timeline-col { width: 220px; flex-shrink: 0; }
+        .start-time-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; }
+        .start-time-row input { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 4px; }
+        .timeline-wrap { position: relative; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+        .timeline-hourline { position: absolute; left: 0; right: 0; border-top: 1px solid #f1f5f9; }
+        .timeline-hourlabel { position: absolute; left: 4px; top: -8px; font-size: 10px; color: #94a3b8; background: #fff; padding: 0 3px; }
+        .timeline-block { position: absolute; left: 50px; right: 6px; border-radius: 5px; padding: 3px 6px; font-size: 10.5px; overflow: hidden; box-sizing: border-box; color: #fff; line-height: 1.25; }
+        .timeline-block.item-attraction { background: #4338ca; }
+        .timeline-block.item-meal { background: #ea580c; }
+        .timeline-block.item-hotel { background: #0f766e; }
+        .timeline-block.item-other { background: #64748b; }
+        .timeline-block.travel { background: repeating-linear-gradient(45deg, #cbd5e1, #cbd5e1 4px, #e2e8f0 4px, #e2e8f0 8px); color: #475569; }
+        .timeline-block.travel.backtrack { background: repeating-linear-gradient(45deg, #fca5a5, #fca5a5 4px, #fecaca 4px, #fecaca 8px); color: #7f1d1d; }
+        .timeline-empty { color: #94a3b8; font-size: 12px; padding: 20px; text-align: center; }
+
+        .item-col { flex: 1; min-width: 0; }
+
         .item-list { list-style: none; padding: 0; margin: 0; }
         .item-row { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; cursor: grab; }
         .item-row .type-tag { font-size: 11px; background: #eef2ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; margin-right: 8px; }
         .item-row .remove-btn { color: #ef4444; background: none; border: none; cursor: pointer; }
+        .item-row .add-poi-btn { font-size: 11px; padding: 3px 8px; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; margin-right: 6px; }
+        .unlinked-tag { font-size: 11px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; margin-right: 6px; }
 
         .route-info { font-size: 12px; color: #64748b; padding: 4px 0 4px 14px; }
         .route-info.backtrack { color: #dc2626; font-weight: bold; }
@@ -79,9 +101,22 @@
                  class="day-panel" th:classappend="${iter.index == 0} ? ' active' : ''"
                  th:id="'panel-' + ${day.IDID}"
                  th:attr="data-idid=${day.IDID}">
-                <ul class="item-list" th:id="'list-' + ${day.IDID}"></ul>
-                <div class="empty-hint" th:id="'empty-' + ${day.IDID}">
-                    這天還沒有安排行程，從左側資料庫點「加入目前這天」開始排。
+                <div class="day-content">
+                    <div class="timeline-col">
+                        <div class="start-time-row">
+                            <span>🕐 出發時間</span>
+                            <input type="time" th:id="'starttime-' + ${day.IDID}"
+                                   th:value="${day.startTime}"
+                                   th:attr="onchange=|updateStartTime(${day.IDID}, this.value)|" />
+                        </div>
+                        <div class="timeline-wrap" th:id="'timeline-' + ${day.IDID}" style="height:200px;"></div>
+                    </div>
+                    <div class="item-col">
+                        <ul class="item-list" th:id="'list-' + ${day.IDID}"></ul>
+                        <div class="empty-hint" th:id="'empty-' + ${day.IDID}">
+                            這天還沒有安排行程，從左側資料庫點「加入目前這天」開始排。
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -117,15 +152,30 @@
             }
 
             const typeLabel = { attraction: '景點', meal: '餐廳', hotel: '住宿', transport: '交通', optional: '自費', free_time: '自由活動' };
+            const poiEligibleTypes = ['attraction', 'meal', 'hotel']; // 只有這幾種類型能加入 POI 資料庫
 
             items.forEach((item, index) => {
                 const li = document.createElement('li');
                 li.className = 'item-row';
                 li.dataset.iiid = item.IIID;
                 const label = item.customName || ('#' + item.PID);
+
+                const isLinked = item.PID !== null && item.PID !== undefined;
+                const canAddToPoi = !isLinked && poiEligibleTypes.includes(item.itemType);
+
+                let leftBadges = `<span class="type-tag">${typeLabel[item.itemType] || item.itemType}</span>`;
+                if (!isLinked && !canAddToPoi) {
+                    leftBadges = `<span class="type-tag">${typeLabel[item.itemType] || item.itemType}</span>`;
+                } else if (!isLinked) {
+                    leftBadges += `<span class="unlinked-tag">未連結資料庫</span>`;
+                }
+
                 li.innerHTML = `
-                    <span><span class="type-tag">${typeLabel[item.itemType] || item.itemType}</span>${label}</span>
-                    <button class="remove-btn" onclick="removeItem(${idid}, ${item.IIID})">移除</button>
+                    <span>${leftBadges}${label}</span>
+                    <span>
+                        ${canAddToPoi ? `<button class="add-poi-btn" onclick="addToPoiDatabase(${idid}, ${item.IIID})">+ 加入POI資料庫</button>` : ''}
+                        <button class="remove-btn" onclick="removeItem(${idid}, ${item.IIID})">移除</button>
+                    </span>
                 `;
                 list.appendChild(li);
 
@@ -146,6 +196,109 @@
                 animation: 150,
                 onEnd: () => saveOrder(idid)
             });
+
+            renderTimeline(idid, items, routes, typeLabel);
+        }
+
+        // 預設停留時間 (AI 沒估算到、或手動加的項目時使用)
+        const defaultStayMin = { attraction: 90, meal: 60, hotel: 0, transport: 0, optional: 60, free_time: 60 };
+
+        function timeToMinutes(hhmm) {
+            const [h, m] = hhmm.split(':').map(Number);
+            return h * 60 + m;
+        }
+        function minutesToTime(mins) {
+            const h = Math.floor(mins / 60) % 24;
+            const m = mins % 60;
+            return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+        }
+
+        function renderTimeline(idid, items, routes, typeLabel) {
+            const wrap = document.getElementById('timeline-' + idid);
+            const startInput = document.getElementById('starttime-' + idid);
+            wrap.innerHTML = '';
+
+            if (items.length === 0) {
+                wrap.style.height = '80px';
+                wrap.innerHTML = '<div class="timeline-empty">尚未安排行程</div>';
+                return;
+            }
+
+            const dayStartMin = timeToMinutes(startInput.value || '09:00');
+
+            // 依序計算每個項目 + 每段通勤的時間區間
+            const blocks = [];
+            let current = dayStartMin;
+            items.forEach((item, i) => {
+                const duration = (item.stayDurationMin != null && item.stayDurationMin > 0)
+                    ? item.stayDurationMin
+                    : (defaultStayMin[item.itemType] ?? 60);
+                const start = current;
+                const end = current + Math.max(duration, 15);
+                blocks.push({
+                    type: 'item', itemType: item.itemType,
+                    label: (item.customName || '項目') + `（${typeLabel[item.itemType] || item.itemType}）`,
+                    start, end
+                });
+                current = end;
+
+                const route = routes.find(r => r.fromItemId === item.IIID);
+                if (route && i < items.length - 1) {
+                    const travelStart = current;
+                    const travelEnd = current + route.durationMin;
+                    blocks.push({
+                        type: 'travel', backtrack: route.backtrack,
+                        label: (route.backtrack ? '⚠ 迴頭路 ' : '🚗 ') + `車程 ${route.durationMin} 分`,
+                        start: travelStart, end: travelEnd
+                    });
+                    current = travelEnd;
+                }
+            });
+
+            const totalMin = current - dayStartMin;
+            const pxPerMin = 1.6; // 每分鐘幾像素, 決定時間軸的疏密
+            const heightPx = Math.max(totalMin * pxPerMin, 120);
+            wrap.style.height = heightPx + 'px';
+
+            // 整點格線 + 時間標籤 (從出發時間的整點開始, 到結束時間的下一個整點)
+            const firstHour = Math.floor(dayStartMin / 60);
+            const lastHour = Math.ceil(current / 60);
+            for (let h = firstHour; h <= lastHour; h++) {
+                const offsetMin = h * 60 - dayStartMin;
+                if (offsetMin < 0) continue;
+                const top = offsetMin * pxPerMin;
+                const line = document.createElement('div');
+                line.className = 'timeline-hourline';
+                line.style.top = top + 'px';
+                const label = document.createElement('span');
+                label.className = 'timeline-hourlabel';
+                label.textContent = String(h % 24).padStart(2, '0') + ':00';
+                line.appendChild(label);
+                wrap.appendChild(line);
+            }
+
+            // 畫每個區塊 (項目 / 通勤)
+            blocks.forEach(b => {
+                const top = (b.start - dayStartMin) * pxPerMin;
+                const height = Math.max((b.end - b.start) * pxPerMin, 16);
+                const div = document.createElement('div');
+                div.className = 'timeline-block ' + (b.type === 'travel'
+                    ? ('travel' + (b.backtrack ? ' backtrack' : ''))
+                    : ('item-' + (['attraction', 'meal', 'hotel'].includes(b.itemType) ? b.itemType : 'other')));
+                div.style.top = top + 'px';
+                div.style.height = height + 'px';
+                div.title = `${minutesToTime(b.start)} - ${minutesToTime(b.end)}`;
+                div.textContent = minutesToTime(b.start) + ' ' + b.label;
+                wrap.appendChild(div);
+            });
+        }
+
+        function updateStartTime(idid, value) {
+            fetch(`/itinerary/day/${idid}/start-time`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'startTime=' + encodeURIComponent(value)
+            }).then(() => loadDay(idid));
         }
 
         function saveOrder(idid) {
@@ -168,6 +321,17 @@
         function removeItem(idid, iiid) {
             fetch(`/itinerary/day/${idid}/items/${iiid}`, { method: 'DELETE' })
                 .then(() => loadDay(idid));
+        }
+
+        function addToPoiDatabase(idid, iiid) {
+            fetch(`/itinerary/day/${idid}/items/${iiid}/add-to-poi`, { method: 'POST' })
+                .then(res => {
+                    if (!res.ok) {
+                        return res.text().then(msg => { throw new Error(msg); });
+                    }
+                    return loadDay(idid);
+                })
+                .catch(err => alert('加入失敗：' + err.message));
         }
 
         // 初始載入第一天

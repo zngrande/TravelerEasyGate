@@ -26,6 +26,7 @@
         .confirm-box button { margin-top: 16px; padding: 10px 24px; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
 
         .error-box { background: #fee2e2; color: #991b1b; padding: 14px; border-radius: 8px; }
+        .tag { background: #e0e7ff; color: #3730a3; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -48,6 +49,10 @@
 
     <div th:if="${aiImport.status == 'parsed'}">
         <div class="confirm-box">
+            <p>偵測到的文件風格：
+                <span class="tag" th:text="${aiImport.templateStyle == 'wenqing'} ? '文青風' : (${aiImport.templateStyle == 'luxury'} ? '高端奢華風' : (${aiImport.templateStyle == 'corporate'} ? '企業簡報風' : '一般風格'))"></span>
+                （匯出企劃書時會自動套用這個風格的配色）
+            </p>
             <p>確認下面拆解出來的內容沒問題後，填一下行程名稱跟國家，就可以轉成正式行程去排版看板調整。</p>
             <form method="post" th:action="@{'/ai-import/' + ${aiImport.IPID} + '/confirm'}">
                 <label>行程名稱</label>
@@ -65,10 +70,19 @@
                     <span class="type-tag" th:text="${item.itemType}"></span>
                     <strong th:text="${item.name}"></strong>
                     <span th:if="${item.timeSlot}" style="color:#94a3b8;font-size:12px;" th:text="'（' + ${item.timeSlot} + '）'"></span>
+                    <span th:if="${item.stayMinutes != null}" style="color:#059669;font-size:12px;" th:text="'⏱ 約 ' + ${item.stayMinutes} + ' 分鐘'"></span>
                     <div class="note" th:if="${item.note != null and !item.note.isEmpty()}" th:text="${item.note}"></div>
                 </div>
                 <span th:if="${item.matchedPid != null}" class="matched-tag">✓ 已比對到公司資料庫</span>
-                <span th:if="${item.matchedPid == null}" class="unmatched-tag">新項目</span>
+                <span th:if="${item.matchedPid == null}">
+                    <span class="unmatched-tag">新項目</span>
+                    <form th:if="${item.itemType == 'attraction' or item.itemType == 'meal' or item.itemType == 'hotel'}"
+                          method="post" th:action="@{'/ai-import/item/' + ${item.APIID} + '/add-to-poi'}" style="display:inline;">
+                        <button type="submit" style="margin-left:6px;font-size:11px;padding:3px 8px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;">
+                            + 新增至資料庫
+                        </button>
+                    </form>
+                </span>
             </div>
         </div>
     </div>

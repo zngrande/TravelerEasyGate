@@ -221,3 +221,9 @@ CREATE TABLE ai_parsed_item (
 -- ------------------------------------------------------------
 ALTER TABLE ai_import ADD COLUMN template_style VARCHAR(30) DEFAULT 'default';
 ALTER TABLE itinerary ADD COLUMN template_style VARCHAR(30) DEFAULT 'default';
+
+-- ------------------------------------------------------------
+-- 12. 時間軸排版看板 (每日出發時間 + AI 預估停留時間)
+-- ------------------------------------------------------------
+ALTER TABLE itinerary_day ADD COLUMN start_time TIME DEFAULT '09:00:00';
+ALTER TABLE ai_parsed_item ADD COLUMN stay_minutes INT DEFAULT NULL;

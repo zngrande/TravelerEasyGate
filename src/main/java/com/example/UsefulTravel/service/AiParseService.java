@@ -49,7 +49,8 @@ public class AiParseService {
                   "item_type": "attraction | meal | hotel | transport | highlight",
                   "name": "景點/餐廳/飯店/交通方式的名稱",
                   "time_slot": "morning | noon | afternoon | evening | breakfast | lunch | dinner | null",
-                  "note": "原文中的補充說明 (例如: 含早餐、五星飯店、包車接送、注意事項等), 沒有就給空字串"
+                  "note": "原文中的補充說明 (例如: 含早餐、五星飯店、包車接送、注意事項等), 沒有就給空字串",
+                  "stay_minutes": "預估在這個地方會停留幾分鐘 (數字, 15的倍數, 例如 90); attraction/meal 一定要給估計值, hotel 給 null (入住時間另外算), transport/highlight 給 null"
                 }
               ]
             }
@@ -67,6 +68,8 @@ public class AiParseService {
           highlight 是行銷亮點文案或注意事項(不屬於實體地點的敘述)。
         - 依照原文出現的天數順序拆解，若原文沒有明確分天，你要合理推斷。
         - 名稱要精簡(例如「故宮博物院」而不是整句話)，細節放到 note。
+        - stay_minutes 依常識估算: 大型景點/博物館約90~180分鐘, 一般景點約60~90分鐘,
+          用餐約60~90分鐘, 如果原文有明確提到停留時間就用原文的。
         - 如果原文資訊不完整，盡力用你判斷合理的方式填, 不要留空必填欄位。
         - 絕對不要輸出 JSON 以外的任何文字或說明。
         """;
@@ -89,21 +92,32 @@ public class AiParseService {
      * 送出文字給 Claude 解析, 存成暫存資料, 回傳 AiImport 讓 controller 導去 review 頁面
      */
     public AiImport parseText(int AID, int UID, String rawText) {
-        return parseText(AID, UID, rawText, "text");
+        return parseText(AID, UID, rawText, "text", "auto");
     }
 
     /**
      * @param sourceType 記錄這份資料原始來源: text / pdf / docx (方便之後在列表分辨)
      */
     public AiImport parseText(int AID, int UID, String rawText, String sourceType) {
+        return parseText(AID, UID, rawText, sourceType, "auto");
+    }
+
+    /**
+     * @param userStyle 使用者手動指定的風格 (wenqing/luxury/corporate/default), 傳 "auto" 就用 AI 判斷的結果
+     */
+    public AiImport parseText(int AID, int UID, String rawText, String sourceType, String userStyle) {
         AiImport aiImport = new AiImport(AID, UID, sourceType, rawText);
         aiImportDAO.save(aiImport); // 先存一筆 pending, 拿到 IPID
 
         try {
-            String jsonText = anthropicClient.complete(SYSTEM_PROMPT, rawText, 4000);
+            String jsonText = anthropicClient.complete(SYSTEM_PROMPT, rawText, 16000);
             JsonNode root = objectMapper.readTree(stripCodeFence(jsonText));
 
-            aiImport.setTemplateStyle(normalizeStyle(root.path("template_style").asText("default")));
+            // 使用者有手動指定風格就用使用者的, 不然才用 AI 自己判斷的結果
+            boolean useManualStyle = userStyle != null && !userStyle.equalsIgnoreCase("auto");
+            aiImport.setTemplateStyle(useManualStyle
+                    ? normalizeStyle(userStyle)
+                    : normalizeStyle(root.path("template_style").asText("default")));
 
             for (JsonNode dayNode : root.path("days")) {
                 AiParsedDay day = new AiParsedDay(
@@ -127,6 +141,12 @@ public class AiParseService {
                             sortOrder++
                     );
                     item.setMatchedPid(matchedPid);
+
+                    JsonNode stayNode = itemNode.path("stay_minutes");
+                    if (stayNode.isNumber()) {
+                        item.setStayMinutes(stayNode.asInt());
+                    }
+
                     aiParsedItemDAO.save(item);
                 }
             }
@@ -134,7 +154,11 @@ public class AiParseService {
             aiImport.setStatus("parsed");
         } catch (Exception e) {
             aiImport.setStatus("failed");
-            aiImport.setErrorMessage(e.getMessage() != null ? e.getMessage() : e.toString());
+            String msg = e.getMessage() != null ? e.getMessage() : e.toString();
+            if (msg.contains("Unexpected end-of-input") || msg.contains("closing quote")) {
+                msg = "AI 回應內容被截斷了（通常是行程內容太多），請嘗試把文件拆成較短的段落分次解析。原始錯誤：" + msg;
+            }
+            aiImport.setErrorMessage(msg);
         }
 
         aiImportDAO.save(aiImport);
@@ -273,7 +297,8 @@ public class AiParseService {
                     .orElse(realDays.get(0)); // 保底: 找不到對應天數就丟第一天
 
             for (AiParsedItem item : aiParsedItemDAO.findByDay(day.getAPDID())) {
-                itineraryService.addItem(realDay.getIDID(), item.getMatchedPid(), item.getItemType(), item.getName());
+                itineraryService.addItem(realDay.getIDID(), item.getMatchedPid(), item.getItemType(),
+                        item.getName(), item.getStayMinutes());
             }
         }
 

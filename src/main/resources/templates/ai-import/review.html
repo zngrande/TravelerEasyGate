@@ -70,6 +70,7 @@
                     <span class="type-tag" th:text="${item.itemType}"></span>
                     <strong th:text="${item.name}"></strong>
                     <span th:if="${item.timeSlot}" style="color:#94a3b8;font-size:12px;" th:text="'（' + ${item.timeSlot} + '）'"></span>
+                    <span th:if="${item.stayMinutes != null}" style="color:#059669;font-size:12px;" th:text="'⏱ 約 ' + ${item.stayMinutes} + ' 分鐘'"></span>
                     <div class="note" th:if="${item.note != null and !item.note.isEmpty()}" th:text="${item.note}"></div>
                 </div>
                 <span th:if="${item.matchedPid != null}" class="matched-tag">✓ 已比對到公司資料庫</span>
