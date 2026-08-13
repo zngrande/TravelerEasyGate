@@ -216,6 +216,13 @@ public class ItineraryController {
         itineraryService.updateDayStartTime(IDID, java.time.LocalTime.parse(startTime));
     }
 
+    // POST /itinerary/day/{IDID}/transport-mode → 切換這天的交通方式 (開車/走路), 會自動重算拉車時間
+    @PostMapping("/day/{IDID}/transport-mode")
+    @ResponseBody
+    public void updateTransportMode(@PathVariable int IDID, @RequestParam String mode) {
+        itineraryService.updateDayTransportMode(IDID, mode);
+    }
+
     // POST /itinerary/day/{IDID}/items/{IIID}/add-to-poi → 把這個項目寫進公司 POI 資料庫並自動連結
     @PostMapping("/day/{IDID}/items/{IIID}/add-to-poi")
     @ResponseBody

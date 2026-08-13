@@ -144,6 +144,14 @@
                                    th:value="${day.startTime}"
                                    th:attr="onchange=|updateStartTime(${day.IDID}, this.value)|" />
                         </div>
+                        <div class="start-time-row">
+                            <span>🚶‍♂️🚗 交通方式</span>
+                            <select th:id="'transportmode-' + ${day.IDID}"
+                                    th:attr="onchange=|updateTransportMode(${day.IDID}, this.value)|">
+                                <option value="driving" th:selected="${day.transportMode == 'driving' or day.transportMode == null}">開車</option>
+                                <option value="walking" th:selected="${day.transportMode == 'walking'}">走路</option>
+                            </select>
+                        </div>
                         <div class="timeline-wrap" th:id="'timeline-' + ${day.IDID}" style="height:200px;"></div>
 
                         <div class="map-toolbar" style="margin-top:16px;">
@@ -419,6 +427,14 @@
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: 'startTime=' + encodeURIComponent(value)
             }).then(() => loadDay(idid));
+        }
+
+        function updateTransportMode(idid, mode) {
+            fetch(`/itinerary/day/${idid}/transport-mode`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'mode=' + encodeURIComponent(mode)
+            }).then(() => loadDay(idid)); // 重算過了, 重新載入讓拉車時間跟時間軸更新
         }
 
         // ---------------- Google Maps ----------------

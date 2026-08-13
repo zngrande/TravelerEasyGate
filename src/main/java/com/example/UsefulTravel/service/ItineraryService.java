@@ -107,6 +107,16 @@ public class ItineraryService {
         }
     }
 
+    // 切換這天的交通方式 (開車/走路), 切換後要重新算一次拉車時間, 不然還是舊方式的數字
+    public void updateDayTransportMode(int IDID, String transportMode) {
+        ItineraryDay day = itineraryDayDAO.findById(IDID);
+        if (day != null) {
+            day.setTransportMode("walking".equalsIgnoreCase(transportMode) ? "walking" : "driving");
+            itineraryDayDAO.save(day);
+            recalculateRoutes(IDID);
+        }
+    }
+
     public List<ItineraryItem> getItems(int IDID) {
         return itineraryItemDAO.findByDay(IDID);
     }
@@ -154,6 +164,11 @@ public class ItineraryService {
 
         Poi poi = new Poi(AID, category, item.getCustomName(), country, region, null, null, null);
 
+        // 停留時間估算跟「補查座標」(如果項目自己還沒有座標的話) 平行呼叫, 減少等待時間
+        java.util.concurrent.CompletableFuture<Integer> stayFuture =
+                java.util.concurrent.CompletableFuture.supplyAsync(
+                        () -> anthropicClient.estimateStayMinutes(item.getCustomName(), category, null));
+
         // 這個項目自己如果已經有座標 (自訂項目/已選好的選項/剛編輯過) 就直接沿用, 比重新查名稱準確
         if (item.getLatitude() != null && item.getLongitude() != null) {
             poi.setLatitude(item.getLatitude());
@@ -163,15 +178,14 @@ public class ItineraryService {
                     item.getCustomName() != null ? item.getCustomName() : "",
                     region != null ? region : "",
                     country != null ? country : "").trim();
-            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(geocodeQuery);
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(geocodeQuery, country);
             if (geo != null) {
                 poi.setLatitude(java.math.BigDecimal.valueOf(geo.latitude));
                 poi.setLongitude(java.math.BigDecimal.valueOf(geo.longitude));
             }
         }
 
-        // 建議停留時間: 用 AI 依名稱/類型/地址常識估算 (Google Maps 沒有開放這個資料的公開 API)
-        poi.setSuggestedStayMin(anthropicClient.estimateStayMinutes(item.getCustomName(), category, poi.getAddress()));
+        poi.setSuggestedStayMin(stayFuture.join());
 
         poiDAO.save(poi);
 
@@ -276,7 +290,7 @@ public class ItineraryService {
             }
             if (geo == null) {
                 String query = String.join(" ", name, region != null ? region : "", country != null ? country : "").trim();
-                geo = googleMapsClient.geocode(query);
+                geo = googleMapsClient.geocode(query, country);
             }
 
             BigDecimal lat = geo != null ? BigDecimal.valueOf(geo.latitude) : null;
@@ -368,7 +382,9 @@ public class ItineraryService {
     private void recalculateRoutes(int IDID) {
         routeSegmentDAO.deleteByDay(IDID);
         List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
-        routeService.calculateAndSaveSegments(IDID, items);
+        ItineraryDay day = itineraryDayDAO.findById(IDID);
+        String transportMode = day != null && day.getTransportMode() != null ? day.getTransportMode() : "driving";
+        routeService.calculateAndSaveSegments(IDID, items, transportMode);
     }
 
     /**

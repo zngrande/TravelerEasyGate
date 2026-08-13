@@ -79,6 +79,78 @@ public class AnthropicClient {
         }
     }
 
+    /**
+     * 分析圖片內容, 用於圖片資源庫的自動標籤/描述
+     *
+     * @param imageBytes 圖片位元組內容
+     * @param mediaType  image/jpeg, image/png, image/webp 等
+     * @param systemPrompt 系統提示詞 (定義要 AI 輸出什麼格式)
+     * @param userPrompt   額外的文字指示 (例如「請描述這張圖片並列出標籤」)
+     */
+    public String analyzeImage(byte[] imageBytes, String mediaType, String systemPrompt, String userPrompt) throws Exception {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException(
+                    "尚未設定 anthropic.api.key，請在 application.properties 或環境變數 ANTHROPIC_API_KEY 設定你的 Claude API Key");
+        }
+
+        String base64Image = java.util.Base64.getEncoder().encodeToString(imageBytes);
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", model);
+        body.put("max_tokens", 1024);
+        body.put("system", systemPrompt);
+
+        ArrayNode messages = body.putArray("messages");
+        ObjectNode userMsg = objectMapper.createObjectNode();
+        userMsg.put("role", "user");
+
+        ArrayNode content = userMsg.putArray("content");
+
+        ObjectNode imageBlock = objectMapper.createObjectNode();
+        imageBlock.put("type", "image");
+        ObjectNode source = objectMapper.createObjectNode();
+        source.put("type", "base64");
+        source.put("media_type", mediaType);
+        source.put("data", base64Image);
+        imageBlock.set("source", source);
+        content.add(imageBlock);
+
+        ObjectNode textBlock = objectMapper.createObjectNode();
+        textBlock.put("type", "text");
+        textBlock.put("text", userPrompt);
+        content.add(textBlock);
+
+        messages.add(userMsg);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(API_URL))
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", API_VERSION)
+                .header("content-type", "application/json")
+                .timeout(Duration.ofSeconds(60))
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("Claude API 呼叫失敗 (HTTP " + response.statusCode() + "): " + response.body());
+        }
+
+        JsonNode root = objectMapper.readTree(response.body());
+        JsonNode contentArray = root.path("content");
+
+        StringBuilder text = new StringBuilder();
+        if (contentArray.isArray()) {
+            for (JsonNode block : contentArray) {
+                if ("text".equals(block.path("type").asText())) {
+                    text.append(block.path("text").asText());
+                }
+            }
+        }
+        return text.toString();
+    }
+
     public String complete(String systemPrompt, String userContent, int maxTokens) throws Exception {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException(

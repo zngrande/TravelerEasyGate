@@ -92,6 +92,15 @@
         <button type="submit">儲存變更</button>
     </form>
 
+    <h2>綁定圖片</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <img th:each="img : ${images}" th:src="@{'/images/' + ${img.IAID} + '/file'}"
+             style="width:120px;height:90px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;" />
+    </div>
+    <p th:if="${images.isEmpty()}" style="color:#94a3b8;font-size:13px;">
+        還沒有圖片綁定這個景點。<a th:href="@{/images}">去圖片資源庫</a>上傳或手動綁定。
+    </p>
+
     <h2>合作紀錄</h2>
     <div th:each="log : ${logs}" class="log-item">
         <span class="date" th:text="${log.logDate}"></span>

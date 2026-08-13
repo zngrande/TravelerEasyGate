@@ -2,6 +2,7 @@ package com.example.UsefulTravel.controller;
 
 import com.example.UsefulTravel.entity.Poi;
 import com.example.UsefulTravel.service.GoogleMapsClient;
+import com.example.UsefulTravel.service.ImageAssetService;
 import com.example.UsefulTravel.service.PoiService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,11 +19,13 @@ public class PoiController {
 
     private final PoiService poiService;
     private final GoogleMapsClient googleMapsClient;
+    private final ImageAssetService imageAssetService;
 
     @Autowired
-    public PoiController(PoiService poiService, GoogleMapsClient googleMapsClient) {
+    public PoiController(PoiService poiService, GoogleMapsClient googleMapsClient, ImageAssetService imageAssetService) {
         this.poiService = poiService;
         this.googleMapsClient = googleMapsClient;
+        this.imageAssetService = imageAssetService;
     }
 
     // GET /poi → 景點/飯店資料庫列表 (含搜尋)
@@ -76,7 +79,7 @@ public class PoiController {
         if (latitude == null || longitude == null) {
             String query = String.join(" ",
                     name, city != null ? city : "", country != null ? country : "").trim();
-            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(query);
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(query, country);
             if (geo != null) {
                 poi.setLatitude(BigDecimal.valueOf(geo.latitude));
                 poi.setLongitude(BigDecimal.valueOf(geo.longitude));
@@ -97,6 +100,7 @@ public class PoiController {
 
         model.addAttribute("poi", poi);
         model.addAttribute("logs", poiService.getCooperationLogs(PID));
+        model.addAttribute("images", imageAssetService.listForPoi(PID));
         return "poi/edit";
     }
 
@@ -141,7 +145,7 @@ public class PoiController {
             // 經緯度留空: 用最新的名稱/地址重新查一次, 找不到就保留原本的值 (不清空)
             String query = String.join(" ",
                     name, city != null ? city : "", country != null ? country : "").trim();
-            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(query);
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(query, country);
             if (geo != null) {
                 poi.setLatitude(BigDecimal.valueOf(geo.latitude));
                 poi.setLongitude(BigDecimal.valueOf(geo.longitude));

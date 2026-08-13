@@ -28,6 +28,9 @@ public class ItineraryDay {
     @Column(name = "start_time")
     private LocalTime startTime = LocalTime.of(9, 0); // 這天的出發時間, 預設早上9點, 用來算時間軸
 
+    @Column(name = "transport_mode")
+    private String transportMode = "driving"; // driving / walking, 決定拉車時間怎麼算
+
     public ItineraryDay() {}
 
     public ItineraryDay(int ITID, int dayNumber, LocalDate dayDate, String theme) {
@@ -54,4 +57,7 @@ public class ItineraryDay {
 
     public LocalTime getStartTime() { return startTime; }
     public void setStartTime(LocalTime startTime) { this.startTime = startTime; }
+
+    public String getTransportMode() { return transportMode; }
+    public void setTransportMode(String transportMode) { this.transportMode = transportMode; }
 }

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>圖片資源庫 - Useful Travel</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 16px; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .upload-box { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 24px; text-align: center; margin-bottom: 20px; background: #f8fafc; }
+        .upload-box input[type="file"] { margin: 12px 0; }
+        .upload-box button { padding: 10px 24px; background: #7c3aed; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+        .filter-bar { margin-bottom: 16px; font-size: 14px; }
+        .filter-bar a { margin-right: 16px; color: #64748b; text-decoration: none; }
+        .filter-bar a.active { color: #7c3aed; font-weight: bold; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+        .card { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #fff; }
+        .card img { width: 100%; height: 150px; object-fit: cover; display: block; background: #f1f5f9; }
+        .card-body { padding: 10px; }
+        .card-body .desc { font-size: 12px; color: #475569; margin-bottom: 6px; min-height: 32px; }
+        .tag-pill { display: inline-block; font-size: 10px; background: #ede9fe; color: #6d28d9; padding: 2px 6px; border-radius: 8px; margin: 0 3px 3px 0; }
+        .status-pending { color: #d97706; font-size: 11px; }
+        .status-failed { color: #dc2626; font-size: 11px; }
+        .link-form { margin-top: 8px; display: flex; gap: 6px; }
+        .link-form select { flex: 1; font-size: 11px; padding: 3px; }
+        .link-form button { font-size: 11px; padding: 3px 8px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .delete-form button { font-size: 11px; padding: 3px 8px; background: #ef4444; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 6px; }
+        .error-box { background: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+        .loading { display: none; color: #7c3aed; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>圖片資源庫</h1>
+        <a th:href="@{/agency/dashboard}">← 返回行程列表</a>
+    </header>
+
+    <div th:if="${uploadErrors}" class="error-box">
+        <div th:each="err : ${uploadErrors}" th:text="err"></div>
+    </div>
+
+    <div class="upload-box">
+        <form method="post" th:action="@{/images/upload}" enctype="multipart/form-data" onsubmit="showLoading()">
+            <div>拖曳或選擇多張照片上傳，上傳後 AI 會自動產生標籤跟描述，並嘗試比對公司景點資料庫</div>
+            <input type="file" name="files" accept="image/*" multiple required />
+            <br/>
+            <button type="submit">上傳並開始 AI 標籤</button>
+            <div class="loading" id="loadingHint">⏳ 上傳並分析中，多張圖片會需要一點時間...</div>
+        </form>
+    </div>
+
+    <div class="filter-bar">
+        <a th:href="@{/images}" th:classappend="${!unlinkedOnly} ? ' active'">全部圖片</a>
+        <a th:href="@{/images(unlinkedOnly=true)}" th:classappend="${unlinkedOnly} ? ' active'">只看未綁定景點</a>
+    </div>
+
+    <div class="grid" th:if="${!images.isEmpty()}">
+        <div class="card" th:each="img : ${images}">
+            <img th:src="@{'/images/' + ${img.IAID} + '/file'}" th:alt="${img.originalFilename}" />
+            <div class="card-body">
+                <div class="desc" th:text="${img.aiDescription} ?: '（尚無描述）'"></div>
+
+                <div th:if="${img.tagStatus == 'pending'}" class="status-pending">⏳ AI 標籤處理中...</div>
+                <div th:if="${img.tagStatus == 'failed'}" class="status-failed">⚠ AI 標籤失敗</div>
+
+                <div th:if="${img.tags != null and !img.tags.isEmpty()}">
+                    <span class="tag-pill" th:each="tag : ${#strings.arraySplit(img.tags, ',')}" th:text="${#strings.trim(tag)}"></span>
+                </div>
+
+                <form class="link-form" method="post" th:action="@{'/images/' + ${img.IAID} + '/link-poi'}">
+                    <select name="poiId">
+                        <option value="">（未綁定景點）</option>
+                        <option th:each="p : ${allPois}" th:value="${p.PID}"
+                                th:selected="${img.matchedPid != null and img.matchedPid == p.PID}"
+                                th:text="${p.name}"></option>
+                    </select>
+                    <button type="submit">套用</button>
+                </form>
+
+                <form class="delete-form" method="post" th:action="@{'/images/' + ${img.IAID} + '/delete'}"
+                      onsubmit="return confirm('確定要刪除這張圖片嗎？');">
+                    <button type="submit">刪除</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <p th:if="${images.isEmpty()}" style="color:#94a3b8;text-align:center;padding:40px;">還沒有任何圖片，上傳第一張試試看。</p>
+
+    <script>
+        function showLoading() {
+            document.getElementById('loadingHint').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

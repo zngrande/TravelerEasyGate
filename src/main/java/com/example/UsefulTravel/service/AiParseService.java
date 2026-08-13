@@ -260,18 +260,20 @@ public class AiParseService {
         Poi poi = new Poi(AID, category, item.getName(), country, region, null, null, null);
         poi.setDescription(item.getNote());
 
-        // 自動地理編碼: 用「名稱 + 地區 + 國家」查詢經緯度, 不然地圖不會顯示這個點
+        // 地理編碼跟 AI 停留時間估算平行呼叫 (兩個都是外部 API 呼叫, 依序做的話等於等兩次網路來回)
         String geocodeQuery = String.join(" ", nonBlank(item.getName()), nonBlank(region), nonBlank(country)).trim();
-        GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(geocodeQuery);
+        java.util.concurrent.CompletableFuture<GoogleMapsClient.GeocodeResult> geoFuture =
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> googleMapsClient.geocode(geocodeQuery, country));
+        java.util.concurrent.CompletableFuture<Integer> stayFuture = (item.getStayMinutes() != null)
+                ? java.util.concurrent.CompletableFuture.completedFuture(item.getStayMinutes())
+                : java.util.concurrent.CompletableFuture.supplyAsync(() -> anthropicClient.estimateStayMinutes(item.getName(), category, null));
+
+        GoogleMapsClient.GeocodeResult geo = geoFuture.join();
         if (geo != null) {
             poi.setLatitude(BigDecimal.valueOf(geo.latitude));
             poi.setLongitude(BigDecimal.valueOf(geo.longitude));
         }
-
-        // 建議停留時間: AI 用過的 stay_minutes 估算值就直接沿用, 沒有的話再單獨估算一次
-        poi.setSuggestedStayMin(item.getStayMinutes() != null
-                ? item.getStayMinutes()
-                : anthropicClient.estimateStayMinutes(item.getName(), category, null));
+        poi.setSuggestedStayMin(stayFuture.join());
 
         poiDAO.save(poi);
 

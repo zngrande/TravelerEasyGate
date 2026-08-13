@@ -280,3 +280,28 @@ CREATE TABLE itinerary_item_option (
 -- ------------------------------------------------------------
 ALTER TABLE ai_parsed_item ADD COLUMN item_country VARCHAR(50) DEFAULT NULL;
 ALTER TABLE ai_parsed_item ADD COLUMN item_region VARCHAR(50) DEFAULT NULL;
+
+-- ------------------------------------------------------------
+-- 18. 每日交通方式選擇 (走路/開車, 影響拉車時間計算)
+-- ------------------------------------------------------------
+ALTER TABLE itinerary_day ADD COLUMN transport_mode VARCHAR(20) DEFAULT 'driving';
+
+-- ------------------------------------------------------------
+-- 19. 圖片資源庫 (自家圖庫 + AI 自動標籤)
+-- ------------------------------------------------------------
+CREATE TABLE image_asset (
+    IAID INT AUTO_INCREMENT PRIMARY KEY,
+    AID INT NOT NULL,
+    file_path VARCHAR(500) NOT NULL,        -- 實際存放在伺服器的相對路徑
+    original_filename VARCHAR(255),
+    content_type VARCHAR(50),               -- image/jpeg, image/png 等
+    tags TEXT,                              -- AI 自動產生的標籤, 逗號分隔
+    ai_description TEXT,                    -- AI 產生的圖片描述
+    matched_pid INT DEFAULT NULL,           -- 自動/手動綁定到哪個 POI (可為 NULL, 表示還沒歸類)
+    tag_status VARCHAR(20) DEFAULT 'pending', -- pending / tagged / failed
+    uploaded_by INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (AID) REFERENCES agency(AID),
+    FOREIGN KEY (matched_pid) REFERENCES poi(PID),
+    FOREIGN KEY (uploaded_by) REFERENCES staff_user(UID)
+) ENGINE=InnoDB;

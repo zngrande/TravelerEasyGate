@@ -64,12 +64,26 @@ public class GoogleMapsClient {
      * 沒設定 key、地址空白、或查不到結果都回傳 null, 呼叫端要自己處理 (通常就是留空經緯度)
      */
     public GeocodeResult geocode(String address) {
+        return geocode(address, null);
+    }
+
+    /**
+     * @param countryName 用中文/英文國家名限定搜尋範圍 (例如「日本」「台灣」「不丹」), 大幅提升準確度。
+     *                     沒有對應到已知代碼就不加限制, 退回全球搜尋 (跟舊版行為一樣)
+     */
+    public GeocodeResult geocode(String address, String countryName) {
         if (!isConfigured() || address == null || address.isBlank()) return null;
 
         try {
             String url = "https://maps.googleapis.com/maps/api/geocode/json"
                     + "?address=" + URLEncoder.encode(address, StandardCharsets.UTF_8)
-                    + "&language=zh-TW&key=" + apiKey;
+                    + "&language=zh-TW";
+
+            String countryCode = COUNTRY_NAME_TO_CODE.get(normalizeCountryName(countryName));
+            if (countryCode != null) {
+                url += "&components=" + URLEncoder.encode("country:" + countryCode, StandardCharsets.UTF_8);
+            }
+            url += "&key=" + apiKey;
 
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url))
                     .timeout(Duration.ofSeconds(10)).GET().build();
@@ -86,6 +100,40 @@ public class GoogleMapsClient {
         } catch (Exception e) {
             return null; // 地理編碼失敗不影響主流程, 讓 POI 先留空經緯度就好
         }
+    }
+
+    // 常見旅遊目的地國家名 → ISO 3166-1 alpha-2 代碼, 用於限定 Geocoding API 搜尋範圍
+    // 這份清單不用完整涵蓋全世界, 涵蓋旅行社常用的目的地就好; 沒對應到的國家就不限制範圍
+    private static final java.util.Map<String, String> COUNTRY_NAME_TO_CODE = java.util.Map.ofEntries(
+            java.util.Map.entry("台灣", "TW"), java.util.Map.entry("臺灣", "TW"),
+            java.util.Map.entry("日本", "JP"), java.util.Map.entry("韓國", "KR"), java.util.Map.entry("南韓", "KR"),
+            java.util.Map.entry("中國", "CN"), java.util.Map.entry("香港", "HK"), java.util.Map.entry("澳門", "MO"),
+            java.util.Map.entry("泰國", "TH"), java.util.Map.entry("越南", "VN"), java.util.Map.entry("寮國", "LA"),
+            java.util.Map.entry("柬埔寨", "KH"), java.util.Map.entry("緬甸", "MM"), java.util.Map.entry("菲律賓", "PH"),
+            java.util.Map.entry("馬來西亞", "MY"), java.util.Map.entry("新加坡", "SG"), java.util.Map.entry("印尼", "ID"),
+            java.util.Map.entry("印度", "IN"), java.util.Map.entry("不丹", "BT"), java.util.Map.entry("尼泊爾", "NP"),
+            java.util.Map.entry("斯里蘭卡", "LK"), java.util.Map.entry("巴基斯坦", "PK"), java.util.Map.entry("孟加拉", "BD"),
+            java.util.Map.entry("土耳其", "TR"), java.util.Map.entry("杜拜", "AE"), java.util.Map.entry("阿聯", "AE"),
+            java.util.Map.entry("以色列", "IL"), java.util.Map.entry("約旦", "JO"), java.util.Map.entry("埃及", "EG"),
+            java.util.Map.entry("摩洛哥", "MA"), java.util.Map.entry("南非", "ZA"), java.util.Map.entry("肯亞", "KE"),
+            java.util.Map.entry("英國", "GB"), java.util.Map.entry("法國", "FR"), java.util.Map.entry("德國", "DE"),
+            java.util.Map.entry("義大利", "IT"), java.util.Map.entry("西班牙", "ES"), java.util.Map.entry("葡萄牙", "PT"),
+            java.util.Map.entry("荷蘭", "NL"), java.util.Map.entry("比利時", "BE"), java.util.Map.entry("瑞士", "CH"),
+            java.util.Map.entry("奧地利", "AT"), java.util.Map.entry("希臘", "GR"), java.util.Map.entry("捷克", "CZ"),
+            java.util.Map.entry("波蘭", "PL"), java.util.Map.entry("匈牙利", "HU"), java.util.Map.entry("克羅埃西亞", "HR"),
+            java.util.Map.entry("冰島", "IS"), java.util.Map.entry("挪威", "NO"), java.util.Map.entry("瑞典", "SE"),
+            java.util.Map.entry("丹麥", "DK"), java.util.Map.entry("芬蘭", "FI"), java.util.Map.entry("俄羅斯", "RU"),
+            java.util.Map.entry("美國", "US"), java.util.Map.entry("加拿大", "CA"), java.util.Map.entry("墨西哥", "MX"),
+            java.util.Map.entry("巴西", "BR"), java.util.Map.entry("阿根廷", "AR"), java.util.Map.entry("秘魯", "PE"),
+            java.util.Map.entry("智利", "CL"), java.util.Map.entry("古巴", "CU"),
+            java.util.Map.entry("澳洲", "AU"), java.util.Map.entry("紐西蘭", "NZ")
+    );
+
+    private String normalizeCountryName(String countryName) {
+        if (countryName == null) return "";
+        // AI 判斷出的國家有時會帶「、」分隔多國 (例如「印度、不丹」), 只取第一個當主要限定範圍
+        String first = countryName.split("[、,/]")[0].trim();
+        return first;
     }
 
     /**
@@ -168,7 +216,15 @@ public class GoogleMapsClient {
      * 沒設定 key 或呼叫失敗會回傳 null, 呼叫端要自己 fallback
      */
     public DistanceResult getDrivingDistance(double fromLat, double fromLng, double toLat, double toLng) {
+        return getDistance(fromLat, fromLng, toLat, toLng, "driving");
+    }
+
+    /**
+     * @param mode "driving" 或 "walking" (跟 Google Distance Matrix API 的 mode 參數一致)
+     */
+    public DistanceResult getDistance(double fromLat, double fromLng, double toLat, double toLng, String mode) {
         if (!isConfigured()) return null;
+        String safeMode = "walking".equalsIgnoreCase(mode) ? "walking" : "driving";
 
         try {
             String origins = fromLat + "," + fromLng;
@@ -176,7 +232,7 @@ public class GoogleMapsClient {
             String url = "https://maps.googleapis.com/maps/api/distancematrix/json"
                     + "?origins=" + URLEncoder.encode(origins, StandardCharsets.UTF_8)
                     + "&destinations=" + URLEncoder.encode(destinations, StandardCharsets.UTF_8)
-                    + "&mode=driving&language=zh-TW&key=" + apiKey;
+                    + "&mode=" + safeMode + "&language=zh-TW&key=" + apiKey;
 
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url))
                     .timeout(Duration.ofSeconds(10)).GET().build();
