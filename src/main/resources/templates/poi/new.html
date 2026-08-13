@@ -44,20 +44,39 @@
 
         <div class="row">
             <div>
-                <label>緯度 (latitude)</label>
-                <input type="number" step="0.0000001" name="latitude" placeholder="例：25.0330" />
+                <label>緯度 (latitude，選填)</label>
+                <input type="number" step="0.0000001" name="latitude" placeholder="留空會自動查詢" />
             </div>
             <div>
-                <label>經度 (longitude)</label>
-                <input type="number" step="0.0000001" name="longitude" placeholder="例：121.5654" />
+                <label>經度 (longitude，選填)</label>
+                <input type="number" step="0.0000001" name="longitude" placeholder="留空會自動查詢" />
             </div>
         </div>
+        <div style="color:#a16207;font-size:12px;margin-top:-8px;">經緯度留空的話，系統會自動用名稱+城市+國家查詢地理座標（需要設定 Google Maps API Key）。</div>
 
         <label>建議停留時間（分鐘）</label>
         <input type="number" name="suggestedStayMin" value="60" />
 
         <label>介紹說明</label>
         <textarea name="description" rows="4"></textarea>
+
+        <div style="background:#fefce8;border:1px solid #fde047;border-radius:8px;padding:16px;margin-top:16px;">
+            <h3 style="margin-top:0;color:#854d0e;">💰 公司專屬資源庫（選填）</h3>
+            <div class="row">
+                <div>
+                    <label>成本價</label>
+                    <input type="number" step="0.01" name="costPrice" placeholder="跟供應商談的價格" />
+                </div>
+                <div>
+                    <label>同行價 / 建議售價</label>
+                    <input type="number" step="0.01" name="agencyPrice" />
+                </div>
+            </div>
+            <label>供應商窗口</label>
+            <input type="text" name="supplierContact" placeholder="例：陳小姐 0912-345-678" />
+            <label>合作備註</label>
+            <textarea name="supplierNotes" rows="2"></textarea>
+        </div>
 
         <button type="submit">儲存</button>
     </form>

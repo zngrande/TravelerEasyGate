@@ -227,3 +227,56 @@ ALTER TABLE itinerary ADD COLUMN template_style VARCHAR(30) DEFAULT 'default';
 -- ------------------------------------------------------------
 ALTER TABLE itinerary_day ADD COLUMN start_time TIME DEFAULT '09:00:00';
 ALTER TABLE ai_parsed_item ADD COLUMN stay_minutes INT DEFAULT NULL;
+
+-- ------------------------------------------------------------
+-- 13. AI 解析時順便判斷建議標題與國家地區, 確認頁面直接帶入
+-- ------------------------------------------------------------
+ALTER TABLE ai_import ADD COLUMN suggested_title VARCHAR(100) DEFAULT NULL;
+ALTER TABLE ai_import ADD COLUMN suggested_country VARCHAR(50) DEFAULT NULL;
+
+-- ------------------------------------------------------------
+-- 14. 公司專屬資源庫 (成本價/同行價/供應商窗口/合作紀錄)
+-- ------------------------------------------------------------
+ALTER TABLE poi ADD COLUMN cost_price DECIMAL(10,2) DEFAULT NULL;      -- 成本價 (跟供應商談的價格)
+ALTER TABLE poi ADD COLUMN agency_price DECIMAL(10,2) DEFAULT NULL;    -- 同行價/建議售價
+ALTER TABLE poi ADD COLUMN supplier_contact VARCHAR(100) DEFAULT NULL; -- 供應商窗口 (姓名/電話/LINE等)
+ALTER TABLE poi ADD COLUMN supplier_notes TEXT DEFAULT NULL;           -- 合作備註 (付款方式/取消政策等)
+
+CREATE TABLE poi_cooperation_log (
+    PCLID INT AUTO_INCREMENT PRIMARY KEY,
+    PID INT NOT NULL,
+    log_date DATE,
+    note TEXT NOT NULL,
+    created_by INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (PID) REFERENCES poi(PID) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES staff_user(UID)
+) ENGINE=InnoDB;
+
+-- ------------------------------------------------------------
+-- 15. 國家/地區欄位分開 (行程層級)
+-- ------------------------------------------------------------
+ALTER TABLE itinerary ADD COLUMN region VARCHAR(50) DEFAULT NULL;       -- 地區/城市, 例如「花蓮」「北海道」
+ALTER TABLE ai_import ADD COLUMN suggested_region VARCHAR(50) DEFAULT NULL;
+
+-- ------------------------------------------------------------
+-- 16. 行程項目自帶座標 (不一定要連結 POI 資料庫也能在地圖顯示) + 多選項 (例如同等級飯店 A或B或C)
+-- ------------------------------------------------------------
+ALTER TABLE itinerary_item ADD COLUMN latitude DECIMAL(10,7) DEFAULT NULL;
+ALTER TABLE itinerary_item ADD COLUMN longitude DECIMAL(10,7) DEFAULT NULL;
+
+CREATE TABLE itinerary_item_option (
+    IIOID INT AUTO_INCREMENT PRIMARY KEY,
+    IIID INT NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    latitude DECIMAL(10,7),
+    longitude DECIMAL(10,7),
+    is_selected BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (IIID) REFERENCES itinerary_item(IIID) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- ------------------------------------------------------------
+-- 17. AI 解析時每個項目自己判斷國家/地區 (不要整個行程共用一個)
+-- ------------------------------------------------------------
+ALTER TABLE ai_parsed_item ADD COLUMN item_country VARCHAR(50) DEFAULT NULL;
+ALTER TABLE ai_parsed_item ADD COLUMN item_region VARCHAR(50) DEFAULT NULL;

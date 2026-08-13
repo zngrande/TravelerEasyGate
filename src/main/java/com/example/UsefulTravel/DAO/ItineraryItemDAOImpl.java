@@ -60,4 +60,13 @@ public class ItineraryItemDAOImpl implements ItineraryItemDAO {
             em.merge(item);
         }
     }
+
+    // 刪除 POI 前呼叫: 把所有連結到這個 POI 的行程項目解除連結 (改成自訂項目, 座標/名稱都還留著)
+    @Override
+    @Transactional
+    public void clearPidReferences(int PID) {
+        em.createQuery("UPDATE ItineraryItem i SET i.PID = NULL WHERE i.PID = :pid")
+                .setParameter("pid", PID)
+                .executeUpdate();
+    }
 }

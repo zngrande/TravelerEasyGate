@@ -3,14 +3,18 @@ package com.example.UsefulTravel.service;
 import com.example.UsefulTravel.DAO.ExportHistoryDAO;
 import com.example.UsefulTravel.DAO.ItineraryComponentDAO;
 import com.example.UsefulTravel.DAO.ItineraryDAO;
+import com.example.UsefulTravel.DAO.PoiDAO;
 import com.example.UsefulTravel.DAO.TravelComponentDAO;
 import com.example.UsefulTravel.entity.*;
+import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -20,7 +24,6 @@ import java.util.List;
  * - format = "b2c": 客戶版, 只有美化過的行程內容, 完全不顯示任何價格/成本資訊
  *
  * TODO 下一步: PDF 匯出 (需要另外接 HTML→PDF 或 iText, 目前先跳過避免跟 PDFBox 版本衝突)
- *              自動帶入景點圖片 (需要圖片資源庫模組先做完)
  */
 @Service
 public class ExportService {
@@ -30,16 +33,20 @@ public class ExportService {
     private final ItineraryComponentDAO itineraryComponentDAO;
     private final TravelComponentDAO travelComponentDAO;
     private final ExportHistoryDAO exportHistoryDAO;
+    private final PoiDAO poiDAO;
+    private final GoogleMapsClient googleMapsClient;
 
     @Autowired
     public ExportService(ItineraryDAO itineraryDAO, ItineraryService itineraryService,
                           ItineraryComponentDAO itineraryComponentDAO, TravelComponentDAO travelComponentDAO,
-                          ExportHistoryDAO exportHistoryDAO) {
+                          ExportHistoryDAO exportHistoryDAO, PoiDAO poiDAO, GoogleMapsClient googleMapsClient) {
         this.itineraryDAO = itineraryDAO;
         this.itineraryService = itineraryService;
         this.itineraryComponentDAO = itineraryComponentDAO;
         this.travelComponentDAO = travelComponentDAO;
         this.exportHistoryDAO = exportHistoryDAO;
+        this.poiDAO = poiDAO;
+        this.googleMapsClient = googleMapsClient;
     }
 
     /**
@@ -179,7 +186,42 @@ public class ExportService {
                             routeRun.setColor("94A3B8");
                         });
             }
+
+            insertDayMapImage(doc, day.getIDID(), items);
             doc.createParagraph(); // 每天結束空一行
+        }
+    }
+
+    /**
+     * 把這一天的景點連線地圖 (Google Static Maps) 插入企劃書, 沒設定 API key 或沒有座標資料就跳過
+     */
+    private void insertDayMapImage(XWPFDocument doc, int IDID, List<ItineraryItem> items) {
+        if (!googleMapsClient.isConfigured()) return;
+
+        List<double[]> coords = new ArrayList<>();
+        for (ItineraryItem item : items) {
+            if (item.getLatitude() != null && item.getLongitude() != null) {
+                coords.add(new double[]{item.getLatitude().doubleValue(), item.getLongitude().doubleValue()});
+            } else if (item.getPID() != null) {
+                Poi poi = poiDAO.findById(item.getPID());
+                if (poi != null && poi.getLatitude() != null) {
+                    coords.add(new double[]{poi.getLatitude().doubleValue(), poi.getLongitude().doubleValue()});
+                }
+            }
+        }
+        if (coords.isEmpty()) return;
+
+        try {
+            String url = googleMapsClient.buildStaticMapUrl(coords, 640, 400);
+            byte[] imageBytes = googleMapsClient.fetchStaticMapImage(url);
+
+            XWPFParagraph mapP = doc.createParagraph();
+            mapP.setAlignment(ParagraphAlignment.CENTER);
+            XWPFRun mapRun = mapP.createRun();
+            mapRun.addPicture(new ByteArrayInputStream(imageBytes), XWPFDocument.PICTURE_TYPE_PNG,
+                    "map.png", Units.toEMU(400), Units.toEMU(250));
+        } catch (Exception e) {
+            // 地圖下載失敗不影響整份企劃書產出, 靜默跳過就好
         }
     }
 

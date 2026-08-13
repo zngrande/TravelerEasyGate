@@ -27,6 +27,11 @@
 
         .error-box { background: #fee2e2; color: #991b1b; padding: 14px; border-radius: 8px; }
         .tag { background: #e0e7ff; color: #3730a3; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: bold; }
+
+        .edit-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin: 4px 0 12px; }
+        .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .edit-form label { display: block; font-size: 11px; font-weight: bold; color: #64748b; margin-bottom: 2px; }
+        .edit-form input, .edit-form select { width: 100%; padding: 6px; box-sizing: border-box; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -53,38 +58,98 @@
                 <span class="tag" th:text="${aiImport.templateStyle == 'wenqing'} ? '文青風' : (${aiImport.templateStyle == 'luxury'} ? '高端奢華風' : (${aiImport.templateStyle == 'corporate'} ? '企業簡報風' : '一般風格'))"></span>
                 （匯出企劃書時會自動套用這個風格的配色）
             </p>
-            <p>確認下面拆解出來的內容沒問題後，填一下行程名稱跟國家，就可以轉成正式行程去排版看板調整。</p>
+            <p>確認下面拆解出來的內容沒問題後，行程名稱跟國家已經幫你帶入 AI 判斷的結果，可以直接修改，確認後轉成正式行程去排版看板調整。</p>
             <form method="post" th:action="@{'/ai-import/' + ${aiImport.IPID} + '/confirm'}">
                 <label>行程名稱</label>
-                <input type="text" name="title" placeholder="例：花蓮經典三日遊" required />
-                <label>國家 / 地區</label>
-                <input type="text" name="country" placeholder="例：台灣" required />
+                <input type="text" name="title" th:value="${aiImport.suggestedTitle}" placeholder="例：花蓮經典三日遊" required />
+                <label>國家</label>
+                <input type="text" name="country" th:value="${aiImport.suggestedCountry}" placeholder="例：台灣" required />
+                <label>地區 / 城市（選填）</label>
+                <input type="text" name="region" th:value="${aiImport.suggestedRegion}" placeholder="例：花蓮" />
                 <button type="submit">✓ 確認無誤，轉成正式行程</button>
             </form>
         </div>
 
         <div class="day-block" th:each="entry : ${dayItemsMap}">
             <h3 th:text="'Day ' + ${entry.key.dayNumber} + (${entry.key.theme} != null ? ' — ' + ${entry.key.theme} : '')"></h3>
-            <div class="item-row" th:each="item : ${entry.value}">
-                <div>
-                    <span class="type-tag" th:text="${item.itemType}"></span>
-                    <strong th:text="${item.name}"></strong>
-                    <span th:if="${item.timeSlot}" style="color:#94a3b8;font-size:12px;" th:text="'（' + ${item.timeSlot} + '）'"></span>
-                    <span th:if="${item.stayMinutes != null}" style="color:#059669;font-size:12px;" th:text="'⏱ 約 ' + ${item.stayMinutes} + ' 分鐘'"></span>
-                    <div class="note" th:if="${item.note != null and !item.note.isEmpty()}" th:text="${item.note}"></div>
-                </div>
-                <span th:if="${item.matchedPid != null}" class="matched-tag">✓ 已比對到公司資料庫</span>
-                <span th:if="${item.matchedPid == null}">
-                    <span class="unmatched-tag">新項目</span>
-                    <form th:if="${item.itemType == 'attraction' or item.itemType == 'meal' or item.itemType == 'hotel'}"
-                          method="post" th:action="@{'/ai-import/item/' + ${item.APIID} + '/add-to-poi'}" style="display:inline;">
-                        <button type="submit" style="margin-left:6px;font-size:11px;padding:3px 8px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;">
-                            + 新增至資料庫
+            <div th:each="item : ${entry.value}">
+                <div class="item-row">
+                    <div>
+                        <span class="type-tag" th:text="${item.itemType}"></span>
+                        <strong th:text="${item.name}"></strong>
+                        <span th:if="${item.timeSlot}" style="color:#94a3b8;font-size:12px;" th:text="'（' + ${item.timeSlot} + '）'"></span>
+                        <span th:if="${item.stayMinutes != null}" style="color:#059669;font-size:12px;" th:text="'⏱ 約 ' + ${item.stayMinutes} + ' 分鐘'"></span>
+                        <span th:if="${item.itemCountry != null}" style="color:#7c3aed;font-size:12px;" th:text="'📍 ' + ${item.itemCountry} + (${item.itemRegion} != null ? '/' + ${item.itemRegion} : '')"></span>
+                        <div class="note" th:if="${item.note != null and !item.note.isEmpty()}" th:text="${item.note}"></div>
+                    </div>
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span th:if="${item.matchedPid != null}" class="matched-tag">✓ 已比對到公司資料庫</span>
+                        <span th:if="${item.matchedPid == null}" class="unmatched-tag">新項目</span>
+                        <form th:if="${item.matchedPid == null and (item.itemType == 'attraction' or item.itemType == 'meal' or item.itemType == 'hotel')}"
+                              method="post" th:action="@{'/ai-import/item/' + ${item.APIID} + '/add-to-poi'}" style="display:inline;">
+                            <button type="submit" style="font-size:11px;padding:3px 8px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;">
+                                + 新增至資料庫
+                            </button>
+                        </form>
+                        <button type="button" th:onclick="'toggleEdit(' + ${item.APIID} + ')'"
+                                style="font-size:11px;padding:3px 8px;background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;">
+                            ✎ 編輯
                         </button>
-                    </form>
-                </span>
+                    </span>
+                </div>
+
+                <!-- 編輯表單, 預設隱藏 -->
+                <form method="post" th:action="@{'/ai-import/item/' + ${item.APIID} + '/edit'}"
+                      th:id="'edit-form-' + ${item.APIID}" class="edit-form" style="display:none;">
+                    <div class="edit-grid">
+                        <div>
+                            <label>名稱</label>
+                            <input type="text" name="name" th:value="${item.name}" required />
+                        </div>
+                        <div>
+                            <label>類型</label>
+                            <select name="itemType">
+                                <option value="attraction" th:selected="${item.itemType == 'attraction'}">景點</option>
+                                <option value="meal" th:selected="${item.itemType == 'meal'}">餐廳</option>
+                                <option value="hotel" th:selected="${item.itemType == 'hotel'}">住宿</option>
+                                <option value="transport" th:selected="${item.itemType == 'transport'}">交通</option>
+                                <option value="highlight" th:selected="${item.itemType == 'highlight'}">亮點文案</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>時段</label>
+                            <select name="timeSlot">
+                                <option value="">未指定</option>
+                                <option value="morning" th:selected="${item.timeSlot == 'morning'}">上午</option>
+                                <option value="noon" th:selected="${item.timeSlot == 'noon'}">中午</option>
+                                <option value="afternoon" th:selected="${item.timeSlot == 'afternoon'}">下午</option>
+                                <option value="evening" th:selected="${item.timeSlot == 'evening'}">晚上</option>
+                                <option value="breakfast" th:selected="${item.timeSlot == 'breakfast'}">早餐</option>
+                                <option value="lunch" th:selected="${item.timeSlot == 'lunch'}">午餐</option>
+                                <option value="dinner" th:selected="${item.timeSlot == 'dinner'}">晚餐</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>預估停留(分鐘)</label>
+                            <input type="number" name="stayMinutes" th:value="${item.stayMinutes}" min="0" step="15" />
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label>備註</label>
+                            <input type="text" name="note" th:value="${item.note}" />
+                        </div>
+                    </div>
+                    <button type="submit" style="margin-top:8px;padding:6px 16px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer;">儲存</button>
+                    <button type="button" th:onclick="'toggleEdit(' + ${item.APIID} + ')'" style="margin-top:8px;padding:6px 16px;background:#e2e8f0;border:none;border-radius:6px;cursor:pointer;">取消</button>
+                </form>
             </div>
         </div>
     </div>
+
+    <script>
+        function toggleEdit(apiid) {
+            const form = document.getElementById('edit-form-' + apiid);
+            form.style.display = (form.style.display === 'none') ? 'block' : 'none';
+        }
+    </script>
 </body>
 </html>

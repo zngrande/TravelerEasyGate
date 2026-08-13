@@ -36,6 +36,15 @@ public class AiImport {
     @Column(name = "template_style")
     private String templateStyle = "default"; // wenqing / luxury / corporate / default
 
+    @Column(name = "suggested_title")
+    private String suggestedTitle; // AI 建議的行程標題
+
+    @Column(name = "suggested_country")
+    private String suggestedCountry; // AI 判斷出的國家
+
+    @Column(name = "suggested_region")
+    private String suggestedRegion; // AI 判斷出的地區/城市 (跟國家分開, 例如國家=日本, 地區=北海道)
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -74,6 +83,15 @@ public class AiImport {
 
     public String getTemplateStyle() { return templateStyle; }
     public void setTemplateStyle(String templateStyle) { this.templateStyle = templateStyle; }
+
+    public String getSuggestedTitle() { return suggestedTitle; }
+    public void setSuggestedTitle(String suggestedTitle) { this.suggestedTitle = suggestedTitle; }
+
+    public String getSuggestedCountry() { return suggestedCountry; }
+    public void setSuggestedCountry(String suggestedCountry) { this.suggestedCountry = suggestedCountry; }
+
+    public String getSuggestedRegion() { return suggestedRegion; }
+    public void setSuggestedRegion(String suggestedRegion) { this.suggestedRegion = suggestedRegion; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

@@ -82,6 +82,22 @@ public class AiImportController {
         }
     }
 
+    // POST /ai-import/item/{apiid}/edit → 編輯 AI 解析出來、還沒確認的項目
+    @PostMapping("/item/{apiid}/edit")
+    public String editItem(@PathVariable("apiid") int APIID,
+                            @RequestParam String name,
+                            @RequestParam String itemType,
+                            @RequestParam(required = false) String timeSlot,
+                            @RequestParam(required = false) String note,
+                            @RequestParam(required = false) Integer stayMinutes,
+                            HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+
+        int IPID = aiParseService.getIpidByItem(APIID);
+        aiParseService.updateParsedItem(APIID, name, itemType, timeSlot, note, stayMinutes);
+        return "redirect:/ai-import/" + IPID + "/review";
+    }
+
     // POST /ai-import/item/{apiid}/add-to-poi → 把 AI 解析出的單一項目寫進公司 POI 資料庫
     @PostMapping("/item/{apiid}/add-to-poi")
     public String addToPoi(@PathVariable("apiid") int APIID, HttpSession session, Model model) {
@@ -122,10 +138,11 @@ public class AiImportController {
     public String confirm(@PathVariable("id") int IPID,
                            @RequestParam String title,
                            @RequestParam String country,
+                           @RequestParam(required = false) String region,
                            HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
 
-        Itinerary itinerary = aiParseService.confirmImport(IPID, title, country);
+        Itinerary itinerary = aiParseService.confirmImport(IPID, title, country, region);
         return "redirect:/itinerary/" + itinerary.getITID() + "/board";
     }
 }

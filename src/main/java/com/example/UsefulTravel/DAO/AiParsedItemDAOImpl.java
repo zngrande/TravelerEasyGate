@@ -40,4 +40,13 @@ public class AiParsedItemDAOImpl implements AiParsedItemDAO {
                 .setParameter("apdid", APDID)
                 .getResultList();
     }
+
+    // 刪除 POI 前呼叫: 把所有比對到這個 POI 的 AI 解析暫存項目解除連結
+    @Override
+    @jakarta.transaction.Transactional
+    public void clearMatchedPid(int PID) {
+        em.createQuery("UPDATE AiParsedItem i SET i.matchedPid = NULL WHERE i.matchedPid = :pid")
+                .setParameter("pid", PID)
+                .executeUpdate();
+    }
 }

@@ -10,4 +10,5 @@ public interface ItineraryItemDAO {
     List<ItineraryItem> findByDay(int IDID);
     void deleteById(int IIID);
     void updateSortOrder(int IIID, int sortOrder);
+    void clearPidReferences(int PID);
 }

@@ -23,6 +23,8 @@
         </div>
     </header>
 
+    <div th:if="${deleteError}" style="background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:6px;margin-bottom:16px;" th:text="${deleteError}"></div>
+
     <form class="search" method="get" th:action="@{/poi}">
         <input type="text" name="keyword" placeholder="搜尋名稱或城市" th:value="${keyword}" />
         <select name="category">
@@ -42,6 +44,9 @@
                 <th>類型</th>
                 <th>國家/城市</th>
                 <th>建議停留時間</th>
+                <th>成本價</th>
+                <th>座標</th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -50,6 +55,20 @@
                 <td><span class="tag" th:text="${poi.category}"></span></td>
                 <td th:text="${poi.country} + ' / ' + ${poi.city}"></td>
                 <td th:text="${poi.suggestedStayMin} + ' 分鐘'"></td>
+                <td th:text="${poi.costPrice != null ? poi.costPrice : '—'}"></td>
+                <td>
+                    <span th:if="${poi.latitude != null}" style="color:#16a34a;">✓ 已定位</span>
+                    <span th:if="${poi.latitude == null}" style="color:#f59e0b;">未定位</span>
+                </td>
+                <td>
+                    <a th:href="@{'/poi/' + ${poi.PID} + '/edit'}">編輯</a>
+                    &nbsp;|&nbsp;
+                    <form method="post" th:action="@{'/poi/' + ${poi.PID} + '/delete'}" style="display:inline;"
+                          onsubmit="return confirm('確定要刪除「' + this.dataset.name + '」這筆資料嗎？此動作無法復原。');"
+                          th:attr="data-name=${poi.name}">
+                        <button type="submit" style="background:none;border:none;color:#ef4444;cursor:pointer;padding:0;font-size:14px;">刪除</button>
+                    </form>
+                </td>
             </tr>
         </tbody>
     </table>

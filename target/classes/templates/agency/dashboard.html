@@ -24,6 +24,8 @@
         </div>
     </header>
 
+    <div th:if="${deleteError}" style="background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:6px;margin-bottom:16px;" th:text="${deleteError}"></div>
+
     <nav>
         <a th:href="@{/agency/dashboard}">行程列表</a>
         <a th:href="@{/poi}">景點/飯店資料庫</a>
@@ -46,11 +48,19 @@
         <tbody>
             <tr th:each="it : ${itineraries}">
                 <td th:text="${it.title}"></td>
-                <td th:text="${it.country}"></td>
+                <td th:text="${it.country} + (${it.region} != null ? ' / ' + ${it.region} : '')"></td>
                 <td th:text="${it.daysCount} + ' 天'"></td>
                 <td th:text="${it.startDate}"></td>
                 <td><span class="status" th:text="${it.status}"></span></td>
-                <td><a th:href="@{'/itinerary/' + ${it.ITID} + '/board'}">編輯行程</a></td>
+                <td>
+                    <a th:href="@{'/itinerary/' + ${it.ITID} + '/board'}">編輯行程</a>
+                    &nbsp;|&nbsp;
+                    <form method="post" th:action="@{'/itinerary/' + ${it.ITID} + '/delete'}" style="display:inline;"
+                          onsubmit="return confirm('確定要刪除「' + this.dataset.title + '」這個行程嗎？此動作無法復原。');"
+                          th:attr="data-title=${it.title}">
+                        <button type="submit" style="background:none;border:none;color:#ef4444;cursor:pointer;padding:0;">刪除</button>
+                    </form>
+                </td>
             </tr>
         </tbody>
     </table>

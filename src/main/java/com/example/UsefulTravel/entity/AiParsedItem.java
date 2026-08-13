@@ -26,6 +26,12 @@ public class AiParsedItem {
     @Column(name = "note")
     private String note;
 
+    @Column(name = "item_country")
+    private String itemCountry; // 這個項目自己所在的國家 (跟整個行程共用的 country 分開, 更準確)
+
+    @Column(name = "item_region")
+    private String itemRegion; // 這個項目自己所在的地區/城市
+
     @Column(name = "matched_pid")
     private Integer matchedPid; // 自動比對到公司 POI 資料庫的結果
 
@@ -63,6 +69,12 @@ public class AiParsedItem {
 
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+
+    public String getItemCountry() { return itemCountry; }
+    public void setItemCountry(String itemCountry) { this.itemCountry = itemCountry; }
+
+    public String getItemRegion() { return itemRegion; }
+    public void setItemRegion(String itemRegion) { this.itemRegion = itemRegion; }
 
     public Integer getMatchedPid() { return matchedPid; }
     public void setMatchedPid(Integer matchedPid) { this.matchedPid = matchedPid; }

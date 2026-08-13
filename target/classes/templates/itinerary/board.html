@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <title>行程排版看板 - Useful Travel</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+    <script th:if="${googleMapsConfigured}"
+            th:src="@{'https://maps.googleapis.com/maps/api/js?key=' + ${googleMapsApiKey} + '&callback=onGoogleMapsReady'}"
+            async defer></script>
     <style>
         body { font-family: "Microsoft JhengHei", sans-serif; margin: 0; background: #f5f6f8; }
         header { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; background: #1e293b; color: #fff; }
@@ -52,12 +55,30 @@
         .item-row .type-tag { font-size: 11px; background: #eef2ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; margin-right: 8px; }
         .item-row .remove-btn { color: #ef4444; background: none; border: none; cursor: pointer; }
         .item-row .add-poi-btn { font-size: 11px; padding: 3px 8px; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; margin-right: 6px; }
+        .item-row .edit-item-btn { font-size: 11px; padding: 3px 8px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; margin-right: 6px; }
+        .item-edit-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin: 0 0 8px; }
+        .item-edit-form label { display: block; font-size: 11px; font-weight: bold; color: #64748b; margin-top: 6px; }
+        .item-edit-form input { width: 100%; padding: 6px; box-sizing: border-box; font-size: 13px; margin-top: 2px; }
+        .item-edit-form button { font-size: 12px; padding: 5px 14px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; margin-right: 6px; }
         .unlinked-tag { font-size: 11px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; margin-right: 6px; }
 
         .route-info { font-size: 12px; color: #64748b; padding: 4px 0 4px 14px; }
         .route-info.backtrack { color: #dc2626; font-weight: bold; }
 
         .empty-hint { color: #94a3b8; padding: 20px; text-align: center; border: 2px dashed #e2e8f0; border-radius: 8px; }
+
+        /* 地圖 */
+        .map-col { width: 320px; flex-shrink: 0; }
+        .map-wrap { position: relative; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; height: 260px; }
+        .map-hint { color: #94a3b8; font-size: 12px; padding: 16px; text-align: center; }
+        .map-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; }
+        .map-toolbar a { color: #2563eb; text-decoration: none; }
+
+        /* 智慧中途點推薦 */
+        .suggest-between-btn { display: block; width: 100%; text-align: center; font-size: 11px; padding: 4px; margin: 2px 0 8px; background: #ecfdf5; color: #047857; border: 1px dashed #6ee7b7; border-radius: 6px; cursor: pointer; }
+        .suggest-panel { background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 8px; padding: 10px; margin: 4px 0 8px; }
+        .suggest-panel .poi-mini { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 12px; }
+        .suggest-panel .poi-mini button { font-size: 11px; padding: 2px 8px; background: #059669; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -74,7 +95,21 @@
     <div class="layout">
         <!-- 左側：景點/餐廳/飯店資料庫，點擊加入目前選中的天 -->
         <aside class="sidebar">
-            <h3>景點 / 餐廳 / 飯店資料庫</h3>
+            <h3>✏️ 新增自訂項目</h3>
+            <p style="font-size:12px;color:#64748b;margin-top:-6px;">不會存進公司資料庫，但會自動查座標讓地圖顯示。飯店可以用「或」分隔多個候選，例如「A飯店或B飯店或C民宿」。</p>
+            <input type="text" id="customItemName" placeholder="名稱 (可用「或」分隔多個選項)" style="width:100%;padding:6px;margin-bottom:6px;box-sizing:border-box;" />
+            <input type="text" id="customItemLocationHint" placeholder="地點提示 (選填): Google地圖網址或地址，定位更準" style="width:100%;padding:6px;margin-bottom:6px;box-sizing:border-box;font-size:12px;" />
+            <select id="customItemType" style="width:100%;padding:6px;margin-bottom:6px;box-sizing:border-box;">
+                <option value="attraction">景點</option>
+                <option value="meal">餐廳</option>
+                <option value="hotel">住宿</option>
+                <option value="transport">交通</option>
+                <option value="optional">自費</option>
+                <option value="free_time">自由活動</option>
+            </select>
+            <button onclick="addCustomItem()" style="width:100%;padding:8px;background:#7c3aed;color:#fff;border:none;border-radius:6px;cursor:pointer;">＋ 加入目前這天</button>
+
+            <h3 style="margin-top:24px;">景點 / 餐廳 / 飯店資料庫</h3>
             <div th:each="poi : ${poiList}" class="poi-card">
                 <div class="name" th:text="${poi.name}"></div>
                 <div class="meta" th:text="${poi.category} + ' · ' + ${poi.city}"></div>
@@ -110,6 +145,16 @@
                                    th:attr="onchange=|updateStartTime(${day.IDID}, this.value)|" />
                         </div>
                         <div class="timeline-wrap" th:id="'timeline-' + ${day.IDID}" style="height:200px;"></div>
+
+                        <div class="map-toolbar" style="margin-top:16px;">
+                            <span>🗺 地圖</span>
+                            <a th:id="'staticmap-link-' + ${day.IDID}" href="#" target="_blank" style="display:none;">開高解析圖片 ↗</a>
+                        </div>
+                        <div class="map-wrap" th:id="'map-' + ${day.IDID}">
+                            <div class="map-hint" th:unless="${googleMapsConfigured}">
+                                尚未設定 Google Maps API Key，地圖功能無法使用。在 application.properties 設定 google.maps.api.key 後即可看到景點連線地圖。
+                            </div>
+                        </div>
                     </div>
                     <div class="item-col">
                         <ul class="item-list" th:id="'list-' + ${day.IDID}"></ul>
@@ -141,6 +186,13 @@
                 fetch(`/itinerary/day/${idid}/routes`).then(r => r.json())
             ]);
 
+            // 併發抓每個項目的候選點清單, 只有用「或」分隔新增的項目才會有超過 1 筆
+            const optionsList = await Promise.all(
+                items.map(item => fetch(`/itinerary/day/${idid}/items/${item.IIID}/options`).then(r => r.json()))
+            );
+            const optionsMap = {};
+            items.forEach((item, i) => { optionsMap[item.IIID] = optionsList[i]; });
+
             const list = document.getElementById('list-' + idid);
             const emptyHint = document.getElementById('empty-' + idid);
             list.innerHTML = '';
@@ -162,6 +214,8 @@
 
                 const isLinked = item.PID !== null && item.PID !== undefined;
                 const canAddToPoi = !isLinked && poiEligibleTypes.includes(item.itemType);
+                const options = optionsMap[item.IIID] || [];
+                const hasMultipleOptions = options.length > 1;
 
                 let leftBadges = `<span class="type-tag">${typeLabel[item.itemType] || item.itemType}</span>`;
                 if (!isLinked && !canAddToPoi) {
@@ -170,14 +224,44 @@
                     leftBadges += `<span class="unlinked-tag">未連結資料庫</span>`;
                 }
 
+                let nameHtml;
+                if (hasMultipleOptions) {
+                    const optionTags = options.map(o =>
+                        `<option value="${o.IIOID}" ${o.selected ? 'selected' : ''}>${o.name}</option>`).join('');
+                    nameHtml = `<select onchange="selectItemOption(${idid}, ${item.IIID}, this)" style="font-size:13px;padding:2px;">${optionTags}</select>
+                                <span style="font-size:10px;color:#a855f7;margin-left:4px;">${options.length} 個候選</span>`;
+                } else {
+                    nameHtml = label;
+                }
+
                 li.innerHTML = `
-                    <span>${leftBadges}${label}</span>
+                    <span>${leftBadges}${nameHtml}</span>
                     <span>
                         ${canAddToPoi ? `<button class="add-poi-btn" onclick="addToPoiDatabase(${idid}, ${item.IIID})">+ 加入POI資料庫</button>` : ''}
+                        <button class="edit-item-btn" onclick="toggleItemEdit(${item.IIID})">✎ 編輯</button>
                         <button class="remove-btn" onclick="removeItem(${idid}, ${item.IIID})">移除</button>
                     </span>
                 `;
                 list.appendChild(li);
+
+                // 編輯表單, 預設隱藏
+                const editForm = document.createElement('div');
+                editForm.className = 'item-edit-form';
+                editForm.id = 'item-edit-' + item.IIID;
+                editForm.style.display = 'none';
+                editForm.innerHTML = `
+                    <label>名稱</label>
+                    <input type="text" id="edit-name-${item.IIID}" value="${(item.customName || '').replace(/"/g, '&quot;')}" />
+                    <label>停留時間 (分鐘)</label>
+                    <input type="number" id="edit-stay-${item.IIID}" value="${item.stayDurationMin ?? ''}" step="15" min="0" />
+                    <label>地點提示 (選填): Google地圖網址或地址, 填了會重新定位</label>
+                    <input type="text" id="edit-hint-${item.IIID}" placeholder="貼網址或地址..." />
+                    <div style="margin-top:6px;">
+                        <button onclick="saveItemEdit(${idid}, ${item.IIID})">儲存</button>
+                        <button onclick="toggleItemEdit(${item.IIID})" style="background:#e2e8f0;color:#334155;">取消</button>
+                    </div>
+                `;
+                list.appendChild(editForm);
 
                 // 顯示這一項跟下一項之間的拉車資訊
                 const route = routes.find(r => r.fromItemId === item.IIID);
@@ -187,6 +271,17 @@
                     info.textContent = (route.backtrack ? '⚠ 疑似迴頭路 · ' : '🚗 ')
                         + `約 ${route.distanceKm} 公里 · 車程約 ${route.durationMin} 分鐘`;
                     list.appendChild(info);
+                }
+
+                // 智慧中途點推薦: 有下一項且兩邊都連結 POI 才能算
+                const nextItem = items[index + 1];
+                if (nextItem && item.PID != null && nextItem.PID != null) {
+                    const suggestBtn = document.createElement('button');
+                    suggestBtn.type = 'button';
+                    suggestBtn.className = 'suggest-between-btn';
+                    suggestBtn.textContent = '💡 推薦這中間順路的景點/餐廳';
+                    suggestBtn.onclick = () => loadSuggestions(idid, item.IIID, nextItem.IIID, suggestBtn);
+                    list.appendChild(suggestBtn);
                 }
             });
 
@@ -198,6 +293,31 @@
             });
 
             renderTimeline(idid, items, routes, typeLabel);
+            renderMap(idid);
+        }
+
+        // 智慧中途點推薦: 呼叫 API 並展開一個小面板顯示建議
+        async function loadSuggestions(idid, fromIIID, toIIID, btnEl) {
+            btnEl.textContent = '推薦中...';
+            const results = await fetch(`/itinerary/day/${idid}/suggest-between?fromIIID=${fromIIID}&toIIID=${toIIID}`).then(r => r.json());
+
+            const panel = document.createElement('div');
+            panel.className = 'suggest-panel';
+            if (results.length === 0) {
+                panel.innerHTML = '<div style="font-size:12px;color:#64748b;">附近沒有找到順路的公司資料庫景點</div>';
+            } else {
+                results.forEach(poi => {
+                    const row = document.createElement('div');
+                    row.className = 'poi-mini';
+                    row.innerHTML = `<span>${poi.name}</span>`;
+                    const addBtn = document.createElement('button');
+                    addBtn.textContent = '+ 加入';
+                    addBtn.onclick = () => addToCurrentDay(poi.PID, poi.name, poi.category === 'restaurant' ? 'meal' : (poi.category === 'hotel' ? 'hotel' : 'attraction'));
+                    row.appendChild(addBtn);
+                    panel.appendChild(row);
+                });
+            }
+            btnEl.replaceWith(panel);
         }
 
         // 預設停留時間 (AI 沒估算到、或手動加的項目時使用)
@@ -301,6 +421,71 @@
             }).then(() => loadDay(idid));
         }
 
+        // ---------------- Google Maps ----------------
+        let googleMapsReady = false;
+        const mapInstances = {}; // idid -> { map, markers: [], polyline }
+
+        function onGoogleMapsReady() {
+            googleMapsReady = true;
+            if (currentDayId) renderMap(currentDayId);
+        }
+
+        async function renderMap(idid) {
+            const wrap = document.getElementById('map-' + idid);
+            if (!wrap) return;
+
+            const data = await fetch(`/itinerary/day/${idid}/map`).then(r => r.json());
+            const linkEl = document.getElementById('staticmap-link-' + idid);
+
+            if (!data.configured) return; // 沒設定 API key, 保留原本的提示文字就好
+
+            if (data.staticMapUrl && linkEl) {
+                linkEl.href = data.staticMapUrl;
+                linkEl.style.display = 'inline';
+            } else if (linkEl) {
+                linkEl.style.display = 'none';
+            }
+
+            if (!googleMapsReady || typeof google === 'undefined') return; // JS API 還沒載完就先跳過, 讓上面的靜態圖連結還能用
+
+            if (data.points.length === 0) {
+                wrap.innerHTML = '<div class="map-hint">這天還沒有已定位的景點</div>';
+                return;
+            }
+
+            if (!mapInstances[idid]) {
+                wrap.innerHTML = '';
+                const map = new google.maps.Map(wrap, { zoom: 12, center: { lat: data.points[0].lat, lng: data.points[0].lng } });
+                mapInstances[idid] = { map, markers: [], polyline: null };
+            }
+
+            const inst = mapInstances[idid];
+            inst.markers.forEach(m => m.setMap(null));
+            inst.markers = [];
+            if (inst.polyline) inst.polyline.setMap(null);
+
+            const bounds = new google.maps.LatLngBounds();
+            const path = [];
+            data.points.forEach((p, i) => {
+                const pos = { lat: p.lat, lng: p.lng };
+                const marker = new google.maps.Marker({
+                    position: pos, map: inst.map,
+                    label: String.fromCharCode(65 + Math.min(i, 25)),
+                    title: p.name
+                });
+                inst.markers.push(marker);
+                bounds.extend(pos);
+                path.push(pos);
+            });
+
+            inst.polyline = new google.maps.Polyline({
+                path, geodesic: true, strokeColor: '#2563eb', strokeOpacity: 0.8, strokeWeight: 3
+            });
+            inst.polyline.setMap(inst.map);
+
+            inst.map.fitBounds(bounds);
+        }
+
         function saveOrder(idid) {
             const list = document.getElementById('list-' + idid);
             const order = Array.from(list.querySelectorAll('.item-row')).map(el => parseInt(el.dataset.iiid));
@@ -316,6 +501,50 @@
             const params = new URLSearchParams({ PID: pid, itemType, customName: name });
             fetch(`/itinerary/day/${currentDayId}/items?` + params.toString(), { method: 'POST' })
                 .then(() => loadDay(currentDayId));
+        }
+
+        function addCustomItem() {
+            if (!currentDayId) { alert('請先選擇一天'); return; }
+            const nameInput = document.getElementById('customItemName');
+            const typeSelect = document.getElementById('customItemType');
+            const hintInput = document.getElementById('customItemLocationHint');
+            const rawName = nameInput.value.trim();
+            if (!rawName) { alert('請輸入名稱'); return; }
+
+            const params = new URLSearchParams({ itemType: typeSelect.value, rawName });
+            if (hintInput.value.trim()) params.set('locationHint', hintInput.value.trim());
+
+            fetch(`/itinerary/day/${currentDayId}/items/custom?` + params.toString(), { method: 'POST' })
+                .then(() => {
+                    nameInput.value = '';
+                    hintInput.value = '';
+                    loadDay(currentDayId);
+                });
+        }
+
+        async function selectItemOption(idid, iiid, selectEl) {
+            const optionId = selectEl.value;
+            await fetch(`/itinerary/day/${idid}/items/${iiid}/select-option?optionId=${optionId}`, { method: 'POST' });
+            loadDay(idid);
+        }
+
+        function toggleItemEdit(iiid) {
+            const form = document.getElementById('item-edit-' + iiid);
+            form.style.display = (form.style.display === 'none') ? 'block' : 'none';
+        }
+
+        function saveItemEdit(idid, iiid) {
+            const name = document.getElementById('edit-name-' + iiid).value.trim();
+            const stay = document.getElementById('edit-stay-' + iiid).value;
+            const hint = document.getElementById('edit-hint-' + iiid).value.trim();
+            if (!name) { alert('名稱不能空白'); return; }
+
+            const params = new URLSearchParams({ customName: name });
+            if (stay) params.set('stayDurationMin', stay);
+            if (hint) params.set('locationHint', hint);
+
+            fetch(`/itinerary/day/${idid}/items/${iiid}/edit?` + params.toString(), { method: 'POST' })
+                .then(() => loadDay(idid));
         }
 
         function removeItem(idid, iiid) {

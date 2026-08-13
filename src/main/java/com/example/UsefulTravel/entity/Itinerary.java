@@ -25,6 +25,9 @@ public class Itinerary {
     @Column(name = "country")
     private String country;
 
+    @Column(name = "region")
+    private String region; // 地區/城市, 例如「花蓮」「北海道」, 跟 country 分開方便篩選 POI
+
     @Column(name = "days_count")
     private int daysCount = 1;
 
@@ -73,6 +76,9 @@ public class Itinerary {
 
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
+
+    public String getRegion() { return region; }
+    public void setRegion(String region) { this.region = region; }
 
     public int getDaysCount() { return daysCount; }
     public void setDaysCount(int daysCount) { this.daysCount = daysCount; }

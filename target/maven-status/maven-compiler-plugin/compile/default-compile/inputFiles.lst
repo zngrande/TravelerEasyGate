@@ -23,6 +23,10 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryD
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryDayDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryItemDAO.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryItemDAOImpl.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryItemOptionDAO.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryItemOptionDAOImpl.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiCooperationLogDAO.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiCooperationLogDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiDAO.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\RouteSegmentDAO.java
@@ -40,7 +44,9 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\Itinera
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ItineraryComponent.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ItineraryDay.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ItineraryItem.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ItineraryItemOption.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\Poi.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\PoiCooperationLog.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\PoiImage.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\RouteSegment.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\StaffUser.java
@@ -50,6 +56,7 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\Anthro
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\AuthService.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\DocumentExtractionService.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\ExportService.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\GoogleMapsClient.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\ItineraryService.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\PoiService.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\RouteService.java

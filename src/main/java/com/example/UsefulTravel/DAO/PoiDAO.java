@@ -8,6 +8,7 @@ public interface PoiDAO {
     void save(Poi poi);
     Poi findById(int PID);
     List<Poi> findByAgencyOrShared(Integer AID);
+    List<Poi> findByAgencyAndCountry(Integer AID, String country, String region);
     List<Poi> searchByKeyword(Integer AID, String keyword, String category);
     void deleteById(int PID);
 }

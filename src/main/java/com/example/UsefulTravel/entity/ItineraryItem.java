@@ -39,6 +39,12 @@ public class ItineraryItem {
     @Column(name = "note")
     private String note;
 
+    @Column(name = "latitude")
+    private java.math.BigDecimal latitude; // 這個項目自己的座標, 不一定要連結 POI 資料庫才有
+
+    @Column(name = "longitude")
+    private java.math.BigDecimal longitude;
+
     public ItineraryItem() {}
 
     public ItineraryItem(int IDID, Integer PID, String itemType, String customName, int sortOrder) {
@@ -78,4 +84,10 @@ public class ItineraryItem {
 
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+
+    public java.math.BigDecimal getLatitude() { return latitude; }
+    public void setLatitude(java.math.BigDecimal latitude) { this.latitude = latitude; }
+
+    public java.math.BigDecimal getLongitude() { return longitude; }
+    public void setLongitude(java.math.BigDecimal longitude) { this.longitude = longitude; }
 }

@@ -44,4 +44,13 @@ public class AiImportDAOImpl implements AiImportDAO {
                 .setParameter("aid", AID)
                 .getResultList();
     }
+
+    // 刪除行程前呼叫: 把指向這個行程的 AI 解析紀錄解除連結 (不然外鍵會擋住刪除)
+    @Override
+    @Transactional
+    public void clearResultItinerary(int ITID) {
+        em.createQuery("UPDATE AiImport a SET a.resultItineraryId = NULL WHERE a.resultItineraryId = :itid")
+                .setParameter("itid", ITID)
+                .executeUpdate();
+    }
 }

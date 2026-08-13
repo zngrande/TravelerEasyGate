@@ -54,6 +54,31 @@ public class AnthropicClient {
      * @param userContent  使用者輸入內容 (行程文字)
      * @param maxTokens    回應上限 token 數
      */
+    /**
+     * 針對單一地點快速估算「遊客一般會停留幾分鐘」, 用在新增 POI 時自動帶入建議停留時間
+     * (Google Maps 本身沒有開放這個資料的公開 API, 用 AI 常識估算最接近的替代方案)
+     * 回傳 null 代表估算失敗 (API 沒設定/呼叫失敗/回應無法解析成數字), 呼叫端要自己處理
+     */
+    public Integer estimateStayMinutes(String placeName, String category, String address) {
+        try {
+            String system = """
+                你是旅遊行程規劃助手。使用者會給你一個地點的名稱、類型、地址(可能沒有)。
+                請估算一般遊客在這個地點會停留幾分鐘，只能輸出一個整數(分鐘數，15的倍數，例如 60、90、120)，
+                不要輸出任何其他文字、單位、說明或標點符號。
+                """;
+            String userContent = "名稱: " + placeName
+                    + "\n類型: " + (category != null ? category : "未知")
+                    + "\n地址: " + (address != null && !address.isBlank() ? address : "未提供");
+
+            String response = complete(system, userContent, 20);
+            String digits = response.replaceAll("[^0-9]", "");
+            if (digits.isBlank()) return null;
+            return Integer.parseInt(digits);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     public String complete(String systemPrompt, String userContent, int maxTokens) throws Exception {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException(
@@ -76,7 +101,7 @@ public class AnthropicClient {
                 .header("x-api-key", apiKey)
                 .header("anthropic-version", API_VERSION)
                 .header("content-type", "application/json")
-                .timeout(Duration.ofSeconds(60))
+                .timeout(Duration.ofSeconds(180))
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
                 .build();
 

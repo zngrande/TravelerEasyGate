@@ -7,6 +7,7 @@ import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -29,6 +30,7 @@ public class AiParseService {
     private final AiParsedItemDAO aiParsedItemDAO;
     private final PoiDAO poiDAO;
     private final ItineraryService itineraryService;
+    private final GoogleMapsClient googleMapsClient;
     private final ObjectMapper objectMapper;
 
     private static final String SYSTEM_PROMPT = """
@@ -40,6 +42,9 @@ public class AiParseService {
         JSON 格式規則:
         {
           "template_style": "wenqing | luxury | corporate | default",
+          "suggested_title": "根據內容建議的行程標題, 例如「花蓮經典三日遊」",
+          "country": "根據內容判斷的國家, 例如「台灣」「日本」「泰國」, 判斷不出來就填「未知」",
+          "region": "根據內容判斷的地區/城市 (國家底下更細的地點), 例如「花蓮」「北海道」「清邁」, 判斷不出來就填「未知」",
           "days": [
             {
               "day_number": 1,
@@ -48,6 +53,8 @@ public class AiParseService {
                 {
                   "item_type": "attraction | meal | hotel | transport | highlight",
                   "name": "景點/餐廳/飯店/交通方式的名稱",
+                  "item_country": "這一個項目實際所在的國家 (不是整趟行程的國家, 是這一項自己的), 例如多國行程裡某個景點在「不丹」某個在「印度」就分別標註, 判斷不出來給 null",
+                  "item_region": "這一個項目實際所在的地區/城市, 判斷不出來給 null",
                   "time_slot": "morning | noon | afternoon | evening | breakfast | lunch | dinner | null",
                   "note": "原文中的補充說明 (例如: 含早餐、五星飯店、包車接送、注意事項等), 沒有就給空字串",
                   "stay_minutes": "預估在這個地方會停留幾分鐘 (數字, 15的倍數, 例如 90); attraction/meal 一定要給估計值, hotel 給 null (入住時間另外算), transport/highlight 給 null"
@@ -78,13 +85,14 @@ public class AiParseService {
     public AiParseService(AnthropicClient anthropicClient, AiImportDAO aiImportDAO,
                            AiParsedDayDAO aiParsedDayDAO, AiParsedItemDAO aiParsedItemDAO,
                            PoiDAO poiDAO, ItineraryService itineraryService,
-                           ObjectMapper objectMapper) {
+                           ObjectMapper objectMapper, GoogleMapsClient googleMapsClient) {
         this.anthropicClient = anthropicClient;
         this.aiImportDAO = aiImportDAO;
         this.aiParsedDayDAO = aiParsedDayDAO;
         this.aiParsedItemDAO = aiParsedItemDAO;
         this.poiDAO = poiDAO;
         this.itineraryService = itineraryService;
+        this.googleMapsClient = googleMapsClient;
         this.objectMapper = objectMapper;
     }
 
@@ -119,6 +127,12 @@ public class AiParseService {
                     ? normalizeStyle(userStyle)
                     : normalizeStyle(root.path("template_style").asText("default")));
 
+            aiImport.setSuggestedTitle(emptyToNull(root.path("suggested_title").asText(null)));
+            String country = emptyToNull(root.path("country").asText(null));
+            aiImport.setSuggestedCountry("未知".equals(country) ? null : country);
+            String region = emptyToNull(root.path("region").asText(null));
+            aiImport.setSuggestedRegion("未知".equals(region) ? null : region);
+
             for (JsonNode dayNode : root.path("days")) {
                 AiParsedDay day = new AiParsedDay(
                         aiImport.getIPID(),
@@ -142,6 +156,9 @@ public class AiParseService {
                     );
                     item.setMatchedPid(matchedPid);
 
+                    item.setItemCountry(emptyToNull(itemNode.path("item_country").asText(null)));
+                    item.setItemRegion(emptyToNull(itemNode.path("item_region").asText(null)));
+
                     JsonNode stayNode = itemNode.path("stay_minutes");
                     if (stayNode.isNumber()) {
                         item.setStayMinutes(stayNode.asInt());
@@ -157,6 +174,8 @@ public class AiParseService {
             String msg = e.getMessage() != null ? e.getMessage() : e.toString();
             if (msg.contains("Unexpected end-of-input") || msg.contains("closing quote")) {
                 msg = "AI 回應內容被截斷了（通常是行程內容太多），請嘗試把文件拆成較短的段落分次解析。原始錯誤：" + msg;
+            } else if (msg.toLowerCase().contains("timed out") || msg.toLowerCase().contains("timeout")) {
+                msg = "AI 解析逾時了（通常是行程內容太長，AI 生成時間拉長導致），請嘗試把文件拆成較短的段落分次解析，或稍後再試一次。原始錯誤：" + msg;
             }
             aiImport.setErrorMessage(msg);
         }
@@ -229,15 +248,41 @@ public class AiParseService {
             throw new IllegalArgumentException("「" + typeDisplayName(item.getItemType()) + "」不是景點/餐廳/住宿類型，無法加入 POI 資料庫");
         }
 
-        Poi poi = new Poi(AID, category, item.getName(), null, null, null, null, null);
-        poi.setSuggestedStayMin(null); // 依需求: 時間預設 NULL, 之後再由線控補
+        // 優先用這個項目自己判斷的國家/地區 (更精確, 例如多國行程裡每個景點不同國家),
+        // 項目自己沒有的話才 fallback 用整份 AI 解析紀錄共用的國家/地區
+        int ipid = getIpidByItem(APIID);
+        AiImport aiImport = aiImportDAO.findById(ipid);
+        String country = item.getItemCountry() != null ? item.getItemCountry()
+                : (aiImport != null ? aiImport.getSuggestedCountry() : null);
+        String region = item.getItemRegion() != null ? item.getItemRegion()
+                : (aiImport != null ? aiImport.getSuggestedRegion() : null);
+
+        Poi poi = new Poi(AID, category, item.getName(), country, region, null, null, null);
         poi.setDescription(item.getNote());
+
+        // 自動地理編碼: 用「名稱 + 地區 + 國家」查詢經緯度, 不然地圖不會顯示這個點
+        String geocodeQuery = String.join(" ", nonBlank(item.getName()), nonBlank(region), nonBlank(country)).trim();
+        GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(geocodeQuery);
+        if (geo != null) {
+            poi.setLatitude(BigDecimal.valueOf(geo.latitude));
+            poi.setLongitude(BigDecimal.valueOf(geo.longitude));
+        }
+
+        // 建議停留時間: AI 用過的 stay_minutes 估算值就直接沿用, 沒有的話再單獨估算一次
+        poi.setSuggestedStayMin(item.getStayMinutes() != null
+                ? item.getStayMinutes()
+                : anthropicClient.estimateStayMinutes(item.getName(), category, null));
+
         poiDAO.save(poi);
 
         item.setMatchedPid(poi.getPID());
         aiParsedItemDAO.save(item);
 
         return poi;
+    }
+
+    private String nonBlank(String s) {
+        return s == null ? "" : s;
     }
 
     // AI 解析出的 item_type 對應到 POI 資料庫的 category (transport/highlight 沒有對應, 不能加入)
@@ -270,10 +315,26 @@ public class AiParseService {
     }
 
     /**
+     * 編輯 AI 解析出來、還沒確認轉正式行程的項目 (讓線控可以在 review 頁面直接修正)
+     */
+    public void updateParsedItem(int APIID, String name, String itemType, String timeSlot,
+                                  String note, Integer stayMinutes) {
+        AiParsedItem item = aiParsedItemDAO.findById(APIID);
+        if (item == null) throw new IllegalArgumentException("找不到這個項目");
+
+        item.setName(name);
+        item.setItemType(itemType);
+        item.setTimeSlot(timeSlot == null || timeSlot.isBlank() ? null : timeSlot);
+        item.setNote(note);
+        item.setStayMinutes(stayMinutes);
+        aiParsedItemDAO.save(item);
+    }
+
+    /**
      * 線控確認暫存資料無誤後, 轉成正式行程
      * (matchedPid 有值就直接連結公司 POI, 沒有就當自訂項目, 名稱先用 AI 解析出來的文字)
      */
-    public Itinerary confirmImport(int IPID, String title, String country) {
+    public Itinerary confirmImport(int IPID, String title, String country, String region) {
         AiImport aiImport = aiImportDAO.findById(IPID);
         if (aiImport == null) throw new IllegalArgumentException("找不到這筆 AI 解析紀錄");
 
@@ -281,7 +342,7 @@ public class AiParseService {
         int daysCount = Math.max(1, days.size());
 
         Itinerary itinerary = itineraryService.createItinerary(
-                aiImport.getAID(), aiImport.getCreatedBy(), title, country, daysCount, LocalDate.now());
+                aiImport.getAID(), aiImport.getCreatedBy(), title, country, region, daysCount, LocalDate.now());
 
         // 把 AI 判斷出來的文件風格帶到正式行程上, 匯出企劃書時會套用同樣風格
         itineraryService.updateTemplateStyle(itinerary.getITID(), aiImport.getTemplateStyle());

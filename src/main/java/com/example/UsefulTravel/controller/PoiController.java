@@ -1,6 +1,7 @@
 package com.example.UsefulTravel.controller;
 
 import com.example.UsefulTravel.entity.Poi;
+import com.example.UsefulTravel.service.GoogleMapsClient;
 import com.example.UsefulTravel.service.PoiService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,16 +10,19 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 @Controller
 @RequestMapping("/poi")
 public class PoiController {
 
     private final PoiService poiService;
+    private final GoogleMapsClient googleMapsClient;
 
     @Autowired
-    public PoiController(PoiService poiService) {
+    public PoiController(PoiService poiService, GoogleMapsClient googleMapsClient) {
         this.poiService = poiService;
+        this.googleMapsClient = googleMapsClient;
     }
 
     // GET /poi → 景點/飯店資料庫列表 (含搜尋)
@@ -42,7 +46,7 @@ public class PoiController {
         return "poi/new";
     }
 
-    // POST /poi/new → 新增一筆景點/餐廳/飯店資料
+    // POST /poi/new → 新增一筆景點/餐廳/飯店資料 (經緯度沒填會自動地理編碼)
     @PostMapping("/new")
     public String create(@RequestParam String category,
                           @RequestParam String name,
@@ -53,6 +57,10 @@ public class PoiController {
                           @RequestParam(required = false) BigDecimal longitude,
                           @RequestParam(required = false) Integer suggestedStayMin,
                           @RequestParam(required = false) String description,
+                          @RequestParam(required = false) BigDecimal costPrice,
+                          @RequestParam(required = false) BigDecimal agencyPrice,
+                          @RequestParam(required = false) String supplierContact,
+                          @RequestParam(required = false) String supplierNotes,
                           HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
@@ -60,7 +68,115 @@ public class PoiController {
         Poi poi = new Poi(AID, category, name, country, city, address, latitude, longitude);
         if (suggestedStayMin != null) poi.setSuggestedStayMin(suggestedStayMin);
         poi.setDescription(description);
+        poi.setCostPrice(costPrice);
+        poi.setAgencyPrice(agencyPrice);
+        poi.setSupplierContact(supplierContact);
+        poi.setSupplierNotes(supplierNotes);
+
+        if (latitude == null || longitude == null) {
+            String query = String.join(" ",
+                    name, city != null ? city : "", country != null ? country : "").trim();
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(query);
+            if (geo != null) {
+                poi.setLatitude(BigDecimal.valueOf(geo.latitude));
+                poi.setLongitude(BigDecimal.valueOf(geo.longitude));
+            }
+        }
+
         poiService.save(poi);
+        return "redirect:/poi";
+    }
+
+    // GET /poi/{id}/edit → 編輯景點表單 (含合作紀錄)
+    @GetMapping("/{id}/edit")
+    public String editForm(@PathVariable("id") int PID, HttpSession session, Model model) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+
+        Poi poi = poiService.findById(PID);
+        if (poi == null) return "redirect:/poi";
+
+        model.addAttribute("poi", poi);
+        model.addAttribute("logs", poiService.getCooperationLogs(PID));
+        return "poi/edit";
+    }
+
+    // POST /poi/{id}/edit → 儲存編輯 (經緯度留空會自動重新地理編碼)
+    @PostMapping("/{id}/edit")
+    public String edit(@PathVariable("id") int PID,
+                        @RequestParam String category,
+                        @RequestParam String name,
+                        @RequestParam(required = false) String country,
+                        @RequestParam(required = false) String city,
+                        @RequestParam(required = false) String address,
+                        @RequestParam(required = false) BigDecimal latitude,
+                        @RequestParam(required = false) BigDecimal longitude,
+                        @RequestParam(required = false) Integer suggestedStayMin,
+                        @RequestParam(required = false) String description,
+                        @RequestParam(required = false) BigDecimal costPrice,
+                        @RequestParam(required = false) BigDecimal agencyPrice,
+                        @RequestParam(required = false) String supplierContact,
+                        @RequestParam(required = false) String supplierNotes,
+                        HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+
+        Poi poi = poiService.findById(PID);
+        if (poi == null) return "redirect:/poi";
+
+        poi.setCategory(category);
+        poi.setName(name);
+        poi.setCountry(country);
+        poi.setCity(city);
+        poi.setAddress(address);
+        poi.setSuggestedStayMin(suggestedStayMin);
+        poi.setDescription(description);
+        poi.setCostPrice(costPrice);
+        poi.setAgencyPrice(agencyPrice);
+        poi.setSupplierContact(supplierContact);
+        poi.setSupplierNotes(supplierNotes);
+
+        if (latitude != null && longitude != null) {
+            poi.setLatitude(latitude);
+            poi.setLongitude(longitude);
+        } else {
+            // 經緯度留空: 用最新的名稱/地址重新查一次, 找不到就保留原本的值 (不清空)
+            String query = String.join(" ",
+                    name, city != null ? city : "", country != null ? country : "").trim();
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(query);
+            if (geo != null) {
+                poi.setLatitude(BigDecimal.valueOf(geo.latitude));
+                poi.setLongitude(BigDecimal.valueOf(geo.longitude));
+            }
+        }
+
+        poiService.save(poi);
+        return "redirect:/poi/" + PID + "/edit";
+    }
+
+    // POST /poi/{id}/cooperation-log → 新增一筆合作紀錄
+    @PostMapping("/{id}/cooperation-log")
+    public String addCooperationLog(@PathVariable("id") int PID,
+                                     @RequestParam(required = false) String logDate,
+                                     @RequestParam String note,
+                                     HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        Integer UID = (Integer) session.getAttribute("UID");
+
+        LocalDate parsedDate = (logDate != null && !logDate.isBlank()) ? LocalDate.parse(logDate) : LocalDate.now();
+        poiService.addCooperationLog(PID, parsedDate, note, UID);
+        return "redirect:/poi/" + PID + "/edit";
+    }
+
+    // POST /poi/{id}/delete → 刪除景點
+    @PostMapping("/{id}/delete")
+    public String delete(@PathVariable("id") int PID, HttpSession session,
+                          org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        try {
+            poiService.delete(PID);
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("deleteError",
+                    "刪除失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString()));
+        }
         return "redirect:/poi";
     }
 }

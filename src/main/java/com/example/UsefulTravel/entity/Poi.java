@@ -49,6 +49,18 @@ public class Poi {
     @Column(name = "star_rating")
     private BigDecimal starRating;
 
+    @Column(name = "cost_price")
+    private BigDecimal costPrice; // 成本價 (跟供應商談的價格)
+
+    @Column(name = "agency_price")
+    private BigDecimal agencyPrice; // 同行價/建議售價
+
+    @Column(name = "supplier_contact")
+    private String supplierContact; // 供應商窗口 (姓名/電話/LINE等)
+
+    @Column(name = "supplier_notes", columnDefinition = "TEXT")
+    private String supplierNotes; // 合作備註 (付款方式/取消政策等)
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -104,6 +116,18 @@ public class Poi {
 
     public BigDecimal getStarRating() { return starRating; }
     public void setStarRating(BigDecimal starRating) { this.starRating = starRating; }
+
+    public BigDecimal getCostPrice() { return costPrice; }
+    public void setCostPrice(BigDecimal costPrice) { this.costPrice = costPrice; }
+
+    public BigDecimal getAgencyPrice() { return agencyPrice; }
+    public void setAgencyPrice(BigDecimal agencyPrice) { this.agencyPrice = agencyPrice; }
+
+    public String getSupplierContact() { return supplierContact; }
+    public void setSupplierContact(String supplierContact) { this.supplierContact = supplierContact; }
+
+    public String getSupplierNotes() { return supplierNotes; }
+    public void setSupplierNotes(String supplierNotes) { this.supplierNotes = supplierNotes; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
