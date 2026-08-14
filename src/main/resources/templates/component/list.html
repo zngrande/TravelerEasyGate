@@ -2,61 +2,263 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>元件庫 - Useful Travel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>元件庫 - TRAVELER EASY GATE</title>
+    <!-- Google Fonts & FontAwesome -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 800px; margin: 40px auto; }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; }
-        .tag { font-size: 12px; background: #eef2ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; }
-        form.new-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
-        form.new-form label { display: block; font-weight: bold; margin-top: 10px; }
-        form.new-form input, form.new-form select { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
-        form.new-form button { margin-top: 16px; padding: 10px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+        :root {
+            --primary-blue: #2563eb;
+            --primary-purple: #8b5cf6;
+            --bg-gray: #f8fafc;
+            --text-dark: #1e293b;
+            --text-gray: #64748b;
+            --border-color: #e2e8f0;
+            --sidebar-width: 260px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--bg-gray);
+            color: var(--text-dark);
+            display: flex;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { text-decoration: none; color: inherit; }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: #fff;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 20px;
+            position: fixed;
+            height: 100vh;
+            z-index: 10;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo span { font-size: 10px; color: var(--text-gray); display: block; font-weight: 400; letter-spacing: 1px; }
+
+        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: var(--text-gray);
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .nav-item:hover { background: #f1f5f9; color: var(--text-dark); }
+        .nav-item.active { background: #eff6ff; color: var(--primary-blue); font-weight: 600; }
+
+        .help-box {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+        .help-box i { color: var(--primary-blue); font-size: 20px; }
+
+        /* Main Content */
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
+
+        .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .page-desc { font-size: 14px; color: var(--text-gray); margin-bottom: 24px; line-height: 1.5; }
+
+        .grid-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: flex-start; }
+
+        .card {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        .card-header {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Table */
+        .table-container { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+        th { background: #f8fafc; padding: 14px 16px; font-size: 13px; color: var(--text-gray); font-weight: 500; border-bottom: 1px solid var(--border-color); }
+        td { padding: 14px 16px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+
+        .tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #eff6ff;
+            color: var(--primary-blue);
+        }
+
+        /* Form */
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+        .form-control {
+            width: 100%; padding: 10px 12px; font-size: 14px;
+            border: 1px solid var(--border-color); border-radius: 8px; outline: none; background: #fff;
+            transition: all 0.15s;
+        }
+        .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .btn-submit {
+            width: 100%; padding: 11px; background: var(--primary-blue);
+            color: #fff; border: none; border-radius: 8px; font-size: 14.5px; font-weight: 600; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            transition: background 0.15s; margin-top: 4px;
+        }
+        .btn-submit:hover { background: #1d4ed8; }
     </style>
 </head>
 <body>
-    <header>
-        <h1>元件庫</h1>
-        <a th:href="@{/agency/dashboard}">← 返回行程列表</a>
-    </header>
-    <p>把航班、餐食等級、住宿等級、自費項目建成標準元件，之後在各行程的「報價元件」裡直接掛上去，B2B 報價單會自動加總。</p>
 
-    <table th:if="${!components.isEmpty()}">
-        <thead>
-            <tr><th>名稱</th><th>類型</th><th>預設單價</th><th>說明</th></tr>
-        </thead>
-        <tbody>
-            <tr th:each="c : ${components}">
-                <td th:text="${c.name}"></td>
-                <td><span class="tag" th:text="${c.type}"></span></td>
-                <td th:text="${c.defaultPrice}"></td>
-                <td th:text="${c.description}"></td>
-            </tr>
-        </tbody>
-    </table>
-    <p th:if="${components.isEmpty()}" style="color:#888;">目前還沒有任何元件。</p>
+<!-- Sidebar -->
+<aside class="sidebar">
+    <div class="logo">
+        <i class="fa-regular fa-compass"></i>
+        <div>
+            TEG
+            <span>TRAVELER EASY GATE</span>
+        </div>
+    </div>
+    <nav class="nav-menu">
+        <a th:href="@{/agency/dashboard}" class="nav-item">
+            <i class="fa-solid fa-suitcase"></i> 行程列表
+        </a>
+        <a th:href="@{/poi}" class="nav-item">
+            <i class="fa-solid fa-location-dot"></i> 景點 / 飯店資料庫
+        </a>
+        <a th:href="@{/component}" class="nav-item active">
+            <i class="fa-solid fa-layer-group"></i> 元件庫
+        </a>
+        <a th:href="@{/images}" class="nav-item">
+            <i class="fa-regular fa-image"></i> 圖片資源庫
+        </a>
+    </nav>
+    <div class="help-box">
+        <div>
+            <div style="font-weight: 700; color: var(--text-dark);">需要協助嗎？</div>
+            <div style="color: var(--text-gray); margin-top: 4px;">查看教學文件或聯絡客服</div>
+        </div>
+        <i class="fa-solid fa-chevron-right" style="font-size: 12px;"></i>
+    </div>
+</aside>
 
-    <h2>新增元件</h2>
-    <form class="new-form" method="post" th:action="@{/component/new}">
-        <label>類型</label>
-        <select name="type" required>
-            <option value="flight">航班</option>
-            <option value="meal">餐食</option>
-            <option value="hotel_grade">住宿等級</option>
-            <option value="optional_tour">自費項目</option>
-        </select>
+<!-- Main Content -->
+<main class="main-content">
+    <div class="page-header">
+        <div class="page-title">
+            <i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 元件庫管理
+        </div>
+        <a th:href="@{/agency/dashboard}" style="color: var(--text-gray); font-size: 14px; font-weight: 500;">
+            <i class="fa-solid fa-arrow-left"></i> 返回行程列表
+        </a>
+    </div>
 
-        <label>名稱</label>
-        <input type="text" name="name" placeholder="例：桃園-花蓮 台鐵自強號" required />
+    <p class="page-desc">把航班、餐食等級、住宿等級、自費項目建成標準元件，之後在各行程的「報價元件」裡直接掛上去，B2B 報價單會自動加總成本與售價。</p>
 
-        <label>預設單價</label>
-        <input type="number" step="0.01" name="defaultPrice" placeholder="例：500" />
+    <div class="grid-layout">
+        <!-- 左側：現有元件清單 -->
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-list" style="color: var(--primary-blue);"></i> 現有元件列表
+            </div>
 
-        <label>說明（選填）</label>
-        <input type="text" name="description" />
+            <div class="table-container" th:if="${!components.isEmpty()}">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>名稱</th>
+                        <th>類型</th>
+                        <th>預設單價 (TWD)</th>
+                        <th>說明</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="c : ${components}">
+                        <td><strong th:text="${c.name}"></strong></td>
+                        <td><span class="tag" th:text="${c.type}"></span></td>
+                        <td style="font-weight:600; color:#0f172a;" th:text="${c.defaultPrice != null ? 'NT$ ' + c.defaultPrice : '-'}"></td>
+                        <td style="color: var(--text-gray);" th:text="${c.description != null ? c.description : '-'}"></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
 
-        <button type="submit">新增</button>
-    </form>
+            <div th:if="${components.isEmpty()}" style="padding: 40px 20px; text-align: center; color: var(--text-gray); font-size: 14px;">
+                目前還沒有建立任何報價元件，請利用右側表單新增。
+            </div>
+        </div>
+
+        <!-- 右側：新增元件表單 -->
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 新增元件
+            </div>
+
+            <form class="new-form" method="post" th:action="@{/component/new}">
+                <div class="form-group">
+                    <label class="form-label">類型</label>
+                    <select name="type" class="form-control" required>
+                        <option value="flight">航班</option>
+                        <option value="meal">餐食</option>
+                        <option value="hotel_grade">住宿等級</option>
+                        <option value="optional_tour">自費項目</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">名稱</label>
+                    <input type="text" name="name" class="form-control" placeholder="例：桃園-花蓮 台鐵自強號" required />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">預設單價 (TWD)</label>
+                    <input type="number" step="0.01" name="defaultPrice" class="form-control" placeholder="例：500" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">說明（選填）</label>
+                    <input type="text" name="description" class="form-control" placeholder="備註說明..." />
+                </div>
+
+                <button type="submit" class="btn-submit">
+                    <i class="fa-solid fa-plus"></i> 新增元件
+                </button>
+            </form>
+        </div>
+    </div>
+</main>
+
 </body>
 </html>

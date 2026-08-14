@@ -70,4 +70,13 @@ public class ImageAssetDAOImpl implements ImageAssetDAO {
             em.remove(image);
         }
     }
+
+    // 刪除 POI 前呼叫: 把所有綁定到這個 POI 的圖片解除綁定 (圖片不會被刪, 只是變回未綁定)
+    @Override
+    @Transactional
+    public void clearMatchedPid(int PID) {
+        em.createQuery("UPDATE ImageAsset i SET i.matchedPid = NULL WHERE i.matchedPid = :pid")
+                .setParameter("pid", PID)
+                .executeUpdate();
+    }
 }

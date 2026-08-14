@@ -2,77 +2,391 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>景點資料庫 - Useful Travel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>景點 / 餐廳 / 飯店資料庫 - TRAVELER EASY GATE</title>
+    <!-- Google Fonts & FontAwesome -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 900px; margin: 40px auto; }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        form.search { display: flex; gap: 10px; margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; }
-        .btn { display: inline-block; padding: 8px 16px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; }
-        .tag { font-size: 12px; background: #eef2ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; }
+        :root {
+            --primary-blue: #2563eb;
+            --primary-purple: #8b5cf6;
+            --bg-gray: #f8fafc;
+            --text-dark: #1e293b;
+            --text-gray: #64748b;
+            --border-color: #e2e8f0;
+            --sidebar-width: 260px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--bg-gray);
+            color: var(--text-dark);
+            display: flex;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { text-decoration: none; color: inherit; }
+
+        /* 左側通用側邊欄 (Sidebar) */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: #fff;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 20px;
+            position: fixed;
+            height: 100vh;
+            z-index: 10;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo span { font-size: 10px; color: var(--text-gray); display: block; font-weight: 400; letter-spacing: 1px; }
+
+        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: var(--text-gray);
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .nav-item:hover { background: #f1f5f9; color: var(--text-dark); }
+        .nav-item.active { background: #eff6ff; color: var(--primary-blue); font-weight: 600; }
+
+        .help-box {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+        .help-box i { color: var(--primary-blue); font-size: 20px; }
+
+        /* 主內容工作區 */
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
+
+        .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+
+        .btn-primary {
+            background: var(--primary-blue);
+            color: #fff;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: none;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-primary:hover { background: #1d4ed8; }
+
+        /* 錯誤警告區塊 */
+        .alert-error {
+            background: #fef2f2;
+            color: #991b1b;
+            padding: 12px 18px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 13.5px;
+            border: 1px solid #fecaca;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* 搜尋卡片與篩選欄位 */
+        .search-card {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        .search-form {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .search-input {
+            flex: 2;
+            padding: 10px 14px;
+            font-size: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            outline: none;
+            background: #fff;
+            transition: border-color 0.15s;
+        }
+        .search-input:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .search-select {
+            flex: 1;
+            padding: 10px 14px;
+            font-size: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            outline: none;
+            background: #fff;
+        }
+        .search-select:focus { border-color: var(--primary-blue); }
+        .btn-search {
+            padding: 10px 22px;
+            background: var(--primary-blue);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.15s;
+        }
+        .btn-search:hover { background: #1d4ed8; }
+
+        /* 資料表格 */
+        .table-container {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+        th {
+            background: #f8fafc;
+            padding: 16px 20px;
+            font-size: 13px;
+            color: var(--text-gray);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+        }
+        td {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #fcfdfe; }
+
+        /* 類型標籤 */
+        .tag-category {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .tag-category.attraction { background: #eff6ff; color: var(--primary-blue); }
+        .tag-category.restaurant { background: #fff7ed; color: #ea580c; }
+        .tag-category.hotel { background: #f0fdfa; color: #0d9488; }
+        .tag-category.rest_stop { background: #faf5ff; color: var(--primary-purple); }
+
+        /* 定位狀態標籤 */
+        .geo-badge {
+            font-size: 12.5px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .geo-badge.located { color: #16a34a; }
+        .geo-badge.unlocated { color: #d97706; }
+
+        /* 操作按鈕組 */
+        .action-links {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .btn-edit {
+            color: var(--primary-blue);
+            font-weight: 600;
+            font-size: 13.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .btn-edit:hover { text-decoration: underline; }
+
+        .btn-delete-plain {
+            background: none;
+            border: none;
+            color: #ef4444;
+            cursor: pointer;
+            padding: 0;
+            font-size: 13.5px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .btn-delete-plain:hover { text-decoration: underline; }
+
+        .empty-state {
+            padding: 60px 20px;
+            text-align: center;
+            color: var(--text-gray);
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
-    <header>
-        <h1>景點 / 餐廳 / 飯店資料庫</h1>
+
+<!-- 左側主選單 (TEG 標準側邊欄) -->
+<aside class="sidebar">
+    <div class="logo">
+        <i class="fa-regular fa-compass"></i>
         <div>
-            <a th:href="@{/agency/dashboard}">← 返回行程列表</a>
-            &nbsp;|&nbsp;
-            <a th:href="@{/poi/new}" class="btn">＋ 新增資料</a>
+            TEG
+            <span>TRAVELER EASY GATE</span>
         </div>
-    </header>
+    </div>
+    <nav class="nav-menu">
+        <a th:href="@{/agency/dashboard}" class="nav-item">
+            <i class="fa-solid fa-suitcase"></i> 行程列表
+        </a>
+        <a th:href="@{/poi}" class="nav-item active">
+            <i class="fa-solid fa-location-dot"></i> 景點 / 飯店資料庫
+        </a>
+        <a th:href="@{/component}" class="nav-item">
+            <i class="fa-solid fa-layer-group"></i> 元件庫
+        </a>
+        <a th:href="@{/images}" class="nav-item">
+            <i class="fa-regular fa-image"></i> 圖片資源庫
+        </a>
+    </nav>
+    <div class="help-box">
+        <div>
+            <div style="font-weight: 700; color: var(--text-dark);">需要協助嗎？</div>
+            <div style="color: var(--text-gray); margin-top: 4px;">查看教學文件或聯絡客服</div>
+        </div>
+        <i class="fa-solid fa-chevron-right" style="font-size: 12px;"></i>
+    </div>
+</aside>
 
-    <div th:if="${deleteError}" style="background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:6px;margin-bottom:16px;" th:text="${deleteError}"></div>
+<!-- 主內容工作區 -->
+<main class="main-content">
+    <div class="page-header">
+        <div class="page-title">
+            <i class="fa-solid fa-location-dot" style="color: var(--primary-blue);"></i> 景點 / 餐廳 / 飯店資料庫
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+            <a th:href="@{/agency/dashboard}" style="color: var(--text-gray); font-size: 14px; font-weight: 500;">
+                <i class="fa-solid fa-arrow-left"></i> 回行程列表
+            </a>
+            <a th:href="@{/poi/new}" class="btn-primary">
+                <i class="fa-solid fa-plus"></i> 新增資料
+            </a>
+        </div>
+    </div>
 
-    <form class="search" method="get" th:action="@{/poi}">
-        <input type="text" name="keyword" placeholder="搜尋名稱或城市" th:value="${keyword}" />
-        <select name="category">
-            <option value="">全部類型</option>
-            <option value="attraction" th:selected="${category == 'attraction'}">景點</option>
-            <option value="restaurant" th:selected="${category == 'restaurant'}">餐廳</option>
-            <option value="hotel" th:selected="${category == 'hotel'}">飯店</option>
-            <option value="rest_stop" th:selected="${category == 'rest_stop'}">休息站</option>
-        </select>
-        <button type="submit">搜尋</button>
-    </form>
+    <!-- 刪除失敗或錯誤訊息提示 -->
+    <div th:if="${deleteError}" class="alert-error">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span th:text="${deleteError}"></span>
+    </div>
 
-    <table th:if="${!pois.isEmpty()}">
-        <thead>
+    <!-- 關鍵字與類型搜尋列 -->
+    <div class="search-card">
+        <form class="search-form" method="get" th:action="@{/poi}">
+            <input type="text" name="keyword" class="search-input" placeholder="搜尋景點名稱、國家或城市..." th:value="${keyword}" />
+            <select name="category" class="search-select">
+                <option value="">全部類型</option>
+                <option value="attraction" th:selected="${category == 'attraction'}">景點</option>
+                <option value="restaurant" th:selected="${category == 'restaurant'}">餐廳</option>
+                <option value="hotel" th:selected="${category == 'hotel'}">飯店</option>
+                <option value="rest_stop" th:selected="${category == 'rest_stop'}">休息站</option>
+            </select>
+            <button type="submit" class="btn-search">
+                <i class="fa-solid fa-magnifying-glass"></i> 搜尋
+            </button>
+        </form>
+    </div>
+
+    <!-- 資料庫表格清單 -->
+    <div class="table-container">
+        <table th:if="${pois != null and !pois.isEmpty()}">
+            <thead>
             <tr>
                 <th>名稱</th>
                 <th>類型</th>
-                <th>國家/城市</th>
+                <th>國家 / 城市</th>
                 <th>建議停留時間</th>
-                <th>成本價</th>
-                <th>座標</th>
-                <th></th>
+                <th>成本價 (TWD)</th>
+                <th>座標定位</th>
+                <th>操作</th>
             </tr>
-        </thead>
-        <tbody>
+            </thead>
+            <tbody>
             <tr th:each="poi : ${pois}">
-                <td th:text="${poi.name}"></td>
-                <td><span class="tag" th:text="${poi.category}"></span></td>
-                <td th:text="${poi.country} + ' / ' + ${poi.city}"></td>
-                <td th:text="${poi.suggestedStayMin} + ' 分鐘'"></td>
-                <td th:text="${poi.costPrice != null ? poi.costPrice : '—'}"></td>
                 <td>
-                    <span th:if="${poi.latitude != null}" style="color:#16a34a;">✓ 已定位</span>
-                    <span th:if="${poi.latitude == null}" style="color:#f59e0b;">未定位</span>
+                    <strong th:text="${poi.name}" style="color: var(--text-dark); font-size:14.5px;"></strong>
                 </td>
                 <td>
-                    <a th:href="@{'/poi/' + ${poi.PID} + '/edit'}">編輯</a>
-                    &nbsp;|&nbsp;
-                    <form method="post" th:action="@{'/poi/' + ${poi.PID} + '/delete'}" style="display:inline;"
-                          onsubmit="return confirm('確定要刪除「' + this.dataset.name + '」這筆資料嗎？此動作無法復原。');"
-                          th:attr="data-name=${poi.name}">
-                        <button type="submit" style="background:none;border:none;color:#ef4444;cursor:pointer;padding:0;font-size:14px;">刪除</button>
-                    </form>
+                    <span class="tag-category" th:classappend="${poi.category}" th:text="${poi.category}"></span>
+                </td>
+                <td th:text="${poi.country} + ' / ' + ${poi.city}"></td>
+                <td th:text="${poi.suggestedStayMin != null ? poi.suggestedStayMin + ' 分鐘' : '-'}"></td>
+                <td style="font-weight: 600;" th:text="${poi.costPrice != null ? 'NT$ ' + poi.costPrice : '—'}"></td>
+                <td>
+                        <span th:if="${poi.latitude != null}" class="geo-badge located">
+                            <i class="fa-solid fa-circle-check"></i> 已定位
+                        </span>
+                    <span th:if="${poi.latitude == null}" class="geo-badge unlocated">
+                            <i class="fa-solid fa-circle-question"></i> 未定位
+                        </span>
+                </td>
+                <td>
+                    <div class="action-links">
+                        <a th:href="@{'/poi/' + ${poi.PID} + '/edit'}" class="btn-edit">
+                            <i class="fa-solid fa-pen"></i> 編輯
+                        </a>
+                        <span style="color: #cbd5e1;">|</span>
+                        <form method="post" th:action="@{'/poi/' + ${poi.PID} + '/delete'}" style="display:inline; margin:0;"
+                              onsubmit="return confirm('確定要刪除「' + this.dataset.name + '」這筆資料嗎？此動作無法復原。');"
+                              th:attr="data-name=${poi.name}">
+                            <button type="submit" class="btn-delete-plain">
+                                <i class="fa-solid fa-trash-can"></i> 刪除
+                            </button>
+                        </form>
+                    </div>
                 </td>
             </tr>
-        </tbody>
-    </table>
+            </tbody>
+        </table>
 
-    <p th:if="${pois.isEmpty()}" style="color:#888;">沒有符合條件的資料。</p>
+        <!-- 空白/無資料狀態 -->
+        <div th:if="${pois == null or pois.isEmpty()}" class="empty-state">
+            <i class="fa-solid fa-folder-open" style="font-size: 42px; color: #cbd5e1; margin-bottom: 12px; display: block;"></i>
+            沒有符合條件的資料，點擊右上角「＋ 新增資料」開始建立景點庫！
+        </div>
+    </div>
+</main>
+
 </body>
 </html>

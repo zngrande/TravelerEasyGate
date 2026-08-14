@@ -11,4 +11,5 @@ public interface ImageAssetDAO {
     List<ImageAsset> findByPoi(int PID);
     List<ImageAsset> findUnlinked(int AID);
     void deleteById(int IAID);
+    void clearMatchedPid(int PID);
 }

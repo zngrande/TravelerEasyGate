@@ -1,6 +1,7 @@
 package com.example.UsefulTravel.service;
 
 import com.example.UsefulTravel.DAO.ExportHistoryDAO;
+import com.example.UsefulTravel.DAO.ImageAssetDAO;
 import com.example.UsefulTravel.DAO.ItineraryComponentDAO;
 import com.example.UsefulTravel.DAO.ItineraryDAO;
 import com.example.UsefulTravel.DAO.PoiDAO;
@@ -28,6 +29,22 @@ import java.util.List;
 @Service
 public class ExportService {
 
+    /**
+     * 匯出時要包含哪些內容區塊, 對應前端的勾選視窗
+     */
+    public static class ExportOptions {
+        public boolean includeItinerary = true; // 每日行程內容 (景點/餐廳/住宿/交通/亮點)
+        public boolean includeRoutes = true;    // 拉車距離/時間/迴頭路警示
+        public boolean includeMap = true;       // 每日景點連線地圖圖片
+        public boolean includeImages = false;   // 景點對應的圖片資源庫照片
+
+        public static ExportOptions all() {
+            ExportOptions o = new ExportOptions();
+            o.includeImages = true;
+            return o;
+        }
+    }
+
     private final ItineraryDAO itineraryDAO;
     private final ItineraryService itineraryService;
     private final ItineraryComponentDAO itineraryComponentDAO;
@@ -35,11 +52,14 @@ public class ExportService {
     private final ExportHistoryDAO exportHistoryDAO;
     private final PoiDAO poiDAO;
     private final GoogleMapsClient googleMapsClient;
+    private final ImageAssetDAO imageAssetDAO;
+    private final ImageStorageService imageStorageService;
 
     @Autowired
     public ExportService(ItineraryDAO itineraryDAO, ItineraryService itineraryService,
                           ItineraryComponentDAO itineraryComponentDAO, TravelComponentDAO travelComponentDAO,
-                          ExportHistoryDAO exportHistoryDAO, PoiDAO poiDAO, GoogleMapsClient googleMapsClient) {
+                          ExportHistoryDAO exportHistoryDAO, PoiDAO poiDAO, GoogleMapsClient googleMapsClient,
+                          ImageAssetDAO imageAssetDAO, ImageStorageService imageStorageService) {
         this.itineraryDAO = itineraryDAO;
         this.itineraryService = itineraryService;
         this.itineraryComponentDAO = itineraryComponentDAO;
@@ -47,12 +67,14 @@ public class ExportService {
         this.exportHistoryDAO = exportHistoryDAO;
         this.poiDAO = poiDAO;
         this.googleMapsClient = googleMapsClient;
+        this.imageAssetDAO = imageAssetDAO;
+        this.imageStorageService = imageStorageService;
     }
 
     /**
      * 產生企劃書 Word 檔的位元組內容, 並記錄一筆 export_history
      */
-    public byte[] generateWordDocument(int ITID, String format, Integer generatedByUID) throws Exception {
+    public byte[] generateWordDocument(int ITID, String format, Integer generatedByUID, ExportOptions options) throws Exception {
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary == null) throw new IllegalArgumentException("找不到這筆行程");
 
@@ -61,7 +83,9 @@ public class ExportService {
 
         try (XWPFDocument doc = new XWPFDocument()) {
             addTitlePage(doc, itinerary, isB2B, palette);
-            addDaysContent(doc, itinerary.getITID(), palette);
+            if (options.includeItinerary) {
+                addDaysContent(doc, itinerary.getITID(), palette, options);
+            }
             if (isB2B) {
                 addQuoteTable(doc, itinerary.getITID());
             }
@@ -131,7 +155,7 @@ public class ExportService {
         doc.createParagraph(); // 空行
     }
 
-    private void addDaysContent(XWPFDocument doc, int ITID, StylePalette palette) {
+    private void addDaysContent(XWPFDocument doc, int ITID, StylePalette palette, ExportOptions options) {
         List<ItineraryDay> days = itineraryService.getDays(ITID);
 
         for (ItineraryDay day : days) {
@@ -170,24 +194,33 @@ public class ExportService {
                     noteRun.setFontSize(10);
                 }
 
-                // 顯示這一項跟下一項之間的拉車距離
-                routes.stream()
-                        .filter(r -> r.getFromItemId() == item.getIIID())
-                        .findFirst()
-                        .ifPresent(route -> {
-                            XWPFParagraph routeP = doc.createParagraph();
-                            routeP.setIndentationLeft(500);
-                            XWPFRun routeRun = routeP.createRun();
-                            String prefix = route.isBacktrack() ? "⚠ 疑似迴頭路 · " : "🚗 ";
-                            routeRun.setText(prefix + "約 " + route.getDistanceKm() + " 公里，車程約 "
-                                    + route.getDurationMin() + " 分鐘");
-                            routeRun.setFontSize(9);
-                            routeRun.setItalic(true);
-                            routeRun.setColor("94A3B8");
-                        });
+                // 圖片: 這個項目連結的 POI 如果有綁定圖片資源庫的照片, 插入第一張
+                if (options.includeImages && item.getPID() != null) {
+                    insertItemImage(doc, item.getPID());
+                }
+
+                // 拉車距離: 依勾選決定要不要顯示
+                if (options.includeRoutes) {
+                    routes.stream()
+                            .filter(r -> r.getFromItemId() == item.getIIID())
+                            .findFirst()
+                            .ifPresent(route -> {
+                                XWPFParagraph routeP = doc.createParagraph();
+                                routeP.setIndentationLeft(500);
+                                XWPFRun routeRun = routeP.createRun();
+                                String prefix = route.isBacktrack() ? "⚠ 疑似迴頭路 · " : "🚗 ";
+                                routeRun.setText(prefix + "約 " + route.getDistanceKm() + " 公里，車程約 "
+                                        + route.getDurationMin() + " 分鐘");
+                                routeRun.setFontSize(9);
+                                routeRun.setItalic(true);
+                                routeRun.setColor("94A3B8");
+                            });
+                }
             }
 
-            insertDayMapImage(doc, day.getIDID(), items);
+            if (options.includeMap) {
+                insertDayMapImage(doc, day.getIDID(), items);
+            }
             doc.createParagraph(); // 每天結束空一行
         }
     }
@@ -195,6 +228,31 @@ public class ExportService {
     /**
      * 把這一天的景點連線地圖 (Google Static Maps) 插入企劃書, 沒設定 API key 或沒有座標資料就跳過
      */
+    /**
+     * 插入這個項目連結的 POI 綁定的第一張圖片資源庫照片 (沒有綁定圖片就跳過)
+     */
+    private void insertItemImage(XWPFDocument doc, int PID) {
+        List<com.example.UsefulTravel.entity.ImageAsset> images = imageAssetDAO.findByPoi(PID);
+        if (images.isEmpty()) return;
+
+        try {
+            com.example.UsefulTravel.entity.ImageAsset image = images.get(0);
+            byte[] imageBytes = imageStorageService.load(image.getFilePath());
+
+            int pictureType = (image.getContentType() != null && image.getContentType().contains("png"))
+                    ? XWPFDocument.PICTURE_TYPE_PNG : XWPFDocument.PICTURE_TYPE_JPEG;
+
+            XWPFParagraph imgP = doc.createParagraph();
+            imgP.setIndentationLeft(500);
+            XWPFRun imgRun = imgP.createRun();
+            imgRun.addPicture(new ByteArrayInputStream(imageBytes), pictureType,
+                    image.getOriginalFilename() != null ? image.getOriginalFilename() : "photo",
+                    Units.toEMU(200), Units.toEMU(130));
+        } catch (Exception e) {
+            // 圖片讀取失敗不影響整份企劃書產出, 靜默跳過
+        }
+    }
+
     private void insertDayMapImage(XWPFDocument doc, int IDID, List<ItineraryItem> items) {
         if (!googleMapsClient.isConfigured()) return;
 

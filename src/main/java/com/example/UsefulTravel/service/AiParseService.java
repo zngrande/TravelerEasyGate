@@ -253,9 +253,9 @@ public class AiParseService {
         int ipid = getIpidByItem(APIID);
         AiImport aiImport = aiImportDAO.findById(ipid);
         String country = item.getItemCountry() != null ? item.getItemCountry()
-                : (aiImport != null ? aiImport.getSuggestedCountry() : null);
+                : (aiImport != null ? firstToken(aiImport.getSuggestedCountry()) : null);
         String region = item.getItemRegion() != null ? item.getItemRegion()
-                : (aiImport != null ? aiImport.getSuggestedRegion() : null);
+                : (aiImport != null ? firstToken(aiImport.getSuggestedRegion()) : null);
 
         Poi poi = new Poi(AID, category, item.getName(), country, region, null, null, null);
         poi.setDescription(item.getNote());
@@ -285,6 +285,13 @@ public class AiParseService {
 
     private String nonBlank(String s) {
         return s == null ? "" : s;
+    }
+
+    // 避免多國合併字串 (例如「印度、不丹」) 整包存進 POI 資料庫, 只取第一個當主要國家/地區
+    private String firstToken(String value) {
+        if (value == null) return null;
+        String first = value.split("[、,/]")[0].trim();
+        return first.isEmpty() ? null : first;
     }
 
     // AI 解析出的 item_type 對應到 POI 資料庫的 category (transport/highlight 沒有對應, 不能加入)
@@ -361,7 +368,7 @@ public class AiParseService {
 
             for (AiParsedItem item : aiParsedItemDAO.findByDay(day.getAPDID())) {
                 itineraryService.addItem(realDay.getIDID(), item.getMatchedPid(), item.getItemType(),
-                        item.getName(), item.getStayMinutes());
+                        item.getName(), item.getStayMinutes(), item.getItemCountry(), item.getItemRegion());
             }
         }
 

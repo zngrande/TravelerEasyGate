@@ -30,6 +30,15 @@
 		<java.version>21</java.version>
 	</properties>
 	<dependencies>
+
+        <!-- 熱重載與開發輔助工具 (DevTools) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+
 		<!-- Web MVC -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

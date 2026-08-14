@@ -28,13 +28,23 @@ public class ExportController {
     @GetMapping("/itinerary/{id}/export")
     public ResponseEntity<byte[]> export(@PathVariable("id") int ITID,
                                           @RequestParam(defaultValue = "b2c") String format,
+                                          @RequestParam(defaultValue = "true") boolean includeItinerary,
+                                          @RequestParam(defaultValue = "true") boolean includeRoutes,
+                                          @RequestParam(defaultValue = "true") boolean includeMap,
+                                          @RequestParam(defaultValue = "false") boolean includeImages,
                                           HttpSession session) throws Exception {
         Integer UID = (Integer) session.getAttribute("UID");
         if (UID == null) {
             return ResponseEntity.status(401).build();
         }
 
-        byte[] fileBytes = exportService.generateWordDocument(ITID, format, UID);
+        ExportService.ExportOptions options = new ExportService.ExportOptions();
+        options.includeItinerary = includeItinerary;
+        options.includeRoutes = includeRoutes;
+        options.includeMap = includeMap;
+        options.includeImages = includeImages;
+
+        byte[] fileBytes = exportService.generateWordDocument(ITID, format, UID, options);
 
         String filename = "itinerary_" + ITID + "_" + format + ".docx";
 

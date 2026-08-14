@@ -305,3 +305,9 @@ CREATE TABLE image_asset (
     FOREIGN KEY (matched_pid) REFERENCES poi(PID),
     FOREIGN KEY (uploaded_by) REFERENCES staff_user(UID)
 ) ENGINE=InnoDB;
+
+-- ------------------------------------------------------------
+-- 20. 行程項目也存自己的國家/地區 (從 AI 解析帶過來, 修正看板加入資料庫時抓到合併字串的問題)
+-- ------------------------------------------------------------
+ALTER TABLE itinerary_item ADD COLUMN item_country VARCHAR(50) DEFAULT NULL;
+ALTER TABLE itinerary_item ADD COLUMN item_region VARCHAR(50) DEFAULT NULL;

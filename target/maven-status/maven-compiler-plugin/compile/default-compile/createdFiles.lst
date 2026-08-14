@@ -16,6 +16,7 @@ com\example\UsefulTravel\DAO\ItineraryDayDAO.class
 com\example\UsefulTravel\DAO\TravelComponentDAOImpl.class
 com\example\UsefulTravel\service\ItineraryService.class
 com\example\UsefulTravel\entity\ItineraryItem.class
+com\example\UsefulTravel\service\ExportService$ExportOptions.class
 com\example\UsefulTravel\DAO\RouteSegmentDAOImpl.class
 com\example\UsefulTravel\entity\PoiImage.class
 com\example\UsefulTravel\service\ExportService$StylePalette.class

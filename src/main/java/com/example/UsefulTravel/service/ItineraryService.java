@@ -151,14 +151,17 @@ public class ItineraryService {
             throw new IllegalArgumentException("「" + typeDisplayName(item.getItemType()) + "」不是景點/餐廳/住宿類型，無法加入 POI 資料庫");
         }
 
-        // 從這個項目所屬的行程拿國家/地區, 讓新建的 POI 帶有地區資訊, 也讓地理編碼更準確
-        String country = null, region = null;
-        ItineraryDay day = itineraryDayDAO.findById(item.getIDID());
-        if (day != null) {
-            Itinerary parentItinerary = itineraryDAO.findById(day.getITID());
-            if (parentItinerary != null) {
-                country = parentItinerary.getCountry();
-                region = parentItinerary.getRegion();
+        // 優先用這個項目自己判斷的國家/地區 (更精確, 例如多國行程裡每個景點不同國家)
+        // 項目自己沒有的話才 fallback 用行程層級的國家/地區 (取第一個 token, 避免「印度、不丹」這種合併字串整包存進去)
+        String country = item.getItemCountry(), region = item.getItemRegion();
+        if (country == null) {
+            ItineraryDay day = itineraryDayDAO.findById(item.getIDID());
+            if (day != null) {
+                Itinerary parentItinerary = itineraryDAO.findById(day.getITID());
+                if (parentItinerary != null) {
+                    country = firstToken(parentItinerary.getCountry());
+                    region = region != null ? region : firstToken(parentItinerary.getRegion());
+                }
             }
         }
 
@@ -216,22 +219,41 @@ public class ItineraryService {
         };
     }
 
+    // 避免使用者手動輸入或 AI 判斷出「印度、不丹」這種多國合併字串時整包存進 POI 資料庫,
+    // 只取第一個當作主要國家/地區
+    private String firstToken(String value) {
+        if (value == null) return null;
+        String first = value.split("[、,/]")[0].trim();
+        return first.isEmpty() ? null : first;
+    }
+
     /**
      * 把一個 POI (或自訂項目) 加到某一天的行程尾端
      */
     public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName) {
-        return addItem(IDID, PID, itemType, customName, null);
+        return addItem(IDID, PID, itemType, customName, null, null, null);
     }
 
     /**
      * @param stayDurationMin AI 預估的停留時間(分鐘), 沒有就傳 null (時間軸會用預設值)
      */
     public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName, Integer stayDurationMin) {
+        return addItem(IDID, PID, itemType, customName, stayDurationMin, null, null);
+    }
+
+    /**
+     * @param itemCountry AI 解析時針對這個項目自己判斷出的國家 (比行程層級的國家精確, 例如多國行程)
+     * @param itemRegion  AI 解析時針對這個項目自己判斷出的地區/城市
+     */
+    public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName, Integer stayDurationMin,
+                                  String itemCountry, String itemRegion) {
         List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
         int nextOrder = existing.size();
 
         ItineraryItem item = new ItineraryItem(IDID, PID, itemType, customName, nextOrder);
         item.setStayDurationMin(stayDurationMin);
+        item.setItemCountry(itemCountry);
+        item.setItemRegion(itemRegion);
 
         // 有連結 POI 的話, 直接把座標也複製到項目自己身上 (跟自訂項目走同一套地圖邏輯, 不用每次都查 Poi 表)
         if (PID != null) {

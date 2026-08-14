@@ -45,9 +45,11 @@ public class ImageAssetController {
         return "images/list";
     }
 
-    // POST /images/upload → 上傳圖片 (支援多檔), 上傳完立即做 AI 標籤+自動比對
+    // POST /images/upload → 上傳圖片 (支援多檔), 選了 poiId 就直接綁定, 不跑 AI
     @PostMapping("/upload")
-    public String upload(@RequestParam("files") List<MultipartFile> files, HttpSession session, Model model) {
+    public String upload(@RequestParam("files") List<MultipartFile> files,
+                          @RequestParam(required = false) Integer poiId,
+                          HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null) return "redirect:/login";
@@ -56,7 +58,7 @@ public class ImageAssetController {
         for (MultipartFile file : files) {
             if (file.isEmpty()) continue;
             try {
-                imageAssetService.upload(AID, UID, file);
+                imageAssetService.upload(AID, UID, file, poiId);
             } catch (Exception e) {
                 errors.add(file.getOriginalFilename() + "：" + (e.getMessage() != null ? e.getMessage() : e.toString()));
             }

@@ -45,6 +45,12 @@ public class ItineraryItem {
     @Column(name = "longitude")
     private java.math.BigDecimal longitude;
 
+    @Column(name = "item_country")
+    private String itemCountry; // 這個項目自己所在的國家 (從 AI 解析帶過來, 比行程層級的國家精確)
+
+    @Column(name = "item_region")
+    private String itemRegion; // 這個項目自己所在的地區/城市
+
     public ItineraryItem() {}
 
     public ItineraryItem(int IDID, Integer PID, String itemType, String customName, int sortOrder) {
@@ -90,4 +96,10 @@ public class ItineraryItem {
 
     public java.math.BigDecimal getLongitude() { return longitude; }
     public void setLongitude(java.math.BigDecimal longitude) { this.longitude = longitude; }
+
+    public String getItemCountry() { return itemCountry; }
+    public void setItemCountry(String itemCountry) { this.itemCountry = itemCountry; }
+
+    public String getItemRegion() { return itemRegion; }
+    public void setItemRegion(String itemRegion) { this.itemRegion = itemRegion; }
 }

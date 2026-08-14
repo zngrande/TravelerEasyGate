@@ -2,55 +2,245 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>行程報價元件 - Useful Travel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>行程報價元件 - TRAVELER EASY GATE</title>
+    <!-- Google Fonts & FontAwesome -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 700px; margin: 40px auto; }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; }
-        form.attach-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
-        form.attach-form label { display: block; font-weight: bold; margin-top: 10px; }
-        form.attach-form input, form.attach-form select { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
-        form.attach-form button { margin-top: 16px; padding: 10px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+        :root {
+            --primary-blue: #2563eb;
+            --primary-purple: #8b5cf6;
+            --bg-gray: #f8fafc;
+            --text-dark: #1e293b;
+            --text-gray: #64748b;
+            --border-color: #e2e8f0;
+            --sidebar-width: 260px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--bg-gray);
+            color: var(--text-dark);
+            display: flex;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { text-decoration: none; color: inherit; }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: #fff;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 20px;
+            position: fixed;
+            height: 100vh;
+            z-index: 10;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo span { font-size: 10px; color: var(--text-gray); display: block; font-weight: 400; letter-spacing: 1px; }
+
+        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: var(--text-gray);
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .nav-item:hover { background: #f1f5f9; color: var(--text-dark); }
+        .nav-item.active { background: #eff6ff; color: var(--primary-blue); font-weight: 600; }
+
+        .help-box {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+        .help-box i { color: var(--primary-blue); font-size: 20px; }
+
+        /* Main Content */
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
+
+        .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .header-actions { display: flex; gap: 12px; font-size: 13.5px; font-weight: 500; color: var(--text-gray); }
+        .header-actions a:hover { color: var(--primary-blue); }
+
+        .grid-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: flex-start; }
+
+        .card {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        .card-header {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Table */
+        .table-container { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+        th { background: #f8fafc; padding: 14px 16px; font-size: 13px; color: var(--text-gray); font-weight: 500; border-bottom: 1px solid var(--border-color); }
+        td { padding: 14px 16px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+
+        /* Form */
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+        .form-control {
+            width: 100%; padding: 10px 12px; font-size: 14px;
+            border: 1px solid var(--border-color); border-radius: 8px; outline: none; background: #fff;
+            transition: all 0.15s;
+        }
+        .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .btn-submit {
+            width: 100%; padding: 11px; background: var(--primary-blue);
+            color: #fff; border: none; border-radius: 8px; font-size: 14.5px; font-weight: 600; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            transition: background 0.15s; margin-top: 4px;
+        }
+        .btn-submit:hover { background: #1d4ed8; }
     </style>
 </head>
 <body>
-    <header>
-        <h1>行程報價元件</h1>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+    <div class="logo">
+        <i class="fa-regular fa-compass"></i>
         <div>
-            <a th:href="@{'/itinerary/' + ${itineraryId} + '/board'}">← 返回排版看板</a>
-            &nbsp;|&nbsp;
-            <a th:href="@{/component}">管理元件庫</a>
+            TEG
+            <span>TRAVELER EASY GATE</span>
         </div>
-    </header>
+    </div>
+    <nav class="nav-menu">
+        <a th:href="@{/agency/dashboard}" class="nav-item active">
+            <i class="fa-solid fa-suitcase"></i> 行程列表
+        </a>
+        <a th:href="@{/poi}" class="nav-item">
+            <i class="fa-solid fa-location-dot"></i> 景點 / 飯店資料庫
+        </a>
+        <a th:href="@{/component}" class="nav-item">
+            <i class="fa-solid fa-layer-group"></i> 元件庫
+        </a>
+        <a th:href="@{/images}" class="nav-item">
+            <i class="fa-regular fa-image"></i> 圖片資源庫
+        </a>
+    </nav>
+    <div class="help-box">
+        <div>
+            <div style="font-weight: 700; color: var(--text-dark);">需要協助嗎？</div>
+            <div style="color: var(--text-gray); margin-top: 4px;">查看教學文件或聯絡客服</div>
+        </div>
+        <i class="fa-solid fa-chevron-right" style="font-size: 12px;"></i>
+    </div>
+</aside>
 
-    <table th:if="${!attached.isEmpty()}">
-        <thead><tr><th>元件</th><th>數量</th><th>單價(若有覆寫)</th></tr></thead>
-        <tbody>
-            <tr th:each="ic : ${attached}">
-                <td th:text="'元件 #' + ${ic.CPID}"></td>
-                <td th:text="${ic.quantity}"></td>
-                <td th:text="${ic.priceOverride}"></td>
-            </tr>
-        </tbody>
-    </table>
-    <p th:if="${attached.isEmpty()}" style="color:#888;">這個行程還沒有掛任何報價元件，B2B 匯出的報價表會是空的。</p>
+<!-- Main Content -->
+<main class="main-content">
+    <div class="page-header">
+        <div class="page-title">
+            <i class="fa-solid fa-receipt" style="color: var(--primary-blue);"></i> 行程報價元件配置
+        </div>
+        <div class="header-actions">
+            <a th:href="@{'/itinerary/' + ${itineraryId} + '/board'}"><i class="fa-solid fa-arrow-left"></i> 返回排版看板</a>
+            <span>|</span>
+            <a th:href="@{/component}"><i class="fa-solid fa-gear"></i> 管理元件庫</a>
+        </div>
+    </div>
 
-    <h2>掛上元件</h2>
-    <form class="attach-form" method="post" th:action="@{'/itinerary/' + ${itineraryId} + '/components'}">
-        <label>選擇元件</label>
-        <select name="componentId" required>
-            <option th:each="c : ${allComponents}" th:value="${c.CPID}"
-                    th:text="${c.name} + ' (' + ${c.type} + ') — ' + ${c.defaultPrice}"></option>
-        </select>
+    <div class="grid-layout">
+        <!-- 左側：已掛載的元件列表 -->
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-paperclip" style="color: var(--primary-blue);"></i> 已掛上之報價項目
+            </div>
 
-        <label>數量</label>
-        <input type="number" name="quantity" value="1" min="1" required />
+            <div class="table-container" th:if="${!attached.isEmpty()}">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>元件編號 / 項目</th>
+                        <th>數量</th>
+                        <th>單價 (若有覆寫)</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="ic : ${attached}">
+                        <td><strong th:text="'元件 #' + ${ic.CPID}"></strong></td>
+                        <td th:text="${ic.quantity}"></td>
+                        <td style="font-weight:600; color:#0f172a;" th:text="${ic.priceOverride != null ? 'NT$ ' + ic.priceOverride : '（依預設單價）'}"></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
 
-        <label>單價覆寫（選填，留空就用元件的預設單價）</label>
-        <input type="number" step="0.01" name="priceOverride" />
+            <div th:if="${attached.isEmpty()}" style="padding: 40px 20px; text-align: center; color: var(--text-gray); font-size: 14px;">
+                這個行程還沒有掛任何報價元件，B2B 匯出的報價表將會是空的。
+            </div>
+        </div>
 
-        <button type="submit">掛上這個行程</button>
-    </form>
+        <!-- 右側：掛上新元件表單 -->
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 掛上元件
+            </div>
+
+            <form class="attach-form" method="post" th:action="@{'/itinerary/' + ${itineraryId} + '/components'}">
+                <div class="form-group">
+                    <label class="form-label">選擇元件</label>
+                    <select name="componentId" class="form-control" required>
+                        <option th:each="c : ${allComponents}" th:value="${c.CPID}"
+                                th:text="${c.name} + ' (' + ${c.type} + ') — NT$ ' + ${c.defaultPrice}"></option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">數量</label>
+                    <input type="number" name="quantity" class="form-control" value="1" min="1" required />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">單價覆寫（選填，留空用預設）</label>
+                    <input type="number" step="0.01" name="priceOverride" class="form-control" placeholder="例：450" />
+                </div>
+
+                <button type="submit" class="btn-submit">
+                    <i class="fa-solid fa-link"></i> 掛上這個行程
+                </button>
+            </form>
+        </div>
+    </div>
+</main>
+
 </body>
 </html>

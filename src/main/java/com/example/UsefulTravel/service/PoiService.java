@@ -1,6 +1,7 @@
 package com.example.UsefulTravel.service;
 
 import com.example.UsefulTravel.DAO.AiParsedItemDAO;
+import com.example.UsefulTravel.DAO.ImageAssetDAO;
 import com.example.UsefulTravel.DAO.ItineraryItemDAO;
 import com.example.UsefulTravel.DAO.PoiCooperationLogDAO;
 import com.example.UsefulTravel.DAO.PoiDAO;
@@ -19,14 +20,17 @@ public class PoiService {
     private final PoiCooperationLogDAO poiCooperationLogDAO;
     private final ItineraryItemDAO itineraryItemDAO;
     private final AiParsedItemDAO aiParsedItemDAO;
+    private final ImageAssetDAO imageAssetDAO;
 
     @Autowired
     public PoiService(PoiDAO poiDAO, PoiCooperationLogDAO poiCooperationLogDAO,
-                       ItineraryItemDAO itineraryItemDAO, AiParsedItemDAO aiParsedItemDAO) {
+                      ItineraryItemDAO itineraryItemDAO, AiParsedItemDAO aiParsedItemDAO,
+                      ImageAssetDAO imageAssetDAO) {
         this.poiDAO = poiDAO;
         this.poiCooperationLogDAO = poiCooperationLogDAO;
         this.itineraryItemDAO = itineraryItemDAO;
         this.aiParsedItemDAO = aiParsedItemDAO;
+        this.imageAssetDAO = imageAssetDAO;
     }
 
     public void save(Poi poi) {
@@ -57,9 +61,9 @@ public class PoiService {
     public void delete(int PID) {
         itineraryItemDAO.clearPidReferences(PID);
         aiParsedItemDAO.clearMatchedPid(PID);
+        imageAssetDAO.clearMatchedPid(PID);
         poiDAO.deleteById(PID);
     }
-
     // ---------------- 公司專屬資源庫: 合作紀錄 ----------------
 
     public void addCooperationLog(int PID, LocalDate logDate, String note, Integer createdBy) {

@@ -2,95 +2,502 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>圖片資源庫 - Useful Travel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>圖片資源庫 - TRAVELER EASY GATE</title>
+    <!-- Google Fonts & FontAwesome -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: "Microsoft JhengHei", sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 16px; }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .upload-box { border: 2px dashed #cbd5e1; border-radius: 8px; padding: 24px; text-align: center; margin-bottom: 20px; background: #f8fafc; }
-        .upload-box input[type="file"] { margin: 12px 0; }
-        .upload-box button { padding: 10px 24px; background: #7c3aed; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
-        .filter-bar { margin-bottom: 16px; font-size: 14px; }
-        .filter-bar a { margin-right: 16px; color: #64748b; text-decoration: none; }
-        .filter-bar a.active { color: #7c3aed; font-weight: bold; }
+        :root {
+            --primary-blue: #2563eb;
+            --primary-purple: #8b5cf6;
+            --bg-gray: #f8fafc;
+            --text-dark: #1e293b;
+            --text-gray: #64748b;
+            --border-color: #e2e8f0;
+            --sidebar-width: 260px;
+        }
 
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-        .card { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #fff; }
-        .card img { width: 100%; height: 150px; object-fit: cover; display: block; background: #f1f5f9; }
-        .card-body { padding: 10px; }
-        .card-body .desc { font-size: 12px; color: #475569; margin-bottom: 6px; min-height: 32px; }
-        .tag-pill { display: inline-block; font-size: 10px; background: #ede9fe; color: #6d28d9; padding: 2px 6px; border-radius: 8px; margin: 0 3px 3px 0; }
-        .status-pending { color: #d97706; font-size: 11px; }
-        .status-failed { color: #dc2626; font-size: 11px; }
-        .link-form { margin-top: 8px; display: flex; gap: 6px; }
-        .link-form select { flex: 1; font-size: 11px; padding: 3px; }
-        .link-form button { font-size: 11px; padding: 3px 8px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-        .delete-form button { font-size: 11px; padding: 3px 8px; background: #ef4444; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 6px; }
-        .error-box { background: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
-        .loading { display: none; color: #7c3aed; margin-top: 8px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--bg-gray);
+            color: var(--text-dark);
+            display: flex;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { text-decoration: none; color: inherit; }
+
+        /* Sidebar Styles */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: #fff;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 20px;
+            position: fixed;
+            height: 100vh;
+            z-index: 10;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo span { font-size: 10px; color: var(--text-gray); display: block; font-weight: 400; letter-spacing: 1px; }
+
+        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: var(--text-gray);
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .nav-item:hover { background: #f1f5f9; color: var(--text-dark); }
+        .nav-item.active { background: #eff6ff; color: var(--primary-blue); font-weight: 600; }
+
+        .help-box {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+        .help-box i { color: var(--primary-blue); font-size: 20px; }
+
+        /* Main Content */
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
+
+        .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+
+        /* 錯誤訊息 */
+        .error-box {
+            background: #fef2f2;
+            color: #991b1b;
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 13.5px;
+            border: 1px solid #fecaca;
+        }
+
+        /* 上傳卡片 */
+        .upload-card {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px 28px;
+            margin-bottom: 28px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        .upload-card h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .upload-hint {
+            font-size: 13px;
+            color: var(--text-gray);
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+
+        .filter-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .form-select {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 13.5px;
+            outline: none;
+            background: #fff;
+            color: var(--text-dark);
+        }
+        .form-select:focus {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .file-input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 10px;
+        }
+        .btn-upload {
+            padding: 9px 20px;
+            background: var(--primary-blue);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 13.5px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.15s;
+        }
+        .btn-upload:hover { background: #1d4ed8; }
+        .loading-hint { display: none; color: var(--primary-purple); font-size: 13px; font-weight: 600; }
+
+        /* 標籤頁過濾 (Filter Bar) */
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .filter-tab {
+            padding: 7px 18px;
+            border-radius: 20px;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--text-gray);
+            transition: all 0.15s;
+        }
+        .filter-tab:hover { background: #f8fafc; color: var(--text-dark); }
+        .filter-tab.active {
+            background: #eff6ff;
+            color: var(--primary-blue);
+            border-color: #bfdbfe;
+            font-weight: 600;
+        }
+
+        /* 圖片網格 (Grid) */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 20px;
+        }
+        .image-card {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .image-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .image-thumb-wrap {
+            width: 100%;
+            height: 165px;
+            background: #f1f5f9;
+            overflow: hidden;
+            position: relative;
+        }
+        .image-thumb {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .card-body {
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            justify-content: space-between;
+        }
+        .filename {
+            font-size: 13px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tag-status {
+            display: inline-block;
+            font-size: 11.5px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            width: fit-content;
+        }
+        .tag-status.linked { background: #dcfce7; color: #15803d; }
+        .tag-status.unlinked { background: #fef3c7; color: #b45309; }
+
+        /* 下拉綁定與操作 */
+        .link-form {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .link-form select {
+            flex: 1;
+            font-size: 12px;
+            padding: 5px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            outline: none;
+            background: #f8fafc;
+            color: var(--text-dark);
+        }
+        .link-form button {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 5px 10px;
+            background: var(--primary-blue);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .link-form button:hover { background: #1d4ed8; }
+
+        .card-footer {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
+        }
+        .btn-delete {
+            font-size: 12px;
+            font-weight: 500;
+            padding: 4px 10px;
+            background: #fff;
+            color: #ef4444;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.15s;
+        }
+        .btn-delete:hover { background: #fef2f2; }
+
+        .empty-state {
+            background: #fff;
+            border: 2px dashed var(--border-color);
+            border-radius: 16px;
+            padding: 50px 20px;
+            text-align: center;
+            color: var(--text-gray);
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
-    <header>
-        <h1>圖片資源庫</h1>
-        <a th:href="@{/agency/dashboard}">← 返回行程列表</a>
-    </header>
 
-    <div th:if="${uploadErrors}" class="error-box">
-        <div th:each="err : ${uploadErrors}" th:text="err"></div>
+<!-- Sidebar -->
+<aside class="sidebar">
+    <div class="logo">
+        <i class="fa-regular fa-compass"></i>
+        <div>
+            TEG
+            <span>TRAVELER EASY GATE</span>
+        </div>
+    </div>
+    <nav class="nav-menu">
+        <a th:href="@{/agency/dashboard}" class="nav-item"><i class="fa-solid fa-suitcase"></i> 行程列表</a>
+        <a th:href="@{/poi}" class="nav-item"><i class="fa-solid fa-location-dot"></i> 景點 / 飯店資料庫</a>
+        <a th:href="@{/component}" class="nav-item"><i class="fa-solid fa-layer-group"></i> 元件庫</a>
+        <a th:href="@{/images}" class="nav-item active"><i class="fa-regular fa-image"></i> 圖片資源庫</a>
+    </nav>
+    <div class="help-box">
+        <div>
+            <div style="font-weight: 700; color: var(--text-dark);">需要協助嗎？</div>
+            <div style="color: var(--text-gray); margin-top: 4px;">查看教學文件或聯絡客服</div>
+        </div>
+        <i class="fa-solid fa-chevron-right" style="font-size: 12px;"></i>
+    </div>
+</aside>
+
+<!-- Main Content -->
+<main class="main-content">
+    <div class="page-header">
+        <div class="page-title">
+            <i class="fa-regular fa-image" style="color: var(--primary-blue);"></i> 圖片資源庫
+        </div>
+        <a th:href="@{/agency/dashboard}" style="color: var(--text-gray); font-size: 14px; font-weight: 500;">
+            <i class="fa-solid fa-arrow-left"></i> 回行程列表
+        </a>
     </div>
 
-    <div class="upload-box">
+    <!-- 錯誤提示 -->
+    <div th:if="${uploadErrors}" class="error-box">
+        <div th:each="err : ${uploadErrors}" th:text="${err}"></div>
+    </div>
+
+    <!-- 上傳照片卡片 (含國家/地區/景點篩選綁定) -->
+    <div class="upload-card">
+        <h3><i class="fa-solid fa-cloud-arrow-up" style="color: var(--primary-blue);"></i> 批次上傳照片</h3>
+        <div class="upload-hint">
+            可先篩選國家與地區選擇欲綁定的景點，上傳照片將自動關聯；亦可直接上傳後，在下方卡片中手動關聯景點。
+        </div>
+
         <form method="post" th:action="@{/images/upload}" enctype="multipart/form-data" onsubmit="showLoading()">
-            <div>拖曳或選擇多張照片上傳，上傳後 AI 會自動產生標籤跟描述，並嘗試比對公司景點資料庫</div>
-            <input type="file" name="files" accept="image/*" multiple required />
-            <br/>
-            <button type="submit">上傳並開始 AI 標籤</button>
-            <div class="loading" id="loadingHint">⏳ 上傳並分析中，多張圖片會需要一點時間...</div>
+            <div class="filter-row">
+                <select id="filterCountry" class="form-select" onchange="onCountryChange()">
+                    <option value="">篩選國家（全部）</option>
+                </select>
+                <select id="filterRegion" class="form-select" onchange="onRegionChange()">
+                    <option value="">篩選地區（全部）</option>
+                </select>
+                <select id="poiSelect" name="poiId" class="form-select">
+                    <option value="">（不綁定景點，之後再選）</option>
+                </select>
+            </div>
+
+            <div class="file-input-wrapper">
+                <input type="file" name="files" accept="image/*" multiple required style="font-size: 13.5px; color: var(--text-gray);" />
+                <button type="submit" class="btn-upload">
+                    <i class="fa-solid fa-arrow-up-from-bracket"></i> 上傳圖片
+                </button>
+                <div class="loading-hint" id="loadingHint">
+                    <i class="fa-solid fa-spinner fa-spin"></i> 圖片上傳中，請稍候...
+                </div>
+            </div>
         </form>
     </div>
 
+    <!-- 篩選標籤列 -->
     <div class="filter-bar">
-        <a th:href="@{/images}" th:classappend="${!unlinkedOnly} ? ' active'">全部圖片</a>
-        <a th:href="@{/images(unlinkedOnly=true)}" th:classappend="${unlinkedOnly} ? ' active'">只看未綁定景點</a>
+        <a th:href="@{/images}" class="filter-tab" th:classappend="${!unlinkedOnly} ? ' active'">全部圖片</a>
+        <a th:href="@{/images(unlinkedOnly=true)}" class="filter-tab" th:classappend="${unlinkedOnly} ? ' active'">只看未綁定景點</a>
     </div>
 
+    <!-- 圖片網格 -->
     <div class="grid" th:if="${!images.isEmpty()}">
-        <div class="card" th:each="img : ${images}">
-            <img th:src="@{'/images/' + ${img.IAID} + '/file'}" th:alt="${img.originalFilename}" />
+        <div class="image-card" th:each="img : ${images}">
+            <div class="image-thumb-wrap">
+                <img class="image-thumb" th:src="@{'/images/' + ${img.IAID} + '/file'}" th:alt="${img.originalFilename}" />
+            </div>
             <div class="card-body">
-                <div class="desc" th:text="${img.aiDescription} ?: '（尚無描述）'"></div>
+                <div>
+                    <div class="filename" th:text="${img.originalFilename}" th:title="${img.originalFilename}"></div>
 
-                <div th:if="${img.tagStatus == 'pending'}" class="status-pending">⏳ AI 標籤處理中...</div>
-                <div th:if="${img.tagStatus == 'failed'}" class="status-failed">⚠ AI 標籤失敗</div>
+                    <span th:if="${img.matchedPid != null}" class="tag-status linked"><i class="fa-solid fa-check"></i> 已綁定景點</span>
+                    <span th:if="${img.matchedPid == null}" class="tag-status unlinked"><i class="fa-solid fa-circle-exclamation"></i> 未綁定景點</span>
 
-                <div th:if="${img.tags != null and !img.tags.isEmpty()}">
-                    <span class="tag-pill" th:each="tag : ${#strings.arraySplit(img.tags, ',')}" th:text="${#strings.trim(tag)}"></span>
+                    <!-- 綁定表單 -->
+                    <form class="link-form" method="post" th:action="@{'/images/' + ${img.IAID} + '/link-poi'}">
+                        <select name="poiId">
+                            <option value="">（未綁定景點）</option>
+                            <optgroup th:each="country : ${#sets.toSet(allPois.![country])}" th:label="${country} ?: '（未分類）'">
+                                <option th:each="p : ${allPois}" th:if="${p.country == country}" th:value="${p.PID}"
+                                        th:selected="${img.matchedPid != null and img.matchedPid == p.PID}"
+                                        th:text="${p.name} + (${p.city} != null ? ' (' + ${p.city} + ')' : '')"></option>
+                            </optgroup>
+                        </select>
+                        <button type="submit">套用</button>
+                    </form>
                 </div>
 
-                <form class="link-form" method="post" th:action="@{'/images/' + ${img.IAID} + '/link-poi'}">
-                    <select name="poiId">
-                        <option value="">（未綁定景點）</option>
-                        <option th:each="p : ${allPois}" th:value="${p.PID}"
-                                th:selected="${img.matchedPid != null and img.matchedPid == p.PID}"
-                                th:text="${p.name}"></option>
-                    </select>
-                    <button type="submit">套用</button>
-                </form>
-
-                <form class="delete-form" method="post" th:action="@{'/images/' + ${img.IAID} + '/delete'}"
-                      onsubmit="return confirm('確定要刪除這張圖片嗎？');">
-                    <button type="submit">刪除</button>
-                </form>
+                <!-- 刪除按鈕 -->
+                <div class="card-footer">
+                    <form method="post" th:action="@{'/images/' + ${img.IAID} + '/delete'}"
+                          onsubmit="return confirm('確定要刪除這張圖片嗎？');" style="margin:0;">
+                        <button type="submit" class="btn-delete">
+                            <i class="fa-solid fa-trash-can"></i> 刪除
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
 
-    <p th:if="${images.isEmpty()}" style="color:#94a3b8;text-align:center;padding:40px;">還沒有任何圖片，上傳第一張試試看。</p>
+    <!-- 空白狀態 -->
+    <div th:if="${images.isEmpty()}" class="empty-state">
+        <i class="fa-regular fa-image" style="font-size: 42px; color: #cbd5e1; margin-bottom: 12px; display: block;"></i>
+        還沒有任何圖片素材，立即透過上方上傳第一張照片試試看！
+    </div>
+</main>
 
-    <script>
-        function showLoading() {
-            document.getElementById('loadingHint').style.display = 'block';
-        }
-    </script>
+<script th:inline="javascript">
+    const allPois = /*[[${allPois}]]*/ [];
+
+    function uniqueSorted(values) {
+        return [...new Set(values.filter(v => v))].sort();
+    }
+
+    function initFilters() {
+        const countrySelect = document.getElementById('filterCountry');
+        uniqueSorted(allPois.map(p => p.country)).forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c; opt.textContent = c;
+            countrySelect.appendChild(opt);
+        });
+        populatePoiSelect(allPois);
+    }
+
+    function onCountryChange() {
+        const country = document.getElementById('filterCountry').value;
+        const regionSelect = document.getElementById('filterRegion');
+        regionSelect.innerHTML = '<option value="">篩選地區（全部）</option>';
+
+        const filtered = country ? allPois.filter(p => p.country === country) : allPois;
+        uniqueSorted(filtered.map(p => p.city)).forEach(city => {
+            const opt = document.createElement('option');
+            opt.value = city; opt.textContent = city;
+            regionSelect.appendChild(opt);
+        });
+        populatePoiSelect(filtered);
+    }
+
+    function onRegionChange() {
+        const country = document.getElementById('filterCountry').value;
+        const region = document.getElementById('filterRegion').value;
+        let filtered = allPois;
+        if (country) filtered = filtered.filter(p => p.country === country);
+        if (region) filtered = filtered.filter(p => p.city === region);
+        populatePoiSelect(filtered);
+    }
+
+    function populatePoiSelect(list) {
+        const poiSelect = document.getElementById('poiSelect');
+        poiSelect.innerHTML = '<option value="">（不綁定景點，之後再選）</option>';
+        list.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.PID;
+            opt.textContent = p.name + (p.city ? ` (${p.city})` : '');
+            poiSelect.appendChild(opt);
+        });
+    }
+
+    function showLoading() {
+        document.getElementById('loadingHint').style.display = 'inline-flex';
+    }
+
+    initFilters();
+</script>
 </body>
 </html>
