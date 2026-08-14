@@ -70,10 +70,31 @@ public class ItineraryController {
         model.addAttribute("itineraryId", ITID);
         model.addAttribute("itinerary", itinerary);
         model.addAttribute("days", days);
-        // 左側資料庫依這個行程的國家/地區自動篩選相關景點, 而不是列出旅行社所有國家的資料
-        model.addAttribute("poiList", poiService.listForItinerary(AID,
-                itinerary != null ? itinerary.getCountry() : null,
-                itinerary != null ? itinerary.getRegion() : null));
+
+        // 左側資料庫依這個行程的國家/地區自動篩選相關景點, 而不是列出旅行社所有國家的資料。
+        // 行程標題上的「國家」欄位是線控自己打的單一欄位, 多國行程常常會填「日本、泰國」這種合併字串,
+        // 所以這裡再彙整每一天、每個項目自己 AI 判斷出來的國家 (item_country, 比較精確), 兩邊聯集起來
+        // 一起丟給 PoiDAO 篩選 (PoiDAO 那邊會再拆解、用 IN 比對), 才不會因為合併字串 exact match 不到而整包篩不出東西。
+        java.util.LinkedHashSet<String> countrySet = new java.util.LinkedHashSet<>();
+        if (itinerary != null && itinerary.getCountry() != null && !itinerary.getCountry().isBlank()) {
+            for (String token : itinerary.getCountry().split("[、,，/|]")) {
+                if (!token.trim().isEmpty()) countrySet.add(token.trim());
+            }
+        }
+        for (ItineraryDay day : days) {
+            for (ItineraryItem item : itineraryService.getItems(day.getIDID())) {
+                if (item.getItemCountry() != null && !item.getItemCountry().isBlank()) {
+                    countrySet.add(item.getItemCountry().trim());
+                }
+            }
+        }
+        String mergedCountries = String.join("、", countrySet);
+        // 多國行程時「地區」通常只對應某一國, 混進多國查詢容易誤篩, 交給 PoiDAO 自行判斷是否要套用
+        String regionFilter = itinerary != null ? itinerary.getRegion() : null;
+
+        model.addAttribute("poiList", poiService.listForItinerary(AID, mergedCountries, regionFilter));
+        // 給前端畫「國家篩選標籤」用: 這個行程目前橫跨哪些國家 (只有 2 個以上才需要顯示切換標籤)
+        model.addAttribute("itineraryCountries", new ArrayList<>(countrySet));
         model.addAttribute("googleMapsConfigured", googleMapsClient.isConfigured());
         model.addAttribute("googleMapsApiKey", googleMapsClient.getApiKey());
         return "itinerary/board";
@@ -122,14 +143,22 @@ public class ItineraryController {
         return itineraryService.addCustomItem(IDID, itemType, rawName, stayDurationMin, locationHint);
     }
 
-    // POST /itinerary/day/{IDID}/items/{IIID}/edit → 編輯看板上已存在的項目 (名稱/停留時間/重新定位)
+    // POST /itinerary/day/{IDID}/items/{IIID}/edit → 編輯看板上已存在的項目 (名稱/停留時間/時段/重新定位)
     @PostMapping("/day/{IDID}/items/{IIID}/edit")
     @ResponseBody
     public void editItem(@PathVariable int IIID,
                           @RequestParam String customName,
                           @RequestParam(required = false) Integer stayDurationMin,
-                          @RequestParam(required = false) String locationHint) {
-        itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint);
+                          @RequestParam(required = false) String locationHint,
+                          @RequestParam(required = false) String timeSlot) {
+        itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot);
+    }
+
+    // POST /itinerary/day/{IDID}/auto-arrange → 自動整理這一天: 早餐固定第一個/中午午餐/晚上晚餐(只補沒時段的餐廳)/飯店固定排最後
+    @PostMapping("/day/{IDID}/auto-arrange")
+    @ResponseBody
+    public void autoArrangeDay(@PathVariable int IDID) {
+        itineraryService.autoArrangeDay(IDID);
     }
 
     // GET /itinerary/day/{IDID}/items/{IIID}/options → 取得這個項目的候選點列表 (只有用「或」分隔新增的項目才有多筆)
@@ -244,5 +273,13 @@ public class ItineraryController {
     @ResponseBody
     public void reorder(@PathVariable int IDID, @RequestBody Map<String, List<Integer>> body) {
         itineraryService.reorderItems(IDID, body.get("order"));
+    }
+
+    // POST /itinerary/{id}/reorder-days → 拖曳上方「Day 分頁」排序後儲存新的天數順序
+    // body 範例: { "order": [102, 100, 101] }  <- IDID 陣列, 代表新的 Day1, Day2, Day3...
+    @PostMapping("/{id}/reorder-days")
+    @ResponseBody
+    public void reorderDays(@PathVariable("id") int ITID, @RequestBody Map<String, List<Integer>> body) {
+        itineraryService.reorderDays(ITID, body.get("order"));
     }
 }

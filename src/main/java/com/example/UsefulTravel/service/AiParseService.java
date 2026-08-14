@@ -368,8 +368,12 @@ public class AiParseService {
 
             for (AiParsedItem item : aiParsedItemDAO.findByDay(day.getAPDID())) {
                 itineraryService.addItem(realDay.getIDID(), item.getMatchedPid(), item.getItemType(),
-                        item.getName(), item.getStayMinutes(), item.getItemCountry(), item.getItemRegion());
+                        item.getName(), item.getStayMinutes(), item.getItemCountry(), item.getItemRegion(),
+                        item.getTimeSlot());
             }
+
+            // 套用預設規則: 早餐固定第一個、中午安排午餐、晚上安排晚餐 (只補沒時段的餐廳)、飯店固定排這天最後
+            itineraryService.autoArrangeDay(realDay.getIDID());
         }
 
         aiImport.setStatus("confirmed");

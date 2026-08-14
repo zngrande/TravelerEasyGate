@@ -311,3 +311,10 @@ CREATE TABLE image_asset (
 -- ------------------------------------------------------------
 ALTER TABLE itinerary_item ADD COLUMN item_country VARCHAR(50) DEFAULT NULL;
 ALTER TABLE itinerary_item ADD COLUMN item_region VARCHAR(50) DEFAULT NULL;
+
+-- ------------------------------------------------------------
+-- 21. 行程項目的時段標記 (breakfast/lunch/dinner/morning/noon/afternoon/evening)
+--     AI 解析時就會判斷, 確認轉正式行程後現在會一起帶過來並保留,
+--     看板上也能手動編輯; 用來支援「早餐固定第一個/中午安排午餐/晚上安排晚餐/飯店固定排最後」的自動整理規則
+-- ------------------------------------------------------------
+ALTER TABLE itinerary_item ADD COLUMN time_slot VARCHAR(20) DEFAULT NULL;

@@ -43,8 +43,12 @@
         .greeting { font-size: 22px; font-weight: 700; }
         .user-profile { display: flex; align-items: center; gap: 10px; background: #fff; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border-color); font-size: 14px; font-weight: 500; cursor: pointer;}
 
-        /* Hero Banner */
-        .hero-banner { background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?q=80&w=2021&auto=format&fit=crop') center/cover; border-radius: 16px; padding: 48px; color: #fff; margin-bottom: 32px; }
+        /* Hero Banner：背景改成素材庫圖片循環撥放 (見下方 .hero-bg-layer) */
+        .hero-banner { position: relative; overflow: hidden; border-radius: 16px; padding: 48px; color: #fff; margin-bottom: 32px; }
+        .hero-bg-layer { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity 1.4s ease-in-out; z-index: 0; }
+        .hero-bg-layer.active { opacity: 1; }
+        .hero-overlay { position: absolute; inset: 0; background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)); z-index: 1; }
+        .hero-content { position: relative; z-index: 2; }
         .hero-banner h2 { font-size: 28px; margin-bottom: 8px; }
         .hero-banner p { font-size: 15px; margin-bottom: 24px; opacity: 0.9; }
         .btn-primary { background: var(--primary-blue); color: #fff; padding: 10px 20px; border-radius: 8px; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; border: none; cursor: pointer; }
@@ -75,7 +79,6 @@
         tr:last-child td { border-bottom: none; }
 
         .itinerary-cell { display: flex; align-items: center; gap: 12px; font-weight: 500; }
-        .itinerary-img { width: 48px; height: 36px; border-radius: 6px; object-fit: cover; background: #e2e8f0; }
 
         .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block; }
         /* 簡易狀態顏色對應 (可依照實際需求在 Thymeleaf 中調整) */
@@ -144,13 +147,18 @@
     <!-- 錯誤訊息提示區 -->
     <div th:if="${deleteError}" class="alert" th:text="${deleteError}"></div>
 
-    <!-- Hero Banner -->
+    <!-- Hero Banner：背景使用「素材庫」圖片循環撥放，見頁尾 initHeroCarousel() -->
     <div class="hero-banner">
-        <h2>讓每一段旅程，都清楚而精彩</h2>
-        <p>專業的行程管理工具，讓規劃更高效，執行更順暢。</p>
-        <a th:href="@{/itinerary/new}" class="btn-primary">
-            <i class="fa-solid fa-plus"></i> 建立新行程
-        </a>
+        <div class="hero-bg-layer active" id="heroBgLayer0"></div>
+        <div class="hero-bg-layer" id="heroBgLayer1"></div>
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <h2>讓每一段旅程，都清楚而精彩</h2>
+            <p>專業的行程管理工具，讓規劃更高效，執行更順暢。</p>
+            <a th:href="@{/itinerary/new}" class="btn-primary">
+                <i class="fa-solid fa-plus"></i> 建立新行程
+            </a>
+        </div>
     </div>
 
     <!-- Section Title & AI Button -->
@@ -163,26 +171,26 @@
         </a>
     </div>
 
-    <!-- Stats Cards (此區塊若無後端資料，目前先以靜態展示) -->
+    <!-- Stats Cards：即時計算目前真實資料數量 (見 AgencyController.dashboard()) -->
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-info">
-                <span class="stat-title">進行中的行程</span>
-                <span class="stat-number">06</span>
+                <span class="stat-title">進行中行程</span>
+                <span class="stat-number" th:text="${ongoingCount}">0</span>
             </div>
             <div class="stat-icon"><i class="fa-solid fa-suitcase"></i></div>
         </div>
         <div class="stat-card">
             <div class="stat-info">
-                <span class="stat-title">待確認項目</span>
-                <span class="stat-number">12</span>
+                <span class="stat-title">待確認行程</span>
+                <span class="stat-number" th:text="${pendingCount}">0</span>
             </div>
             <div class="stat-icon"><i class="fa-regular fa-clipboard"></i></div>
         </div>
         <div class="stat-card">
             <div class="stat-info">
                 <span class="stat-title">素材庫圖片</span>
-                <span class="stat-number">248</span>
+                <span class="stat-number" th:text="${imageCount}">0</span>
             </div>
             <div class="stat-icon"><i class="fa-regular fa-image"></i></div>
         </div>
@@ -205,8 +213,6 @@
             <tr th:each="it : ${itineraries}">
                 <td>
                     <div class="itinerary-cell">
-                        <!-- 縮圖預設使用 placeholder，若資料庫有圖片網址可替換 src -->
-                        <img src="https://via.placeholder.com/48x36/e2e8f0/94a3b8?text=Img" class="itinerary-img" alt="cover">
                         <span th:text="${it.title}"></span>
                     </div>
                 </td>
@@ -247,6 +253,36 @@
     </div>
 
 </main>
+
+<script th:inline="javascript">
+    // 素材庫圖片輪播 (Hero Banner 背景)
+    // heroImageUrls 由後端從這個旅行社的「圖片資源庫」隨機挑幾張傳過來；
+    // 如果旅行社還沒上傳過任何圖片，就 fallback 回原本的預設底圖。
+    const heroImageUrls = /*[[${heroImageUrls}]]*/ [];
+    const heroFallbackImage = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?q=80&w=2021&auto=format&fit=crop';
+
+    (function initHeroCarousel() {
+        const layers = [document.getElementById('heroBgLayer0'), document.getElementById('heroBgLayer1')];
+        if (!layers[0] || !layers[1]) return;
+
+        const images = (heroImageUrls && heroImageUrls.length > 0) ? heroImageUrls : [heroFallbackImage];
+        let activeLayerIdx = 0;
+        let current = 0;
+
+        layers[0].style.backgroundImage = `url('${images[0]}')`;
+
+        if (images.length <= 1) return; // 只有一張圖就不用跑輪播
+
+        setInterval(() => {
+            current = (current + 1) % images.length;
+            const nextLayerIdx = 1 - activeLayerIdx;
+            layers[nextLayerIdx].style.backgroundImage = `url('${images[current]}')`;
+            layers[nextLayerIdx].classList.add('active');
+            layers[activeLayerIdx].classList.remove('active');
+            activeLayerIdx = nextLayerIdx;
+        }, 5000); // 每 5 秒淡入下一張
+    })();
+</script>
 
 </body>
 </html>

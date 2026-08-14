@@ -247,6 +247,14 @@ public class ItineraryService {
      */
     public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName, Integer stayDurationMin,
                                   String itemCountry, String itemRegion) {
+        return addItem(IDID, PID, itemType, customName, stayDurationMin, itemCountry, itemRegion, null);
+    }
+
+    /**
+     * @param timeSlot AI 解析或手動指定的時段 (breakfast/lunch/dinner/morning/noon/afternoon/evening), 沒有就傳 null
+     */
+    public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName, Integer stayDurationMin,
+                                  String itemCountry, String itemRegion, String timeSlot) {
         List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
         int nextOrder = existing.size();
 
@@ -254,6 +262,7 @@ public class ItineraryService {
         item.setStayDurationMin(stayDurationMin);
         item.setItemCountry(itemCountry);
         item.setItemRegion(itemRegion);
+        item.setTimeSlot(timeSlot);
 
         // 有連結 POI 的話, 直接把座標也複製到項目自己身上 (跟自訂項目走同一套地圖邏輯, 不用每次都查 Poi 表)
         if (PID != null) {
@@ -362,11 +371,21 @@ public class ItineraryService {
      * 編輯排版看板上已存在的項目: 名稱、停留時間、地點提示 (填了會重新定位, 不填就保留原本座標)
      */
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint) {
+        updateItemDetails(IIID, customName, stayDurationMin, locationHint, null);
+    }
+
+    /**
+     * @param timeSlot 選填, 傳了才會更新時段標記 (breakfast/lunch/dinner/morning/noon/afternoon/evening); 傳空字串會清空
+     */
+    public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint, String timeSlot) {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
         item.setCustomName(customName);
         item.setStayDurationMin(stayDurationMin);
+        if (timeSlot != null) {
+            item.setTimeSlot(timeSlot.isBlank() ? null : timeSlot);
+        }
 
         if (locationHint != null && !locationHint.isBlank()) {
             GoogleMapsClient.GeocodeResult geo = googleMapsClient.resolveLocationHint(locationHint);
@@ -388,6 +407,51 @@ public class ItineraryService {
     }
 
     /**
+     * 自動整理某一天的行程順序與餐別時段, 套用線控慣用的預設規則:
+     *   1. 餐廳類項目沒有手動指定時段的話, 依這天「第幾個出現的餐廳」自動判斷: 第1個=早餐, 第2個=午餐, 第3個(含)以後=晚餐
+     *   2. 住宿類項目一律排在這天最後面 (不管 AI 解析或使用者原本把它插在哪裡)
+     *   3. 其餘項目 (景點/交通/自費/自由活動) 維持原本的相對順序
+     * 只會補上「還沒有時段」的餐廳標記, 已經手動編輯過時段的項目不會被覆蓋掉;
+     * 住宿排最後這條規則則一律套用, 確保「今天最後一站是飯店」這個慣例。
+     */
+    public void autoArrangeDay(int IDID) {
+        List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
+        if (items.isEmpty()) return;
+
+        List<ItineraryItem> hotels = new ArrayList<>();
+        List<ItineraryItem> others = new ArrayList<>();
+        int mealIndex = 0;
+        for (ItineraryItem item : items) {
+            if ("hotel".equals(item.getItemType())) {
+                hotels.add(item);
+                continue;
+            }
+            if ("meal".equals(item.getItemType()) && isBlank(item.getTimeSlot())) {
+                item.setTimeSlot(mealIndex == 0 ? "breakfast" : (mealIndex == 1 ? "lunch" : "dinner"));
+                mealIndex++;
+            } else if ("meal".equals(item.getItemType())) {
+                mealIndex++; // 已經有手動時段的餐廳一樣佔一個順位, 後面自動判斷的餐廳才不會跟它撞名
+            }
+            others.add(item);
+        }
+
+        List<ItineraryItem> arranged = new ArrayList<>(others);
+        arranged.addAll(hotels); // 住宿固定排最後
+
+        for (int i = 0; i < arranged.size(); i++) {
+            ItineraryItem item = arranged.get(i);
+            item.setSortOrder(i);
+            itineraryItemDAO.save(item);
+        }
+
+        recalculateRoutes(IDID);
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    /**
      * 拖曳排序後呼叫: orderedItemIds 是前端拖完之後的新順序 (IIID 陣列)
      */
     public void reorderItems(int IDID, List<Integer> orderedItemIds) {
@@ -395,6 +459,28 @@ public class ItineraryService {
             itineraryItemDAO.updateSortOrder(orderedItemIds.get(i), i);
         }
         recalculateRoutes(IDID);
+    }
+
+    /**
+     * 拖曳上方「Day 分頁」排序後呼叫: orderedDayIds 是前端拖完之後的新順序 (IDID 陣列)。
+     * 只重新分配 day_number (第幾天的標籤), 每一天原本裡面排的景點/餐廳等項目還是跟著同一個
+     * IDID 走, 等於整天的內容被搬到新的位置, 而不是搬動裡面個別的項目。
+     * day_date 如果行程有設定出發日期, 也一併依新順序重算, 讓天數跟日期保持連續對應。
+     */
+    public void reorderDays(int ITID, List<Integer> orderedDayIds) {
+        if (orderedDayIds == null) return;
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        LocalDate startDate = itinerary != null ? itinerary.getStartDate() : null;
+
+        for (int i = 0; i < orderedDayIds.size(); i++) {
+            ItineraryDay day = itineraryDayDAO.findById(orderedDayIds.get(i));
+            if (day == null || day.getITID() != ITID) continue; // 安全檢查: 避免拖到別的行程的 IDID
+            day.setDayNumber(i + 1);
+            if (startDate != null) {
+                day.setDayDate(startDate.plusDays(i));
+            }
+            itineraryDayDAO.save(day);
+        }
     }
 
     /**

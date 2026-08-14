@@ -51,6 +51,9 @@ public class ItineraryItem {
     @Column(name = "item_region")
     private String itemRegion; // 這個項目自己所在的地區/城市
 
+    @Column(name = "time_slot")
+    private String timeSlot; // breakfast/lunch/dinner/morning/noon/afternoon/evening, 用於自動整理排序 (早餐固定第一個/中午午餐/晚上晚餐/飯店排最後)
+
     public ItineraryItem() {}
 
     public ItineraryItem(int IDID, Integer PID, String itemType, String customName, int sortOrder) {
@@ -102,4 +105,7 @@ public class ItineraryItem {
 
     public String getItemRegion() { return itemRegion; }
     public void setItemRegion(String itemRegion) { this.itemRegion = itemRegion; }
+
+    public String getTimeSlot() { return timeSlot; }
+    public void setTimeSlot(String timeSlot) { this.timeSlot = timeSlot; }
 }

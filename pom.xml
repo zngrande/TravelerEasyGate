@@ -97,6 +97,11 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<!-- addResources=true: mvn spring-boot:run 時直接把 src/main/resources 掛上 classpath，跟着原始檔案跑，
+				     改 html/css/js 不用重新編譯/重啟，存檔後直接刷新瀏覽器就會看到最新版本。 -->
+				<configuration>
+					<addResources>true</addResources>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>
