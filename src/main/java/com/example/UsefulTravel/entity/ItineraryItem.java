@@ -54,6 +54,9 @@ public class ItineraryItem {
     @Column(name = "time_slot")
     private String timeSlot; // breakfast/lunch/dinner/morning/noon/afternoon/evening, 用於自動整理排序 (早餐固定第一個/中午午餐/晚上晚餐/飯店排最後)
 
+    @jakarta.persistence.Column(name = "show_on_map")
+    private Boolean showOnMap = true; // 這個項目要不要顯示在地圖上 (可個別關掉, 不影響行程內容本身)
+
     public ItineraryItem() {}
 
     public ItineraryItem(int IDID, Integer PID, String itemType, String customName, int sortOrder) {
@@ -108,4 +111,7 @@ public class ItineraryItem {
 
     public String getTimeSlot() { return timeSlot; }
     public void setTimeSlot(String timeSlot) { this.timeSlot = timeSlot; }
+
+    public Boolean getShowOnMap() { return showOnMap; }
+    public void setShowOnMap(Boolean showOnMap) { this.showOnMap = showOnMap; }
 }

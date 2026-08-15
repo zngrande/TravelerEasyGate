@@ -256,19 +256,64 @@ public class GoogleMapsClient {
      * 產生 Static Maps API 的圖片網址 (含所有點位標記 + 連線), 用於看板顯示跟匯出企劃書內嵌圖片
      */
     public String buildStaticMapUrl(List<double[]> points, int width, int height) {
+        return buildStaticMapUrl(points, null, width, height);
+    }
+
+    /**
+     * @param modes 每一段 (points[i] → points[i+1]) 的交通方式 ("walking"/"driving"), 可以傳 null 或長度不足就全部當開車;
+     *              有設定的話會呼叫 Directions API 把「真實沿道路走的路線」畫進靜態地圖 (不再是直線),
+     *              跟看板上互動地圖的路線一致。任何一段查不到路線就 fallback 成那一段的直線。
+     */
+    public String buildStaticMapUrl(List<double[]> points, List<String> modes, int width, int height) {
         if (!isConfigured() || points.isEmpty()) return null;
 
-        StringBuilder markers = new StringBuilder();
-        StringBuilder path = new StringBuilder("path=color:0x2563ebcc|weight:4");
+        StringBuilder url = new StringBuilder("https://maps.googleapis.com/maps/api/staticmap?size=" + width + "x" + height
+                + "&maptype=roadmap");
+
+        // 每個點的標記 (A/B/C...), 每個 markers 參數的值要單獨做 URL 編碼 (裡面的 | 字元不編碼會是不合法網址)
         for (int i = 0; i < points.size(); i++) {
             double[] p = points.get(i);
-            markers.append("&markers=label:").append((char) ('A' + Math.min(i, 25)))
-                    .append("|").append(p[0]).append(",").append(p[1]);
-            path.append("|").append(p[0]).append(",").append(p[1]);
+            String markerValue = "label:" + (char) ('A' + Math.min(i, 25)) + "|" + p[0] + "," + p[1];
+            url.append("&markers=").append(URLEncoder.encode(markerValue, StandardCharsets.UTF_8));
         }
 
-        return "https://maps.googleapis.com/maps/api/staticmap?size=" + width + "x" + height
-                + "&maptype=roadmap" + markers + "&" + path + "&key=" + apiKey;
+        // 每一段路線: 有辦法查到真實路線 (Directions API) 就用真實路線, 查不到才 fallback 成這一段的直線
+        for (int i = 0; i < points.size() - 1; i++) {
+            String mode = (modes != null && modes.size() > i) ? modes.get(i) : "driving";
+            String encodedPolyline = fetchRoutePolyline(points.get(i), points.get(i + 1), mode);
+
+            String pathValue = encodedPolyline != null
+                    ? "color:0x2563ebcc|weight:4|enc:" + encodedPolyline
+                    : "color:0x2563ebcc|weight:4|" + points.get(i)[0] + "," + points.get(i)[1]
+                    + "|" + points.get(i + 1)[0] + "," + points.get(i + 1)[1];
+            url.append("&path=").append(URLEncoder.encode(pathValue, StandardCharsets.UTF_8));
+        }
+
+        url.append("&key=").append(apiKey);
+        return url.toString();
+    }
+
+    // 呼叫 Directions API 拿兩點之間「真實沿道路走」的路線, 回傳 Google 的編碼折線字串 (encoded polyline), 查不到回傳 null
+    private String fetchRoutePolyline(double[] from, double[] to, String mode) {
+        try {
+            String safeMode = "walking".equalsIgnoreCase(mode) ? "walking" : "driving";
+            String url = "https://maps.googleapis.com/maps/api/directions/json"
+                    + "?origin=" + from[0] + "," + from[1]
+                    + "&destination=" + to[0] + "," + to[1]
+                    + "&mode=" + safeMode + "&key=" + apiKey;
+
+            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(10)).GET().build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) return null;
+
+            JsonNode root = objectMapper.readTree(response.body());
+            if (!"OK".equals(root.path("status").asText())) return null;
+
+            return root.path("routes").path(0).path("overview_polyline").path("points").asText(null);
+        } catch (Exception e) {
+            return null; // 查不到就讓呼叫端 fallback 成直線, 不影響整張圖產出
+        }
     }
 
     /**

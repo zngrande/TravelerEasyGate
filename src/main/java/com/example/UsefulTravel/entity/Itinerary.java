@@ -46,6 +46,9 @@ public class Itinerary {
     @Column(name = "template_style")
     private String templateStyle = "default"; // wenqing / luxury / corporate / default (匯出企劃書時套用的風格)
 
+    @Column(name = "arrange_mode")
+    private String arrangeMode = "meal_time"; // all_last / meal_time, 記錄上次用哪個「自動整理」模式, 看板選單重新整理頁面後還記得
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -97,6 +100,9 @@ public class Itinerary {
 
     public String getTemplateStyle() { return templateStyle; }
     public void setTemplateStyle(String templateStyle) { this.templateStyle = templateStyle; }
+
+    public String getArrangeMode() { return arrangeMode; }
+    public void setArrangeMode(String arrangeMode) { this.arrangeMode = arrangeMode; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

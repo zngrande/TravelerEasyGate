@@ -45,11 +45,11 @@ public class ItineraryController {
     // POST /itinerary/new → 建立行程 + 自動產生 Day1~DayN 骨架
     @PostMapping("/new")
     public String create(@RequestParam String title,
-                          @RequestParam String country,
-                          @RequestParam(required = false) String region,
-                          @RequestParam int daysCount,
-                          @RequestParam(required = false) String startDate,
-                          HttpSession session) {
+                         @RequestParam String country,
+                         @RequestParam(required = false) String region,
+                         @RequestParam int daysCount,
+                         @RequestParam(required = false) String startDate,
+                         HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null || UID == null) return "redirect:/login";
@@ -124,9 +124,9 @@ public class ItineraryController {
     @PostMapping("/day/{IDID}/items")
     @ResponseBody
     public ItineraryItem addItem(@PathVariable int IDID,
-                                  @RequestParam(required = false) Integer PID,
-                                  @RequestParam String itemType,
-                                  @RequestParam(required = false) String customName) {
+                                 @RequestParam(required = false) Integer PID,
+                                 @RequestParam String itemType,
+                                 @RequestParam(required = false) String customName) {
         return itineraryService.addItem(IDID, PID, itemType, customName);
     }
 
@@ -136,29 +136,38 @@ public class ItineraryController {
     @PostMapping("/day/{IDID}/items/custom")
     @ResponseBody
     public ItineraryItem addCustomItem(@PathVariable int IDID,
-                                        @RequestParam String itemType,
-                                        @RequestParam String rawName,
-                                        @RequestParam(required = false) Integer stayDurationMin,
-                                        @RequestParam(required = false) String locationHint) {
+                                       @RequestParam String itemType,
+                                       @RequestParam String rawName,
+                                       @RequestParam(required = false) Integer stayDurationMin,
+                                       @RequestParam(required = false) String locationHint) {
         return itineraryService.addCustomItem(IDID, itemType, rawName, stayDurationMin, locationHint);
     }
 
-    // POST /itinerary/day/{IDID}/items/{IIID}/edit → 編輯看板上已存在的項目 (名稱/停留時間/時段/重新定位)
+    // POST /itinerary/day/{IDID}/items/{IIID}/edit → 編輯看板上已存在的項目 (名稱/停留時間/時段/備註/地圖顯示/重新定位)
     @PostMapping("/day/{IDID}/items/{IIID}/edit")
     @ResponseBody
     public void editItem(@PathVariable int IIID,
-                          @RequestParam String customName,
-                          @RequestParam(required = false) Integer stayDurationMin,
-                          @RequestParam(required = false) String locationHint,
-                          @RequestParam(required = false) String timeSlot) {
-        itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot);
+                         @RequestParam String customName,
+                         @RequestParam(required = false) Integer stayDurationMin,
+                         @RequestParam(required = false) String locationHint,
+                         @RequestParam(required = false) String timeSlot,
+                         @RequestParam(required = false) String note,
+                         @RequestParam(required = false) Boolean showOnMap) {
+        itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap);
     }
 
-    // POST /itinerary/day/{IDID}/auto-arrange → 自動整理這一天: 早餐固定第一個/中午午餐/晚上晚餐(只補沒時段的餐廳)/飯店固定排最後
+    // POST /itinerary/day/{IDID}/auto-arrange → 自動整理這一天 (預設: 餐廳/住宿排到最後面)
     @PostMapping("/day/{IDID}/auto-arrange")
     @ResponseBody
-    public void autoArrangeDay(@PathVariable int IDID) {
-        itineraryService.autoArrangeDay(IDID);
+    public void autoArrangeDay(@PathVariable int IDID, @RequestParam(defaultValue = "meal_time") String mode) {
+        itineraryService.autoArrangeDay(IDID, mode);
+    }
+
+    // POST /itinerary/{id}/auto-arrange → 自動整理「整個行程」(所有天), 不是只有目前這天
+    @PostMapping("/{id}/auto-arrange")
+    @ResponseBody
+    public void autoArrangeItinerary(@PathVariable("id") int ITID, @RequestParam(defaultValue = "meal_time") String mode) {
+        itineraryService.autoArrangeItinerary(ITID, mode);
     }
 
     // GET /itinerary/day/{IDID}/items/{IIID}/options → 取得這個項目的候選點列表 (只有用「或」分隔新增的項目才有多筆)
@@ -197,8 +206,11 @@ public class ItineraryController {
         List<com.example.UsefulTravel.entity.RouteSegment> routes = itineraryService.getRoutes(IDID);
         List<Map<String, Object>> points = new ArrayList<>();
         List<double[]> coords = new ArrayList<>();
+        List<String> modes = new ArrayList<>();
 
         for (ItineraryItem item : items) {
+            if (Boolean.FALSE.equals(item.getShowOnMap())) continue; // 這個項目關閉了「顯示在地圖上」
+
             double lat, lng;
             if (item.getLatitude() != null && item.getLongitude() != null) {
                 lat = item.getLatitude().doubleValue();
@@ -217,7 +229,7 @@ public class ItineraryController {
             point.put("lng", lng);
             point.put("name", item.getCustomName());
 
-            // 找出「這個點 → 下一個點」這段路段的通勤方式, 讓前端用 DirectionsService 畫路線時模式一致
+            // 找出「這個點 → 下一個點」這段路段的通勤方式, 讓前端用 DirectionsService 畫路線、靜態地圖大圖時模式一致
             String mode = routes.stream()
                     .filter(r -> r.getFromItemId() == item.getIIID())
                     .findFirst()
@@ -227,12 +239,13 @@ public class ItineraryController {
 
             points.add(point);
             coords.add(new double[]{lat, lng});
+            modes.add(mode);
         }
 
         Map<String, Object> result = new HashMap<>();
         result.put("points", points);
         result.put("configured", googleMapsClient.isConfigured());
-        result.put("staticMapUrl", googleMapsClient.buildStaticMapUrl(coords, 600, 400));
+        result.put("staticMapUrl", googleMapsClient.buildStaticMapUrl(coords, modes, 600, 400));
         return result;
     }
 
@@ -241,8 +254,8 @@ public class ItineraryController {
     @GetMapping("/day/{IDID}/suggest-between")
     @ResponseBody
     public List<Poi> suggestBetween(@PathVariable int IDID,
-                                     @RequestParam int fromIIID, @RequestParam int toIIID,
-                                     HttpSession session) {
+                                    @RequestParam int fromIIID, @RequestParam int toIIID,
+                                    HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return List.of();
         return itineraryService.suggestPoiBetween(AID, IDID, fromIIID, toIIID);

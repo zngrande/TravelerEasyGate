@@ -105,6 +105,55 @@ public class ItineraryService {
             day.setStartTime(startTime);
             itineraryDayDAO.save(day);
         }
+        // 出發時間改變的話, 中午/晚上的目標時刻也跟著變了, 已經排過早午晚餐的位置要重新算一次
+        // (不重新指定早/午/晚餐的標籤, 只是依「目前已經有的標籤」重新算插入位置)
+        repositionMealsByExistingTimeSlot(IDID, startTime);
+    }
+
+    // 依「這天目前的出發時間」跟每個餐廳「已經有的時段標籤」(早/午/晚餐), 重新計算它們該插入的位置。
+    // 不會動到還沒有時段標籤的餐廳 (那些要靠 autoArrangeDay 才會被指派標籤跟位置)。
+    private void repositionMealsByExistingTimeSlot(int IDID, java.time.LocalTime dayStart) {
+        List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
+        if (items.isEmpty()) return;
+        if (dayStart == null) dayStart = java.time.LocalTime.of(9, 0);
+
+        List<ItineraryItem> hotels = new ArrayList<>();
+        List<ItineraryItem> labeledMeals = new ArrayList<>(); // 已經有早/午/晚餐標籤的餐廳, 要重新定位
+        List<ItineraryItem> anchors = new ArrayList<>();      // 其餘項目 (含還沒標籤的餐廳), 維持原順序當骨架
+
+        for (ItineraryItem item : items) {
+            if ("hotel".equals(item.getItemType())) {
+                hotels.add(item);
+            } else if ("meal".equals(item.getItemType()) && !isBlank(item.getTimeSlot())
+                    && (item.getTimeSlot().equals("breakfast") || item.getTimeSlot().equals("lunch") || item.getTimeSlot().equals("dinner"))) {
+                labeledMeals.add(item);
+            } else {
+                anchors.add(item);
+            }
+        }
+
+        if (labeledMeals.isEmpty()) return; // 沒有已標籤的餐廳需要重新定位, 不用動排序
+
+        List<ItineraryItem> arranged = new ArrayList<>(anchors);
+        for (ItineraryItem meal : labeledMeals) {
+            int insertIndex;
+            if ("breakfast".equals(meal.getTimeSlot())) {
+                insertIndex = 0;
+            } else {
+                java.time.LocalTime target = "lunch".equals(meal.getTimeSlot())
+                        ? java.time.LocalTime.of(12, 0) : java.time.LocalTime.of(18, 0);
+                insertIndex = findIndexForTargetTime(arranged, dayStart, target);
+            }
+            arranged.add(Math.min(insertIndex, arranged.size()), meal);
+        }
+        arranged.addAll(hotels);
+
+        for (int i = 0; i < arranged.size(); i++) {
+            arranged.get(i).setSortOrder(i);
+            itineraryItemDAO.save(arranged.get(i));
+        }
+
+        recalculateRoutes(IDID);
     }
 
     // 切換這天的交通方式 (auto=AI依距離自動推薦 / driving=全部開車 / walking=全部走路)
@@ -387,13 +436,22 @@ public class ItineraryService {
      * 編輯排版看板上已存在的項目: 名稱、停留時間、地點提示 (填了會重新定位, 不填就保留原本座標)
      */
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint) {
-        updateItemDetails(IIID, customName, stayDurationMin, locationHint, null);
+        updateItemDetails(IIID, customName, stayDurationMin, locationHint, null, null, null);
     }
 
     /**
      * @param timeSlot 選填, 傳了才會更新時段標記 (breakfast/lunch/dinner/morning/noon/afternoon/evening); 傳空字串會清空
      */
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint, String timeSlot) {
+        updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, null, null);
+    }
+
+    /**
+     * @param note       項目自己的備註 (不會存進 POI 資料庫, 只跟著這個行程項目, 匯出企劃書時會一起輸出)
+     * @param showOnMap  這個項目要不要顯示在地圖上, 傳 null 代表不更動
+     */
+    public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
+                                  String timeSlot, String note, Boolean showOnMap) {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
@@ -402,12 +460,29 @@ public class ItineraryService {
         if (timeSlot != null) {
             item.setTimeSlot(timeSlot.isBlank() ? null : timeSlot);
         }
+        if (note != null) {
+            item.setNote(note.isBlank() ? null : note);
+        }
+        if (showOnMap != null) {
+            item.setShowOnMap(showOnMap);
+        }
 
         if (locationHint != null && !locationHint.isBlank()) {
             GoogleMapsClient.GeocodeResult geo = googleMapsClient.resolveLocationHint(locationHint);
             if (geo != null) {
                 item.setLatitude(BigDecimal.valueOf(geo.latitude));
                 item.setLongitude(BigDecimal.valueOf(geo.longitude));
+
+                // 如果這個項目本來就連結公司 POI 資料庫, 這次重新定位順便把 POI 本身的經緯度也修正,
+                // 這樣以後別的行程用到同一個 POI 也會是準確的座標, 不用每次都要重新定位一次。
+                if (item.getPID() != null) {
+                    Poi poi = poiDAO.findById(item.getPID());
+                    if (poi != null) {
+                        poi.setLatitude(BigDecimal.valueOf(geo.latitude));
+                        poi.setLongitude(BigDecimal.valueOf(geo.longitude));
+                        poiDAO.save(poi);
+                    }
+                }
             }
         }
 
@@ -431,27 +506,70 @@ public class ItineraryService {
      * 住宿排最後這條規則則一律套用, 確保「今天最後一站是飯店」這個慣例。
      */
     public void autoArrangeDay(int IDID) {
+        autoArrangeDay(IDID, "meal_time");
+    }
+
+    /**
+     * 套用到「整個行程」(所有天), 而不是只有目前這一天。內部就是把每一天各自跑一次 autoArrangeDay。
+     */
+    public void autoArrangeItinerary(int ITID, String mode) {
+        for (ItineraryDay day : itineraryDayDAO.findByItinerary(ITID)) {
+            autoArrangeDay(day.getIDID(), mode);
+        }
+
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary != null) {
+            itinerary.setArrangeMode("meal_time".equals(mode) ? "meal_time" : "all_last");
+            itineraryDAO.save(itinerary);
+        }
+    }
+
+    /**
+     * @param mode "meal_time" (預設): 早餐固定第一個, 午餐/晚餐依累計時間排到接近 12:00/18:00, 住宿排最後
+     *             "all_last": 不管時間, 餐廳跟住宿全部依原本順序排到這一天的最後面 (景點/交通/自費維持在前面)
+     */
+    public void autoArrangeDay(int IDID, String mode) {
         List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
         if (items.isEmpty()) return;
+
+        if ("all_last".equals(mode)) {
+            List<ItineraryItem> anchors = new ArrayList<>();
+            List<ItineraryItem> mealsAndHotels = new ArrayList<>();
+            for (ItineraryItem item : items) {
+                if ("meal".equals(item.getItemType()) || "hotel".equals(item.getItemType())) {
+                    mealsAndHotels.add(item);
+                } else {
+                    anchors.add(item);
+                }
+            }
+            List<ItineraryItem> arranged = new ArrayList<>(anchors);
+            arranged.addAll(mealsAndHotels);
+            for (int i = 0; i < arranged.size(); i++) {
+                arranged.get(i).setSortOrder(i);
+                itineraryItemDAO.save(arranged.get(i));
+            }
+            recalculateRoutes(IDID);
+            return;
+        }
 
         ItineraryDay day = itineraryDayDAO.findById(IDID);
         java.time.LocalTime dayStart = (day != null && day.getStartTime() != null) ? day.getStartTime() : java.time.LocalTime.of(9, 0);
 
         List<ItineraryItem> hotels = new ArrayList<>();
-        List<ItineraryItem> mealsToPlace = new ArrayList<>(); // 還沒時段標記的餐廳, 依原本出現順序
-        List<ItineraryItem> anchors = new ArrayList<>();      // 其餘項目 (景點/交通/自費/自由活動/已手動標記時段的餐廳), 當作時間軸骨架
+        List<ItineraryItem> mealsToPlace = new ArrayList<>(); // 所有餐廳, 依原本出現順序 (這是明確的「重新整理」動作, 不管之前有沒有標過時段, 都強制重新判斷位置)
+        List<ItineraryItem> anchors = new ArrayList<>();      // 其餘項目 (景點/交通/自費/自由活動), 當作時間軸骨架
 
         for (ItineraryItem item : items) {
             if ("hotel".equals(item.getItemType())) {
                 hotels.add(item);
-            } else if ("meal".equals(item.getItemType()) && isBlank(item.getTimeSlot())) {
+            } else if ("meal".equals(item.getItemType())) {
                 mealsToPlace.add(item);
             } else {
                 anchors.add(item);
             }
         }
 
-        // 依序標記: 第1個沒時段的餐廳=早餐, 第2個=午餐, 第3個(以後)=晚餐
+        // 依序標記: 第1個餐廳=早餐, 第2個=午餐, 第3個(以後)=晚餐
         for (int i = 0; i < mealsToPlace.size(); i++) {
             mealsToPlace.get(i).setTimeSlot(i == 0 ? "breakfast" : (i == 1 ? "lunch" : "dinner"));
         }

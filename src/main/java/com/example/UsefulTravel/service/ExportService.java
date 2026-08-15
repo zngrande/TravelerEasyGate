@@ -57,9 +57,9 @@ public class ExportService {
 
     @Autowired
     public ExportService(ItineraryDAO itineraryDAO, ItineraryService itineraryService,
-                          ItineraryComponentDAO itineraryComponentDAO, TravelComponentDAO travelComponentDAO,
-                          ExportHistoryDAO exportHistoryDAO, PoiDAO poiDAO, GoogleMapsClient googleMapsClient,
-                          ImageAssetDAO imageAssetDAO, ImageStorageService imageStorageService) {
+                         ItineraryComponentDAO itineraryComponentDAO, TravelComponentDAO travelComponentDAO,
+                         ExportHistoryDAO exportHistoryDAO, PoiDAO poiDAO, GoogleMapsClient googleMapsClient,
+                         ImageAssetDAO imageAssetDAO, ImageStorageService imageStorageService) {
         this.itineraryDAO = itineraryDAO;
         this.itineraryService = itineraryService;
         this.itineraryComponentDAO = itineraryComponentDAO;
@@ -110,7 +110,7 @@ public class ExportService {
      * 四種模板風格的配色/語氣, 對應 AI 解析時判斷出來的 template_style
      */
     private record StylePalette(String titleColor, String dayHeadingColor, String typeTagColor,
-                                 String subtitleTone, String b2cTagline) {}
+                                String subtitleTone, String b2cTagline) {}
 
     private StylePalette resolvePalette(String style) {
         if (style == null) style = "default";
@@ -219,7 +219,7 @@ public class ExportService {
             }
 
             if (options.includeMap) {
-                insertDayMapImage(doc, day.getIDID(), items);
+                insertDayMapImage(doc, day.getIDID(), items, routes);
             }
             doc.createParagraph(); // 每天結束空一行
         }
@@ -253,24 +253,35 @@ public class ExportService {
         }
     }
 
-    private void insertDayMapImage(XWPFDocument doc, int IDID, List<ItineraryItem> items) {
+    private void insertDayMapImage(XWPFDocument doc, int IDID, List<ItineraryItem> items, List<RouteSegment> routes) {
         if (!googleMapsClient.isConfigured()) return;
 
         List<double[]> coords = new ArrayList<>();
+        List<String> modes = new ArrayList<>();
         for (ItineraryItem item : items) {
+            double[] coord = null;
             if (item.getLatitude() != null && item.getLongitude() != null) {
-                coords.add(new double[]{item.getLatitude().doubleValue(), item.getLongitude().doubleValue()});
+                coord = new double[]{item.getLatitude().doubleValue(), item.getLongitude().doubleValue()};
             } else if (item.getPID() != null) {
                 Poi poi = poiDAO.findById(item.getPID());
                 if (poi != null && poi.getLatitude() != null) {
-                    coords.add(new double[]{poi.getLatitude().doubleValue(), poi.getLongitude().doubleValue()});
+                    coord = new double[]{poi.getLatitude().doubleValue(), poi.getLongitude().doubleValue()};
                 }
             }
+            if (coord == null) continue;
+
+            coords.add(coord);
+            String mode = routes.stream()
+                    .filter(r -> r.getFromItemId() == item.getIIID())
+                    .findFirst()
+                    .map(RouteSegment::getTransportMode)
+                    .orElse("driving");
+            modes.add(mode);
         }
         if (coords.isEmpty()) return;
 
         try {
-            String url = googleMapsClient.buildStaticMapUrl(coords, 640, 400);
+            String url = googleMapsClient.buildStaticMapUrl(coords, modes, 640, 400);
             byte[] imageBytes = googleMapsClient.fetchStaticMapImage(url);
 
             XWPFParagraph mapP = doc.createParagraph();
@@ -279,7 +290,15 @@ public class ExportService {
             mapRun.addPicture(new ByteArrayInputStream(imageBytes), XWPFDocument.PICTURE_TYPE_PNG,
                     "map.png", Units.toEMU(400), Units.toEMU(250));
         } catch (Exception e) {
-            // 地圖下載失敗不影響整份企劃書產出, 靜默跳過就好
+            // 不再靜默跳過: 直接在文件裡印出失敗原因, 不然完全看不出來是哪裡出問題
+            // (最常見原因: Google Cloud 還沒啟用 Maps Static API, 這是跟 Places/Distance Matrix 分開的權限)
+            XWPFParagraph errP = doc.createParagraph();
+            XWPFRun errRun = errP.createRun();
+            errRun.setText("⚠ 地圖圖片載入失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString())
+                    + "（常見原因：Google Cloud 專案還沒啟用 Maps Static API）");
+            errRun.setColor("DC2626");
+            errRun.setFontSize(9);
+            errRun.setItalic(true);
         }
     }
 
