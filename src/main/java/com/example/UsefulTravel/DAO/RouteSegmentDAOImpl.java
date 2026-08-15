@@ -29,6 +29,12 @@ public class RouteSegmentDAOImpl implements RouteSegmentDAO {
     }
 
     @Override
+    @Transactional
+    public void update(RouteSegment segment) {
+        em.merge(segment);
+    }
+
+    @Override
     public List<RouteSegment> findByDay(int IDID) {
         return em.createQuery(
                 "SELECT r FROM RouteSegment r WHERE r.IDID = :idid ORDER BY r.RSID ASC", RouteSegment.class)
@@ -43,5 +49,20 @@ public class RouteSegmentDAOImpl implements RouteSegmentDAO {
         em.createQuery("DELETE FROM RouteSegment r WHERE r.IDID = :idid")
                 .setParameter("idid", IDID)
                 .executeUpdate();
+    }
+
+    @Override
+    public RouteSegment findById(int RSID) {
+        return em.find(RouteSegment.class, RSID);
+    }
+
+    @Override
+    @Transactional
+    public void updateTransportMode(int RSID, String mode) {
+        RouteSegment seg = em.find(RouteSegment.class, RSID);
+        if (seg != null) {
+            seg.setTransportMode(mode);
+            em.merge(seg);
+        }
     }
 }

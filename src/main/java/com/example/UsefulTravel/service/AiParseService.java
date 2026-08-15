@@ -260,10 +260,18 @@ public class AiParseService {
         Poi poi = new Poi(AID, category, item.getName(), country, region, null, null, null);
         poi.setDescription(item.getNote());
 
-        // 地理編碼跟 AI 停留時間估算平行呼叫 (兩個都是外部 API 呼叫, 依序做的話等於等兩次網路來回)
-        String geocodeQuery = String.join(" ", nonBlank(item.getName()), nonBlank(region), nonBlank(country)).trim();
-        java.util.concurrent.CompletableFuture<GoogleMapsClient.GeocodeResult> geoFuture =
-                java.util.concurrent.CompletableFuture.supplyAsync(() -> googleMapsClient.geocode(geocodeQuery, country));
+        // 地理編碼 (先試 Places API 準確定位, 找不到再 fallback Geocoding API) 跟 AI 停留時間估算平行呼叫,
+        // 兩個都是外部 API 呼叫, 依序做的話等於等兩次網路來回。飛機/飯店早餐這類不需要座標的項目直接跳過地理編碼。
+        java.util.concurrent.CompletableFuture<GoogleMapsClient.GeocodeResult> geoFuture;
+        if (shouldGeocode(item.getItemType(), item.getTimeSlot(), item.getName())) {
+            String geocodeQuery = String.join(" ", nonBlank(item.getName()), nonBlank(region), nonBlank(country)).trim();
+            geoFuture = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                GoogleMapsClient.GeocodeResult r = googleMapsClient.findPlace(geocodeQuery, country);
+                return r != null ? r : googleMapsClient.geocode(geocodeQuery, country);
+            });
+        } else {
+            geoFuture = java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
         java.util.concurrent.CompletableFuture<Integer> stayFuture = (item.getStayMinutes() != null)
                 ? java.util.concurrent.CompletableFuture.completedFuture(item.getStayMinutes())
                 : java.util.concurrent.CompletableFuture.supplyAsync(() -> anthropicClient.estimateStayMinutes(item.getName(), category, null));
@@ -281,6 +289,16 @@ public class AiParseService {
         aiParsedItemDAO.save(item);
 
         return poi;
+    }
+
+    // 判斷這個項目是否需要自動地理編碼: 飛機不用, 純飯店內早餐(沒有具體店名)也不用, 其餘一律要定位
+    private boolean shouldGeocode(String itemType, String timeSlot, String name) {
+        if ("transport".equals(itemType)) return false;
+        if ("meal".equals(itemType) && "breakfast".equals(timeSlot)
+                && (name == null || name.contains("飯店") || name.contains("早餐"))) {
+            return false;
+        }
+        return true;
     }
 
     private String nonBlank(String s) {

@@ -39,10 +39,10 @@ public class ItineraryService {
 
     @Autowired
     public ItineraryService(ItineraryDAO itineraryDAO, ItineraryDayDAO itineraryDayDAO,
-                             ItineraryItemDAO itineraryItemDAO, ItineraryItemOptionDAO itineraryItemOptionDAO,
-                             RouteSegmentDAO routeSegmentDAO,
-                             RouteService routeService, PoiDAO poiDAO, AiImportDAO aiImportDAO,
-                             GoogleMapsClient googleMapsClient, AnthropicClient anthropicClient) {
+                            ItineraryItemDAO itineraryItemDAO, ItineraryItemOptionDAO itineraryItemOptionDAO,
+                            RouteSegmentDAO routeSegmentDAO,
+                            RouteService routeService, PoiDAO poiDAO, AiImportDAO aiImportDAO,
+                            GoogleMapsClient googleMapsClient, AnthropicClient anthropicClient) {
         this.itineraryDAO = itineraryDAO;
         this.itineraryDayDAO = itineraryDayDAO;
         this.itineraryItemDAO = itineraryItemDAO;
@@ -59,12 +59,12 @@ public class ItineraryService {
      * 建立新行程, 依 daysCount 自動產生 Day1 ~ DayN 空白骨架
      */
     public Itinerary createItinerary(int AID, int createdBy, String title, String country,
-                                      int daysCount, LocalDate startDate) {
+                                     int daysCount, LocalDate startDate) {
         return createItinerary(AID, createdBy, title, country, null, daysCount, startDate);
     }
 
     public Itinerary createItinerary(int AID, int createdBy, String title, String country, String region,
-                                      int daysCount, LocalDate startDate) {
+                                     int daysCount, LocalDate startDate) {
         Itinerary itinerary = new Itinerary(AID, createdBy, title, country, daysCount);
         itinerary.setRegion(region);
         itinerary.setStartDate(startDate);
@@ -107,13 +107,16 @@ public class ItineraryService {
         }
     }
 
-    // 切換這天的交通方式 (開車/走路), 切換後要重新算一次拉車時間, 不然還是舊方式的數字
+    // 切換這天的交通方式 (auto=AI依距離自動推薦 / driving=全部開車 / walking=全部走路)
+    // 這是「整天強制套用」的動作, 選 driving/walking 時會蓋掉每一段個別選過的通勤方式; 選 auto 則交還給 AI 重新判斷
     public void updateDayTransportMode(int IDID, String transportMode) {
         ItineraryDay day = itineraryDayDAO.findById(IDID);
         if (day != null) {
-            day.setTransportMode("walking".equalsIgnoreCase(transportMode) ? "walking" : "driving");
+            String normalized = "walking".equalsIgnoreCase(transportMode) ? "walking"
+                    : "auto".equalsIgnoreCase(transportMode) ? "auto" : "driving";
+            day.setTransportMode(normalized);
             itineraryDayDAO.save(day);
-            recalculateRoutes(IDID);
+            recalculateRoutes(IDID, false); // false = 不保留每段的手動覆寫, 全部依新設定重算
         }
     }
 
@@ -151,8 +154,6 @@ public class ItineraryService {
             throw new IllegalArgumentException("「" + typeDisplayName(item.getItemType()) + "」不是景點/餐廳/住宿類型，無法加入 POI 資料庫");
         }
 
-        // 優先用這個項目自己判斷的國家/地區 (更精確, 例如多國行程裡每個景點不同國家)
-        // 項目自己沒有的話才 fallback 用行程層級的國家/地區 (取第一個 token, 避免「印度、不丹」這種合併字串整包存進去)
         String country = item.getItemCountry(), region = item.getItemRegion();
         if (country == null) {
             ItineraryDay day = itineraryDayDAO.findById(item.getIDID());
@@ -167,34 +168,29 @@ public class ItineraryService {
 
         Poi poi = new Poi(AID, category, item.getCustomName(), country, region, null, null, null);
 
-        // 停留時間估算跟「補查座標」(如果項目自己還沒有座標的話) 平行呼叫, 減少等待時間
-        java.util.concurrent.CompletableFuture<Integer> stayFuture =
-                java.util.concurrent.CompletableFuture.supplyAsync(
-                        () -> anthropicClient.estimateStayMinutes(item.getCustomName(), category, null));
-
-        // 這個項目自己如果已經有座標 (自訂項目/已選好的選項/剛編輯過) 就直接沿用, 比重新查名稱準確
         if (item.getLatitude() != null && item.getLongitude() != null) {
             poi.setLatitude(item.getLatitude());
             poi.setLongitude(item.getLongitude());
-        } else {
-            String geocodeQuery = String.join(" ",
-                    item.getCustomName() != null ? item.getCustomName() : "",
-                    region != null ? region : "",
-                    country != null ? country : "").trim();
-            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(geocodeQuery, country);
+        } else if (shouldGeocode(item.getItemType(), item.getTimeSlot(), item.getCustomName())) {
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.findPlace(
+                    String.join(" ", item.getCustomName(), region != null ? region : "", country != null ? country : ""), country);
+            if (geo == null) {
+                geo = googleMapsClient.geocode(
+                        String.join(" ", item.getCustomName(), region != null ? region : "", country != null ? country : ""), country);
+            }
             if (geo != null) {
-                poi.setLatitude(java.math.BigDecimal.valueOf(geo.latitude));
-                poi.setLongitude(java.math.BigDecimal.valueOf(geo.longitude));
+                poi.setLatitude(BigDecimal.valueOf(geo.latitude));
+                poi.setLongitude(BigDecimal.valueOf(geo.longitude));
             }
         }
 
-        poi.setSuggestedStayMin(stayFuture.join());
-
         poiDAO.save(poi);
-
         item.setPID(poi.getPID());
+        if (poi.getLatitude() != null) {
+            item.setLatitude(poi.getLatitude());
+            item.setLongitude(poi.getLongitude());
+        }
         itineraryItemDAO.save(item);
-
         return poi;
     }
 
@@ -246,7 +242,7 @@ public class ItineraryService {
      * @param itemRegion  AI 解析時針對這個項目自己判斷出的地區/城市
      */
     public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName, Integer stayDurationMin,
-                                  String itemCountry, String itemRegion) {
+                                 String itemCountry, String itemRegion) {
         return addItem(IDID, PID, itemType, customName, stayDurationMin, itemCountry, itemRegion, null);
     }
 
@@ -254,7 +250,7 @@ public class ItineraryService {
      * @param timeSlot AI 解析或手動指定的時段 (breakfast/lunch/dinner/morning/noon/afternoon/evening), 沒有就傳 null
      */
     public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName, Integer stayDurationMin,
-                                  String itemCountry, String itemRegion, String timeSlot) {
+                                 String itemCountry, String itemRegion, String timeSlot) {
         List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
         int nextOrder = existing.size();
 
@@ -270,6 +266,20 @@ public class ItineraryService {
             if (poi != null && poi.getLatitude() != null) {
                 item.setLatitude(poi.getLatitude());
                 item.setLongitude(poi.getLongitude());
+            }
+        } else if (shouldGeocode(itemType, timeSlot, customName)) {
+            // 沒有連結 POI (通常是 AI 解析出來、但公司資料庫裡還沒有的新景點) 也要自動查座標,
+            // 不然這種項目在地圖上永遠不會出現。邏輯跟 addCustomItem 一致: 先試 Places API 找地點,
+            // 找不到再退回一般地理編碼。
+            String query = String.join(" ", customName != null ? customName : "",
+                    itemRegion != null ? itemRegion : "", itemCountry != null ? itemCountry : "").trim();
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.findPlace(query, itemCountry);
+            if (geo == null) {
+                geo = googleMapsClient.geocode(query, itemCountry);
+            }
+            if (geo != null) {
+                item.setLatitude(BigDecimal.valueOf(geo.latitude));
+                item.setLongitude(BigDecimal.valueOf(geo.longitude));
             }
         }
 
@@ -315,13 +325,19 @@ public class ItineraryService {
         for (String name : names) {
             GoogleMapsClient.GeocodeResult geo = null;
 
-            // 第一個候選點如果有填地點提示 (地址/Google地圖網址), 優先用它定位, 比純名稱查詢準確很多
-            if (first && locationHint != null && !locationHint.isBlank()) {
-                geo = googleMapsClient.resolveLocationHint(locationHint);
-            }
-            if (geo == null) {
-                String query = String.join(" ", name, region != null ? region : "", country != null ? country : "").trim();
-                geo = googleMapsClient.geocode(query, country);
+            if (!shouldGeocode(itemType, null, name)) {
+                // 飛機/飯店早餐：不查座標，直接跳過
+            } else {
+                if (first && locationHint != null && !locationHint.isBlank()) {
+                    geo = googleMapsClient.resolveLocationHint(locationHint);
+                }
+                if (geo == null) {
+                    String query = String.join(" ", name, region != null ? region : "", country != null ? country : "").trim();
+                    geo = googleMapsClient.findPlace(query, country);
+                    if (geo == null) {
+                        geo = googleMapsClient.geocode(query, country);
+                    }
+                }
             }
 
             BigDecimal lat = geo != null ? BigDecimal.valueOf(geo.latitude) : null;
@@ -418,24 +434,42 @@ public class ItineraryService {
         List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
         if (items.isEmpty()) return;
 
+        ItineraryDay day = itineraryDayDAO.findById(IDID);
+        java.time.LocalTime dayStart = (day != null && day.getStartTime() != null) ? day.getStartTime() : java.time.LocalTime.of(9, 0);
+
         List<ItineraryItem> hotels = new ArrayList<>();
-        List<ItineraryItem> others = new ArrayList<>();
-        int mealIndex = 0;
+        List<ItineraryItem> mealsToPlace = new ArrayList<>(); // 還沒時段標記的餐廳, 依原本出現順序
+        List<ItineraryItem> anchors = new ArrayList<>();      // 其餘項目 (景點/交通/自費/自由活動/已手動標記時段的餐廳), 當作時間軸骨架
+
         for (ItineraryItem item : items) {
             if ("hotel".equals(item.getItemType())) {
                 hotels.add(item);
-                continue;
+            } else if ("meal".equals(item.getItemType()) && isBlank(item.getTimeSlot())) {
+                mealsToPlace.add(item);
+            } else {
+                anchors.add(item);
             }
-            if ("meal".equals(item.getItemType()) && isBlank(item.getTimeSlot())) {
-                item.setTimeSlot(mealIndex == 0 ? "breakfast" : (mealIndex == 1 ? "lunch" : "dinner"));
-                mealIndex++;
-            } else if ("meal".equals(item.getItemType())) {
-                mealIndex++; // 已經有手動時段的餐廳一樣佔一個順位, 後面自動判斷的餐廳才不會跟它撞名
-            }
-            others.add(item);
         }
 
-        List<ItineraryItem> arranged = new ArrayList<>(others);
+        // 依序標記: 第1個沒時段的餐廳=早餐, 第2個=午餐, 第3個(以後)=晚餐
+        for (int i = 0; i < mealsToPlace.size(); i++) {
+            mealsToPlace.get(i).setTimeSlot(i == 0 ? "breakfast" : (i == 1 ? "lunch" : "dinner"));
+        }
+
+        // 早餐固定放最前面, 午餐/晚餐依累計停留時間算出最接近目標時間 (12:00 / 18:00) 的位置插進去
+        List<ItineraryItem> arranged = new ArrayList<>(anchors);
+        for (ItineraryItem meal : mealsToPlace) {
+            int insertIndex;
+            if ("breakfast".equals(meal.getTimeSlot())) {
+                insertIndex = 0;
+            } else {
+                java.time.LocalTime target = "lunch".equals(meal.getTimeSlot())
+                        ? java.time.LocalTime.of(12, 0) : java.time.LocalTime.of(18, 0);
+                insertIndex = findIndexForTargetTime(arranged, dayStart, target);
+            }
+            arranged.add(Math.min(insertIndex, arranged.size()), meal);
+        }
+
         arranged.addAll(hotels); // 住宿固定排最後
 
         for (int i = 0; i < arranged.size(); i++) {
@@ -445,6 +479,33 @@ public class ItineraryService {
         }
 
         recalculateRoutes(IDID);
+    }
+
+    // 依「目前已排好的項目序列」累加停留時間, 找出最接近目標時間 (12:00/18:00) 該插在第幾個位置
+    // (只用停留時間估算, 沒有把拉車時間算進去, 是簡化過的推算, 不是精準排程)
+    private int findIndexForTargetTime(List<ItineraryItem> sequence, java.time.LocalTime dayStart, java.time.LocalTime target) {
+        java.time.LocalTime current = dayStart;
+        for (int i = 0; i < sequence.size(); i++) {
+            ItineraryItem it = sequence.get(i);
+            int dur = it.getStayDurationMin() != null ? it.getStayDurationMin() : defaultStayMinutes(it.getItemType());
+            java.time.LocalTime end = current.plusMinutes(dur);
+            if (!end.isBefore(target)) {
+                return i + 1; // 這一項結束時已經超過目標時間, 插在它後面
+            }
+            current = end;
+        }
+        return sequence.size();
+    }
+
+    private int defaultStayMinutes(String itemType) {
+        if (itemType == null) return 60;
+        return switch (itemType) {
+            case "attraction" -> 90;
+            case "meal" -> 60;
+            case "hotel" -> 0;
+            case "transport" -> 0;
+            default -> 60;
+        };
     }
 
     private boolean isBlank(String s) {
@@ -486,13 +547,31 @@ public class ItineraryService {
     /**
      * 排序異動後, 清掉舊的路段快取並重新請 RouteService 算一次
      * (實際的地圖/距離計算邏輯放在 RouteService, 方便未來替換 Google Maps API)
+     *
+     * 預設會保留每一段先前已經手動指定過的通勤方式 (見 preserveSegmentOverrides), 不然使用者每次
+     * 拖曳排序、加項目、刪項目, 剛剛手動選好的走路/開車就會被整天重算蓋掉。
      */
     private void recalculateRoutes(int IDID) {
+        recalculateRoutes(IDID, true);
+    }
+
+    private void recalculateRoutes(int IDID, boolean preserveSegmentOverrides) {
+        java.util.Map<String, String> overrides = java.util.Map.of();
+        if (preserveSegmentOverrides) {
+            overrides = routeSegmentDAO.findByDay(IDID).stream()
+                    .filter(seg -> seg.getTransportMode() != null)
+                    .collect(java.util.stream.Collectors.toMap(
+                            seg -> seg.getFromItemId() + "-" + seg.getToItemId(),
+                            com.example.UsefulTravel.entity.RouteSegment::getTransportMode,
+                            (a, b) -> a));
+        }
+
         routeSegmentDAO.deleteByDay(IDID);
         List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
         ItineraryDay day = itineraryDayDAO.findById(IDID);
-        String transportMode = day != null && day.getTransportMode() != null ? day.getTransportMode() : "driving";
-        routeService.calculateAndSaveSegments(IDID, items, transportMode);
+        // "auto" 代表不強制整天用同一種方式, 讓 RouteService 針對每一段依實際距離用 AI 判斷推薦
+        String transportMode = day != null && day.getTransportMode() != null ? day.getTransportMode() : "auto";
+        routeService.calculateAndSaveSegments(IDID, items, transportMode, overrides);
     }
 
     /**
@@ -547,5 +626,20 @@ public class ItineraryService {
                 * Math.sin(dLon / 2) * Math.sin(dLon / 2);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c;
+    }
+
+    private boolean shouldGeocode(String itemType, String timeSlot, String customName) {
+        if ("transport".equals(itemType)) return false; // 飛機不需要座標
+        if ("meal".equals(itemType) && "breakfast".equals(timeSlot)
+                && (customName == null || customName.contains("飯店") || customName.contains("早餐"))) {
+            return false; // 純飯店內早餐，跟飯店同一個點，不用額外標記
+        }
+        return true; // 其餘（含所有具名餐廳）都要定位
+    }
+
+    public void updateSegmentTransportMode(int IDID, int RSID, String mode) {
+        routeSegmentDAO.updateTransportMode(RSID, mode);
+        // 只重算這一段, 不用整天重算
+        routeService.recalculateSingleSegment(RSID, mode);
     }
 }

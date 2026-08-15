@@ -283,4 +283,33 @@ public class GoogleMapsClient {
         }
         return response.body();
     }
+
+    /**
+     * 用 Places API 的 Find Place From Text 查詢景點/餐廳名稱, 準確率比 Geocoding API 高很多
+     * (Geocoding API 是設計給「地址」用的, 對店名/景點名容易抓錯)
+     */
+    public GeocodeResult findPlace(String query, String countryName) {
+        if (!isConfigured() || query == null || query.isBlank()) return null;
+        try {
+            String url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+                    + "?input=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                    + "&inputtype=textquery&fields=geometry,name"
+                    + "&language=zh-TW&key=" + apiKey;
+
+            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(10)).GET().build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) return null;
+
+            JsonNode root = objectMapper.readTree(response.body());
+            if (!"OK".equals(root.path("status").asText())) return null;
+
+            JsonNode location = root.path("candidates").path(0).path("geometry").path("location");
+            if (location.isMissingNode()) return null;
+
+            return new GeocodeResult(location.path("lat").asDouble(), location.path("lng").asDouble());
+        } catch (Exception e) {
+            return null; // 找不到就讓呼叫端 fallback 到 geocode()
+        }
+    }
 }

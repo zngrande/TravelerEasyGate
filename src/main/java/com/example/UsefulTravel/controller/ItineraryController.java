@@ -194,6 +194,7 @@ public class ItineraryController {
     @ResponseBody
     public Map<String, Object> getMapData(@PathVariable int IDID) {
         List<ItineraryItem> items = itineraryService.getItems(IDID);
+        List<com.example.UsefulTravel.entity.RouteSegment> routes = itineraryService.getRoutes(IDID);
         List<Map<String, Object>> points = new ArrayList<>();
         List<double[]> coords = new ArrayList<>();
 
@@ -215,6 +216,15 @@ public class ItineraryController {
             point.put("lat", lat);
             point.put("lng", lng);
             point.put("name", item.getCustomName());
+
+            // 找出「這個點 → 下一個點」這段路段的通勤方式, 讓前端用 DirectionsService 畫路線時模式一致
+            String mode = routes.stream()
+                    .filter(r -> r.getFromItemId() == item.getIIID())
+                    .findFirst()
+                    .map(com.example.UsefulTravel.entity.RouteSegment::getTransportMode)
+                    .orElse("driving");
+            point.put("mode", mode);
+
             points.add(point);
             coords.add(new double[]{lat, lng});
         }
@@ -281,5 +291,12 @@ public class ItineraryController {
     @ResponseBody
     public void reorderDays(@PathVariable("id") int ITID, @RequestBody Map<String, List<Integer>> body) {
         itineraryService.reorderDays(ITID, body.get("order"));
+    }
+
+    // POST /itinerary/day/{IDID}/segments/{RSID}/mode → 手動覆寫單一段的通勤方式, 並重算該段時間/距離
+    @PostMapping("/day/{IDID}/segments/{RSID}/mode")
+    @ResponseBody
+    public void updateSegmentMode(@PathVariable int IDID, @PathVariable int RSID, @RequestParam String mode) {
+        itineraryService.updateSegmentTransportMode(IDID, RSID, mode);
     }
 }

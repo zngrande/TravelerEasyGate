@@ -79,7 +79,10 @@ public class PoiController {
         if (latitude == null || longitude == null) {
             String query = String.join(" ",
                     name, city != null ? city : "", country != null ? country : "").trim();
-            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(query, country);
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.findPlace(query, country);
+            if (geo == null) {
+                geo = googleMapsClient.geocode(query, country);
+            }
             if (geo != null) {
                 poi.setLatitude(BigDecimal.valueOf(geo.latitude));
                 poi.setLongitude(BigDecimal.valueOf(geo.longitude));
@@ -143,9 +146,13 @@ public class PoiController {
             poi.setLongitude(longitude);
         } else {
             // 經緯度留空: 用最新的名稱/地址重新查一次, 找不到就保留原本的值 (不清空)
+            // 先試 Places API (對店名/景點名準確率高很多), 找不到再 fallback Geocoding API (適合純地址)
             String query = String.join(" ",
                     name, city != null ? city : "", country != null ? country : "").trim();
-            GoogleMapsClient.GeocodeResult geo = googleMapsClient.geocode(query, country);
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.findPlace(query, country);
+            if (geo == null) {
+                geo = googleMapsClient.geocode(query, country);
+            }
             if (geo != null) {
                 poi.setLatitude(BigDecimal.valueOf(geo.latitude));
                 poi.setLongitude(BigDecimal.valueOf(geo.longitude));
