@@ -107,19 +107,20 @@ public class ExportService {
     // ---------------- 模板樣式配色 ----------------
 
     /**
-     * 四種模板風格的配色/語氣, 對應 AI 解析時判斷出來的 template_style
+     * 內建版面固定用一種配色/語氣。
+     *
+     * 原本這裡是依 itinerary.getTemplateStyle() (AI 解析時猜的 wenqing/luxury/corporate/default)
+     * 切換四種配色 — 現在旅行社可以自己上傳範本 (TemplateMergeService) 決定風格,
+     * 內建版面只是「沒上傳範本時」的陽春 fallback, 不需要再讓 AI 猜風格。
+     *
+     * AiParseService 那邊目前還是會判斷/寫入 template_style, 先留著沒清掉 (不影響任何輸出結果,
+     * 之後如果想順便把那段 AI 判斷邏輯也拿掉, 再另外處理, 這裡不動它)。
      */
     private record StylePalette(String titleColor, String dayHeadingColor, String typeTagColor,
                                 String subtitleTone, String b2cTagline) {}
 
     private StylePalette resolvePalette(String style) {
-        if (style == null) style = "default";
-        return switch (style) {
-            case "wenqing" -> new StylePalette("78716C", "57534E", "92400E", "64748B", "一段慢下來，好好感受的旅程");
-            case "luxury" -> new StylePalette("92400E", "B45309", "78350F", "78350F", "為您量身打造的頂級尊榮之旅");
-            case "corporate" -> new StylePalette("1E3A8A", "1D4ED8", "3730A3", "334155", "企業員工旅遊行程規劃書");
-            default -> new StylePalette("1E3A8A", "2563EB", "4338CA", "64748B", "為您精心規劃的專屬旅程");
-        };
+        return new StylePalette("1E3A8A", "2563EB", "4338CA", "64748B", "為您精心規劃的專屬旅程");
     }
 
     // ---------------- 內部組版邏輯 ----------------

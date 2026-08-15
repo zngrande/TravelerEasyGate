@@ -16,7 +16,7 @@
             --text-dark: #1e293b;
             --text-gray: #64748b;
             --border-color: #e2e8f0;
-            --sidebar-width: 240px;
+            --sidebar-width: 200px;
 
             --tag-attraction: #4338ca;
             --tag-attraction-bg: #eef2ff;
@@ -40,44 +40,6 @@
             -webkit-font-smoothing: antialiased;
         }
         a { text-decoration: none; color: inherit; }
-
-        /* 側邊導覽列 */
-        .sidebar {
-            width: var(--sidebar-width);
-            background: #fff;
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            padding: 20px 16px;
-            position: fixed;
-            height: 100vh;
-            z-index: 20;
-        }
-        .logo {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--primary-blue);
-            margin-bottom: 32px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .logo span { font-size: 10px; color: var(--text-gray); display: block; font-weight: 400; letter-spacing: 1px; }
-
-        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-        .nav-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 14px;
-            border-radius: 8px;
-            color: var(--text-gray);
-            font-weight: 500;
-            font-size: 13.5px;
-            transition: all 0.2s;
-        }
-        .nav-item:hover { background: #f1f5f9; color: var(--text-dark); }
-        .nav-item.active { background: #eff6ff; color: var(--primary-blue); font-weight: 600; }
 
         /* 主內容工作區 */
         .main-content {
@@ -243,22 +205,8 @@
 </head>
 <body>
 
-<!-- 側邊欄 -->
-<aside class="sidebar">
-    <div class="logo">
-        <i class="fa-regular fa-compass"></i>
-        <div>
-            TEG
-            <span>TRAVELER EASY GATE</span>
-        </div>
-    </div>
-    <nav class="nav-menu">
-        <a th:href="@{/agency/dashboard}" class="nav-item active"><i class="fa-solid fa-suitcase"></i> 行程列表</a>
-        <a th:href="@{/poi}" class="nav-item"><i class="fa-solid fa-location-dot"></i> 景點 / 飯店資料庫</a>
-        <a th:href="@{/component}" class="nav-item"><i class="fa-solid fa-layer-group"></i> 元件庫</a>
-        <a th:href="@{/images}" class="nav-item"><i class="fa-regular fa-image"></i> 圖片資源庫</a>
-    </nav>
-</aside>
+<!-- 左側主選單 -->
+<aside th:replace="~{fragments/sidebar :: sidebar(active='itinerary', userName=${session.name})}"></aside>
 
 <!-- 主內容區 -->
 <main class="main-content">

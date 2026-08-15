@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!--
+  共用側邊欄 fragment。用法:
+  <aside th:replace="~{fragments/sidebar :: sidebar(active='poi')}"></aside>
+
+  active 參數對應哪個 nav-item 要加 .active, 可傳:
+  'itinerary' | 'poi' | 'component' | 'images' | 'export-template'
+
+  userName 參數是選填的: 有傳的話, 側邊欄最下面會多顯示登入者名稱 + 登出連結
+  (目前只有 agency/dashboard.html 有帶這個參數, 其他頁面不用傳這個變數,
+  fragment 內部會自己判斷 userName 是不是空的)
+
+  用這個 fragment 的頁面記得自己的 <style> 裡要有 .sidebar / .logo / .nav-menu /
+  .nav-item / .help-box / .user-profile 這幾個 class 的樣式 (跟 agency/dashboard.html 對齊),
+  這個檔案只負責統一「內容/連結」, 不重複帶樣式, 避免跟各頁面自己的 <style> 打架。
+-->
+<aside class="sidebar" th:fragment="sidebar(active, userName)">
+
+    <style th:inline="css">
+        .sidebar {
+            width: var(--sidebar-width, 260px);
+            background: #fff;
+            border-right: 1px solid var(--border-color, #e2e8f0);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 20px;
+            position: fixed;
+            height: 100vh;
+            z-index: 10;
+        }
+        .logo { font-size: 20px; font-weight: 700; color: var(--primary-blue, #2563eb); margin-bottom: 40px; display: flex; align-items: center; gap: 10px; }
+        .logo span { font-size: 10px; color: var(--text-gray, #64748b); display: block; font-weight: 400; letter-spacing: 1px; }
+        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-gray, #64748b); font-weight: 500; transition: all 0.2s; text-decoration: none; }
+        .nav-item:hover { background: #f1f5f9; color: var(--text-dark, #0f172a); }
+        .nav-item.active { background: #eff6ff; color: var(--primary-blue, #2563eb); font-weight: 600; }
+        .help-box { background: #f8fafc; border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 16px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; cursor: pointer; margin-bottom: 12px; }
+        .help-box i { color: var(--primary-blue, #2563eb); font-size: 20px; }
+        .user-profile { display: flex; align-items: center; gap: 10px; background: #fff; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border-color, #e2e8f0); font-size: 14px; font-weight: 500; }
+    </style>
+
+    <div class="logo">
+        <i class="fa-regular fa-compass"></i>
+        <div>
+            TEG
+            <span>TRAVELER EASY GATE</span>
+        </div>
+    </div>
+    <nav class="nav-menu">
+        <a th:href="@{/agency/dashboard}" class="nav-item" th:classappend="${active == 'itinerary'} ? ' active' : ''">
+            <i class="fa-solid fa-suitcase"></i> 行程列表
+        </a>
+        <a th:href="@{/poi}" class="nav-item" th:classappend="${active == 'poi'} ? ' active' : ''">
+            <i class="fa-solid fa-location-dot"></i> 景點資料庫
+        </a>
+        <a th:href="@{/component}" class="nav-item" th:classappend="${active == 'component'} ? ' active' : ''">
+            <i class="fa-solid fa-layer-group"></i> 元件資料庫
+        </a>
+        <a th:href="@{/images}" class="nav-item" th:classappend="${active == 'images'} ? ' active' : ''">
+            <i class="fa-regular fa-image"></i> 圖片資料庫
+        </a>
+        <a th:href="@{/export-templates}" class="nav-item" th:classappend="${active == 'export-template'} ? ' active' : ''">
+            <i class="fa-solid fa-file-word"></i> 行程輸出範本
+        </a>
+    </nav>
+    <div class="help-box">
+        <div>
+            <div style="font-weight: 700; color: var(--text-dark);">需要協助嗎？</div>
+            <div style="color: var(--text-gray); margin-top: 4px;">查看教學文件</div>
+        </div>
+        <i class="fa-solid fa-chevron-right" style="font-size: 12px;"></i>
+    </div>
+    <div class="user-profile" th:if="${userName != null}">
+        <i class="fa-solid fa-circle-user" style="color: #cbd5e1; font-size: 24px;"></i>
+        <span th:text="${userName}">使用者名稱</span>
+        <a th:href="@{/logout}" style="margin-left: 8px; color: var(--text-gray);"><i class="fa-solid fa-sign-out-alt"></i></a>
+    </div>
+</aside>
+
+</body>
+</html>

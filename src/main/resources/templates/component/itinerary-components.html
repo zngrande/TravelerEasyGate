@@ -15,7 +15,7 @@
             --text-dark: #1e293b;
             --text-gray: #64748b;
             --border-color: #e2e8f0;
-            --sidebar-width: 260px;
+            --sidebar-width: 200px;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -28,57 +28,6 @@
             -webkit-font-smoothing: antialiased;
         }
         a { text-decoration: none; color: inherit; }
-
-        /* Sidebar */
-        .sidebar {
-            width: var(--sidebar-width);
-            background: #fff;
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            padding: 24px 20px;
-            position: fixed;
-            height: 100vh;
-            z-index: 10;
-        }
-        .logo {
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--primary-blue);
-            margin-bottom: 40px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .logo span { font-size: 10px; color: var(--text-gray); display: block; font-weight: 400; letter-spacing: 1px; }
-
-        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-        .nav-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 16px;
-            border-radius: 8px;
-            color: var(--text-gray);
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .nav-item:hover { background: #f1f5f9; color: var(--text-dark); }
-        .nav-item.active { background: #eff6ff; color: var(--primary-blue); font-weight: 600; }
-
-        .help-box {
-            background: #f8fafc;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 13px;
-            cursor: pointer;
-            margin-bottom: 12px;
-        }
-        .help-box i { color: var(--primary-blue); font-size: 20px; }
 
         /* Main Content */
         .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }

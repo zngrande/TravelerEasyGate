@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>行程輸出範本 - TRAVELER EASY GATE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-blue: #2563eb;
+            --bg-gray: #f8fafc;
+            --text-dark: #1e293b;
+            --text-gray: #64748b;
+            --border-color: #e2e8f0;
+            --sidebar-width: 200px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+        a { text-decoration: none; color: inherit; }
+
+        /* 主內容工作區 */
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
+        .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+
+        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 10px; padding: 24px; margin-bottom: 24px; max-width: 780px; }
+        .card h2 { font-size: 15px; margin-bottom: 16px; }
+        .form-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+        .form-row label { font-size: 13px; color: var(--text-gray); width: 90px; }
+        .form-row input[type=text] { flex: 1; min-width: 200px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; }
+        .form-row input[type=file] { flex: 1; min-width: 200px; }
+        .btn { background: var(--primary-blue); color: #fff; border: none; padding: 9px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .btn:hover { background: #1d4ed8; }
+        .btn.danger { background: #fff; color: #dc2626; border: 1px solid #fecaca; }
+        .btn.danger:hover { background: #fef2f2; }
+        .btn.ghost { background: #fff; color: var(--text-gray); border: 1px solid var(--border-color); }
+        .btn.ghost:hover { background: #f1f5f9; }
+        table { width: 100%; border-collapse: collapse; max-width: 780px; }
+        th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border-color); font-size: 13px; }
+        th { color: var(--text-gray); font-weight: 500; }
+        .badge { background: #eff6ff; color: var(--primary-blue); font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+        .empty { color: var(--text-gray); font-size: 13px; padding: 20px 0; }
+        .hint { color: var(--text-gray); font-size: 12px; margin-top: 8px; }
+        .msg { font-size: 13px; margin-top: 10px; display: none; }
+        .msg.error { color: #dc2626; }
+        .msg.success { color: #16a34a; }
+    </style>
+</head>
+<body>
+
+<aside th:replace="~{fragments/sidebar :: sidebar(active='export-template', userName=${session.name})}"></aside>
+
+<main class="main-content">
+    <div class="page-header">
+        <div class="page-title"><i class="fa-solid fa-file-word" style="color: var(--primary-blue);"></i> 行程輸出範本</div>
+    </div>
+
+    <div class="card">
+        <h2>上傳新範本</h2>
+        <div class="form-row">
+            <label>範本名稱</label>
+            <input type="text" id="templateName" placeholder="例如：北海道熱門版" />
+        </div>
+        <div class="form-row">
+            <label>檔案</label>
+            <input type="file" id="templateFile" accept=".docx" />
+        </div>
+        <div class="form-row">
+            <label></label>
+            <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                <input type="checkbox" id="templateSetDefault" /> 設為預設範本
+            </label>
+        </div>
+        <button class="btn" onclick="uploadTemplate()">上傳</button>
+        <div class="hint">
+            範本要照特定標記規則製作（{{title}}、{{day_start}}...{{day_end}} 等），
+            規則說明請跟系統管理員索取 template-placeholder-spec.md。
+        </div>
+        <div id="uploadMsg" class="msg"></div>
+    </div>
+
+    <div class="card">
+        <h2>我的範本</h2>
+        <table th:if="${not #lists.isEmpty(templates)}">
+            <thead>
+                <tr><th>名稱</th><th>上傳時間</th><th>狀態</th><th></th></tr>
+            </thead>
+            <tbody>
+                <tr th:each="t : ${templates}">
+                    <td th:text="${t.name}">範本名稱</td>
+                    <td th:text="${#temporals.format(t.createdAt, 'yyyy/MM/dd HH:mm')}">2026/01/01</td>
+                    <td>
+                        <span th:if="${t.default}" class="badge">預設</span>
+                    </td>
+                    <td>
+                        <button th:if="${!t.default}" class="btn ghost" th:onclick="'setDefault(' + ${t.AETID} + ')'">設為預設</button>
+                        <button class="btn danger" th:onclick="'deleteTemplate(' + ${t.AETID} + ')'">刪除</button>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${#lists.isEmpty(templates)}">還沒有上傳任何範本，上傳後就能在匯出行程時選用。</div>
+    </div>
+</main>
+
+<script>
+    function uploadTemplate() {
+        const fileInput = document.getElementById('templateFile');
+        const name = document.getElementById('templateName').value.trim();
+        const setDefault = document.getElementById('templateSetDefault').checked;
+        const msg = document.getElementById('uploadMsg');
+
+        if (!fileInput.files.length) { showMsg(msg, '請選擇 .docx 檔案', true); return; }
+        if (!name) { showMsg(msg, '請輸入範本名稱', true); return; }
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('name', name);
+        formData.append('setDefault', setDefault);
+
+        fetch('/export-templates/upload', { method: 'POST', body: formData })
+            .then(async res => {
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || '上傳失敗');
+                showMsg(msg, '上傳成功', false);
+                setTimeout(() => location.reload(), 600);
+            })
+            .catch(err => showMsg(msg, err.message, true));
+    }
+
+    function setDefault(aetid) {
+        fetch(`/export-templates/${aetid}/set-default`, { method: 'POST' })
+            .then(res => { if (res.ok) location.reload(); });
+    }
+
+    function deleteTemplate(aetid) {
+        if (!confirm('確定要刪除這份範本嗎？')) return;
+        fetch(`/export-templates/${aetid}`, { method: 'DELETE' })
+            .then(res => { if (res.ok) location.reload(); });
+    }
+
+    function showMsg(el, text, isError) {
+        el.textContent = text;
+        el.className = 'msg ' + (isError ? 'error' : 'success');
+        el.style.display = 'block';
+    }
+</script>
+
+</body>
+</html>
