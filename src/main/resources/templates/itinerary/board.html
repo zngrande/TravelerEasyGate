@@ -8,9 +8,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
-    <script th:if="${googleMapsConfigured}"
-            th:src="@{'https://maps.googleapis.com/maps/api/js?key=' + ${googleMapsApiKey} + '&callback=onGoogleMapsReady'}"
-            async defer></script>
+    <!-- 注意: 不要在這裡直接用 <script src=".../maps/api/js?...callback=onGoogleMapsReady" async> 載入,
+         因為 async 腳本一下載完就會立刻呼叫 window.onGoogleMapsReady, 如果這個時間點早於頁面下方
+         定義 onGoogleMapsReady 函式的那段 <script> 執行完, 呼叫就會失敗、googleMapsReady 旗標永遠卡在 false,
+         導致地圖路線預覽永遠停在初始的「尚未在行程中添加景點」畫面 (但開大圖用的 Static Maps API 是純圖片網址,
+         不受影響, 所以會誤以為地圖設定沒問題)。改成在下面定義完 onGoogleMapsReady 之後才動態載入這支 script。 -->
     <style>
         :root {
             --primary-blue: #2563eb;
@@ -34,12 +36,14 @@
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
         body {
             font-family: 'Noto Sans TC', sans-serif;
             background-color: var(--bg-gray);
             color: var(--text-dark);
             display: flex;
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden; /* 整個瀏覽器視窗不要出現捲軸, 只有中間行程清單自己滾動 (見 .main-col) */
             -webkit-font-smoothing: antialiased;
         }
         a { text-decoration: none; color: inherit; }
@@ -50,7 +54,8 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden; /* 跟 body 一樣不整頁捲動, 高度固定滿版, 讓下面 board-wrapper/board-body 去分配空間 */
         }
 
         /* 頂部操作導覽列 */
@@ -98,6 +103,8 @@
         .btn-nav.b2b:hover { background: #ffe4e6; }
         .btn-nav.comp { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
         .btn-nav.comp:hover { background: #dbeafe; }
+        .btn-nav.done { background: #f0fdf4; border-color: #bbf7d0; color: #16a34a; }
+        .btn-nav.done:hover { background: #dcfce7; }
 
         /* 看板核心工作區 */
         .board-wrapper {
@@ -106,9 +113,16 @@
             flex-direction: column;
             gap: 20px;
             flex: 1;
+            min-height: 0; /* 讓下面 board-body 可以精準拿到「剩餘可用高度」, 不是用猜的 vh 減法 */
+            overflow: hidden;
         }
 
         /* 頂部標準 Day Tabs 列 (非拖曳式) */
+        .ai-plan-alert {
+            background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
+            padding: 12px 16px; border-radius: 10px; font-size: 13.5px;
+            display: flex; align-items: center; gap: 8px;
+        }
         .day-tabs-wrapper {
             display: flex;
             flex-wrap: wrap;
@@ -140,23 +154,29 @@
             box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
         }
 
-        /* 三欄版面：左(縮小至 240px) | 中(自適應) | 右(擴大至 460px) */
+        /* 三欄版面：左(縮小至 240px) | 中(自適應) | 右(擴大至 460px)
+           三欄的高度都改成「填滿 board-body 剩餘可用高度」再各自內部捲動, 不再用 calc(100vh - 固定數字) 用猜的,
+           不然頂部導覽列/AI提示列高度一變, 猜的數字就會跟實際可用空間對不起來, 導致地圖或其他欄位超出畫面。 */
         .board-body {
             display: grid;
             grid-template-columns: 240px 1fr 460px;
             gap: 20px;
-            align-items: flex-start;
+            align-items: stretch;
+            flex: 1;
+            min-height: 0;
         }
 
-        /* 1. 左側：三大展開式模組 (240px) */
+        /* 1. 左側：三大展開式模組 (240px)
+           改成不整欄捲動 (拿掉 overflow-y:auto), 展開的那個面板改用 flex:1 撐滿剩餘高度,
+           真正的捲動只交給面板「內部」該捲動的清單區塊 (時間軸 / 景點清單) 一層處理,
+           避免同時出現「整欄捲軸」+「清單自己的捲軸」兩層滾輪互相干擾。 */
         .tools-col {
             display: flex;
             flex-direction: column;
             gap: 12px;
-            position: sticky;
-            top: 84px;
-            max-height: calc(100vh - 170px);
-            overflow-y: auto;
+            height: 100%;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .accordion-trigger {
@@ -170,6 +190,7 @@
             cursor: pointer;
             transition: all 0.15s ease;
             box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            flex-shrink: 0; /* 觸發按鈕一定要維持原本高度, 不會被展開的面板擠壓、推到畫面外 */
         }
         .accordion-trigger:hover {
             border-color: #cbd5e1;
@@ -209,12 +230,19 @@
 
         .accordion-panel {
             display: none;
+            flex-direction: column;
             background: #fff;
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 14px;
             box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);
             animation: fadeIn 0.2s ease-in-out;
+            /* 不主動撐滿 (flex-grow:0) 所以內容短就短、不留白；
+               但空間不夠時要能縮小塞進剩餘空間 (flex-shrink:1 + min-height:0), 不然會把旁邊的觸發按鈕擠出畫面外。
+               縮小後多出來的內容交給裡面的 .doc-text / .timeline-container / .poi-list-wrap 自己 overflow-y:auto 捲動。 */
+            flex: 0 1 auto;
+            min-height: 0;
+            overflow: hidden;
         }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(-4px); }
@@ -276,7 +304,8 @@
         .timeline-container {
             position: relative;
             padding-left: 42px;
-            max-height: 340px;
+            flex: 1;
+            min-height: 0;
             overflow-y: auto;
         }
         .timeline-container::before {
@@ -360,7 +389,7 @@
         }
         .btn-add-custom:hover { background: #7c3aed; }
 
-        .poi-list-wrap { max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+        .poi-list-wrap { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
         .poi-card {
             border: 1px solid var(--border-color);
             border-radius: 6px;
@@ -382,8 +411,15 @@
             cursor: pointer;
         }
 
-        /* 2. 中間：主要行程拖曳清單 */
-        .main-col { min-width: 0; }
+        /* 2. 中間：主要行程拖曳清單
+           跟左側 .tools-col / 右側 .map-col 用同一套做法: 高度是 board-body 這一列的實際可用高度 (由 flex 精準算出,
+           不是用固定 vh 數字用猜的), 超過就自己出現捲軸, 不會把整個瀏覽器頁面往下撐開。 */
+        .main-col {
+            min-width: 0;
+            height: 100%;
+            min-height: 0;
+            overflow-y: auto;
+        }
         .day-panel { display: none; }
         .day-panel.active { display: block; }
 
@@ -545,10 +581,13 @@
             cursor: pointer;
         }
 
-        /* 3. 右側：地圖欄位 (460px) */
+        /* 3. 右側：地圖欄位 (460px)
+           高度改成填滿 board-body 這一列可用高度, 不再用固定 vh 數字, 避免超出畫面 */
         .map-col {
-            position: sticky;
-            top: 84px;
+            height: 100%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
         .map-section {
             background: #fff;
@@ -556,6 +595,10 @@
             border-radius: 16px;
             padding: 18px 20px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
         .map-header {
             display: flex;
@@ -571,8 +614,8 @@
             border: 1px solid var(--border-color);
             border-radius: 12px;
             overflow: hidden;
-            height: calc(100vh - 200px);
-            min-height: 460px;
+            flex: 1;
+            min-height: 300px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -654,6 +697,9 @@
             <a th:href="@{'/itinerary/' + ${itineraryId} + '/components'}" class="btn-nav comp">
                 <i class="fa-solid fa-coins"></i> 報價元件
             </a>
+            <a href="#" onclick="completeItinerary(); return false;" class="btn-nav done">
+                <i class="fa-solid fa-circle-check"></i> 完成行程
+            </a>
             <a href="#" onclick="openExportModal('b2c'); return false;" class="btn-nav b2c">
                 <i class="fa-regular fa-file-lines"></i> 匯出客戶版 (B2C)
             </a>
@@ -667,6 +713,12 @@
     </header>
 
     <div class="board-wrapper">
+        <!-- AI 安排行程沒找到符合景點時的提示 (只有從「AI 安排行程」按鈕建立、又剛好資料庫沒有符合景點時才會出現) -->
+        <div th:if="${aiPlanNotice}" class="ai-plan-alert">
+            <i class="fa-solid fa-circle-info"></i>
+            <span th:text="${aiPlanNotice}"></span>
+        </div>
+
         <!-- 頂部標準 Day Tabs 列 -->
         <div class="day-tabs-wrapper" id="dayTabsWrapper">
             <button th:each="day, iter : ${days}"
@@ -773,18 +825,15 @@
                         <div class="panel-title"><i class="fa-solid fa-database" style="color: #059669;"></i> 景點資料庫快選</div>
                         <button type="button" class="btn-close-panel" onclick="toggleAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
                     </div>
-                    <div class="poi-list-wrap">
-                        <div th:each="poi : ${poiList}" class="poi-card">
-                            <div>
-                                <div class="name" th:text="${poi.name}"></div>
-                                <div class="meta" th:text="${poi.category} + ' · ' + ${poi.city}"></div>
-                            </div>
-                            <button th:attr="onclick=|addToCurrentDay(${poi.PID}, '${poi.name}', 'attraction')|">＋ 加入</button>
-                        </div>
-                        <p th:if="${poiList.isEmpty()}" style="font-size:11.5px; color:var(--text-gray); text-align:center; padding:8px 0;">
-                            資料庫尚無景點。
-                        </p>
+                    <div class="poi-search-box" style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">
+                        <input type="text" id="poiSearchCountry" placeholder="搜尋國家..." oninput="renderPoiQuickList()"
+                               style="width:100%; padding:6px 10px; font-size:12.5px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box;" />
+                        <input type="text" id="poiSearchRegion" placeholder="搜尋地區/城市..." oninput="renderPoiQuickList()"
+                               style="width:100%; padding:6px 10px; font-size:12.5px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box;" />
+                        <input type="text" id="poiSearchKeyword" placeholder="搜尋景點名稱..." oninput="renderPoiQuickList()"
+                               style="width:100%; padding:6px 10px; font-size:12.5px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box;" />
                     </div>
+                    <div class="poi-list-wrap" id="poiListWrap"></div>
                     <a th:href="@{/poi/new}" style="font-size:11.5px; color:var(--primary-blue); font-weight:600; display:block; text-align:center; margin-top:8px;">
                         ＋ 新增景點資料
                     </a>
@@ -835,6 +884,20 @@
     let currentDayId = /*[[${!days.isEmpty() ? days[0].IDID : null}]]*/ null;
     const itineraryId = /*[[${itineraryId}]]*/ 0;
 
+    // 頂部「完成行程」按鈕: 把這個行程的狀態改成 completed, 首頁「進行中行程」統計會變成「已完成行程」
+    function completeItinerary() {
+        if (!confirm('確定要把這個行程標記為已完成嗎？完成後仍可以回到這裡繼續編輯。')) return;
+        fetch(`/itinerary/${itineraryId}/complete`, { method: 'POST' })
+            .then(res => {
+                if (!res.ok) {
+                    return res.text().then(msg => { throw new Error(msg); });
+                }
+                alert('已將這個行程標記為完成！');
+                window.location.href = '/agency/dashboard';
+            })
+            .catch(err => alert('標記完成失敗：' + err.message));
+    }
+
     // 左側三大展開式模組切換 (Timeline / Custom / Poi / null)
     function toggleAccordion(type) {
         const types = ['Timeline', 'Custom', 'Poi'];
@@ -842,8 +905,8 @@
             const trigger = document.getElementById('trigger' + t);
             const panel = document.getElementById('panel' + t);
             if (t === type) {
-                const isOpen = panel.style.display === 'block';
-                panel.style.display = isOpen ? 'none' : 'block';
+                const isOpen = panel.style.display === 'flex';
+                panel.style.display = isOpen ? 'none' : 'flex'; // 面板本身是 flex-direction:column, 要用 'flex' 不是 'block' 才會生效
                 trigger.style.display = isOpen ? 'flex' : 'none';
                 if (!isOpen && t === 'Custom') document.getElementById('customItemName').focus();
             } else {
@@ -859,7 +922,7 @@
     // 新增項目 (從 景點資料庫加入 / 自訂項目 / 加入景點資料庫 / 切換候選點 / 切換交通方式 / 自動整理 / 上傳圖片)
     // 因為牽涉到後端的地理定位、多候選點拆解等邏輯，維持「立即存檔」，不會被暫存機制擋住。
     let dayCache = {};        // idid -> { items, routes, optionsMap } 最近一次從後端抓到的原始資料
-    let pendingEdits = {};    // iiid -> { customName, stayDurationMin, locationHint, note, showOnMap }
+    let pendingEdits = {};    // iiid -> { customName, stayDurationMin, locationHint, note, showOnMap, description, descriptionPid }
     let pendingDeletes = new Set(); // 已標記移除、還沒送出的 iiid
     let pendingOrder = {};    // idid -> [iiid,...] 拖拉後的新順序 (只有真的拖拉過的那幾天才會有)
     let pendingDayOrder = null; // 拖拉 Day 分頁後的新 IDID 順序, null 代表天數順序沒有異動
@@ -1061,6 +1124,12 @@
                            <input type="file" id="edit-image-upload-${item.IIID}" accept="image/*" multiple style="margin-top:6px;font-size:12px;" />`
                         : `<div style="font-size:11px;color:#94a3b8;">這個項目還沒連結公司資料庫景點, 無法上傳圖片 (先用上面的「＋ 加入景點資料庫」按鈕連結)</div>`}
                 </div>
+                <div id="edit-desc-${item.IIID}" style="margin-top:10px;">
+                    ${item.PID != null
+                        ? `<label>景點介紹說明 (加入資料庫時 AI 自動生成; 修改後儲存會同步更新回景點資料庫, 其他引用同一個景點的行程也會看到)</label>
+                           <textarea id="edit-description-${item.IIID}" rows="3" style="width:100%;padding:6px 10px;font-size:13px;margin-top:3px;border:1px solid var(--border-color);border-radius:6px;box-sizing:border-box;" placeholder="載入中...">載入中...</textarea>`
+                        : `<div style="font-size:11px;color:#94a3b8;">這個項目還沒連結公司資料庫景點, 沒有介紹說明 (先用上面的「＋ 加入景點資料庫」按鈕連結)</div>`}
+                </div>
                 <div style="margin-top:10px; display:flex; gap:6px;">
                     <button onclick="saveItemEdit(${idid}, ${item.IIID})" class="btn-action" style="background:var(--primary-blue);color:#fff;">儲存</button>
                     <button onclick="toggleItemEdit(${item.IIID})" class="btn-action edit">取消</button>
@@ -1068,7 +1137,9 @@
             `;
             list.appendChild(editForm);
             if (item.PID != null) {
-                loadItemImages(item.PID, item.IIID); // 要在 appendChild 之後才能抓到表單裡的元素, 不然 getElementById 找不到 (元素還沒真的接上網頁)
+                // 要在 appendChild 之後才能抓到表單裡的元素, 不然 getElementById 找不到 (元素還沒真的接上網頁)
+                loadItemImages(item.PID, item.IIID);
+                loadItemDescription(item.PID, item.IIID);
             }
 
             // 通勤拉車資訊 + 交通方式選單
@@ -1127,7 +1198,7 @@
                 row.innerHTML = `<span>${poi.name}</span>`;
                 const addBtn = document.createElement('button');
                 addBtn.textContent = '+ 加入';
-                addBtn.onclick = () => addToCurrentDay(poi.PID, poi.name, poi.category === 'restaurant' ? 'meal' : (poi.category === 'hotel' ? 'hotel' : 'attraction'));
+                addBtn.onclick = () => addSuggestedBetween(idid, fromIIID, toIIID, poi.PID, poi.name, poi.category === 'restaurant' ? 'meal' : (poi.category === 'hotel' ? 'hotel' : 'attraction'));
                 row.appendChild(addBtn);
                 panel.appendChild(row);
             });
@@ -1259,6 +1330,43 @@
     let mapInfoWindow = null;
     const allPoisForMap = /*[[${poiList}]]*/ [];
 
+    // 景點資料庫快選面板: 依國家/地區/景點名稱關鍵字 (三個欄位皆為部分比對、大小寫不拘, 同時輸入時要三個條件都符合) 篩選 allPoisForMap 並重畫清單
+    function renderPoiQuickList() {
+        const wrap = document.getElementById('poiListWrap');
+        if (!wrap) return;
+
+        const countryKw = (document.getElementById('poiSearchCountry').value || '').trim().toLowerCase();
+        const regionKw = (document.getElementById('poiSearchRegion').value || '').trim().toLowerCase();
+        const nameKw = (document.getElementById('poiSearchKeyword').value || '').trim().toLowerCase();
+
+        const filtered = allPoisForMap.filter(poi => {
+            const country = (poi.country || '').toLowerCase();
+            const city = (poi.city || '').toLowerCase();
+            const name = (poi.name || '').toLowerCase();
+            if (countryKw && !country.includes(countryKw)) return false;
+            if (regionKw && !city.includes(regionKw)) return false;
+            if (nameKw && !name.includes(nameKw)) return false;
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            wrap.innerHTML = '<p style="font-size:11.5px; color:var(--text-gray); text-align:center; padding:8px 0;">找不到符合條件的景點。</p>';
+            return;
+        }
+
+        wrap.innerHTML = filtered.map(poi => `
+            <div class="poi-card">
+                <div>
+                    <div class="name">${poi.name}</div>
+                    <div class="meta">${poi.category} · ${poi.city || ''}</div>
+                </div>
+                <button onclick="addToCurrentDay(${poi.PID}, '${(poi.name || '').replace(/'/g, "\\'")}', 'attraction')">＋ 加入</button>
+            </div>
+        `).join('');
+    }
+
+    renderPoiQuickList(); // 頁面載入時先畫一次全部景點 (等同原本沒有搜尋功能時的預設清單)
+
     let exportFormatPending = 'b2c';
 
     function openExportModal(format) {
@@ -1328,6 +1436,19 @@
             loadDay(currentDayId);
         }
     }
+
+    // 動態載入 Google Maps JavaScript API, 一定要放在 onGoogleMapsReady 函式定義好之後才執行,
+    // 確保 Google 的 script 載入完成、呼叫 callback 時, window.onGoogleMapsReady 已經存在,
+    // 避免上面 <head> 註解提到的競態問題。
+    (function loadGoogleMapsScript() {
+        const configured = /*[[${googleMapsConfigured}]]*/ false;
+        const apiKey = /*[[${googleMapsApiKey}]]*/ '';
+        if (!configured || !apiKey) return;
+        const script = document.createElement('script');
+        script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&callback=onGoogleMapsReady';
+        script.async = true;
+        document.head.appendChild(script);
+    })();
 
     async function renderMap(idid) {
         const wrap = document.getElementById('mapWrap');
@@ -1466,6 +1587,33 @@
             .then(() => loadDay(currentDayId));
     }
 
+    // 從「推薦這中間順路的景點/餐廳」面板按下＋加入時用這個, 跟 addToCurrentDay 的差別是:
+    // 後端 addItem 預設一律把新項目加到當天最後面 (sort_order = 目前最大值 + 1), 所以這裡在新增成功、
+    // 拿到新項目的 IIID 之後, 再組一份「把新項目插到 fromIIID 跟 toIIID 中間」的順序。
+    // 注意: 新增項目本身 (跟後端打地理定位) 仍然是立即存檔, 沒辦法延後；但「插入的位置」跟拖曳排序一樣
+    // 只是先存進 pendingOrder 讓畫面立即反映, 真正把新順序存回資料庫要等使用者按「儲存編輯」才會送出
+    // (跟其他排序 / 欄位編輯用同一套暫存機制, 保持行為一致)。
+    function addSuggestedBetween(idid, fromIIID, toIIID, pid, name, itemType) {
+        const params = new URLSearchParams({ PID: pid, itemType, customName: name });
+        fetch(`/itinerary/day/${idid}/items?` + params.toString(), { method: 'POST' })
+            .then(res => res.json())
+            .then(newItem => {
+                return fetchDay(idid).then(() => {
+                    const order = (dayCache[idid].items || []).map(it => it.IIID).filter(id => id !== newItem.IIID);
+                    const insertAt = order.indexOf(fromIIID);
+                    if (insertAt === -1) {
+                        order.push(newItem.IIID); // 保險: 找不到 fromIIID (理論上不會發生) 就照舊排最後面
+                    } else {
+                        order.splice(insertAt + 1, 0, newItem.IIID);
+                    }
+                    pendingOrder[idid] = order;
+                    markDirty();
+                    renderDay(idid);
+                });
+            })
+            .catch(err => alert('加入失敗：' + err.message));
+    }
+
     function addCustomItem() {
         if (!currentDayId) { alert('請先選擇一天'); return; }
         const nameInput = document.getElementById('customItemName');
@@ -1505,15 +1653,44 @@
         const showOnMap = document.getElementById('edit-showmap-' + iiid).checked;
         if (!name) { alert('名稱不能空白'); return; }
 
+        // 介紹說明只有已連結公司資料庫景點的項目才有 (textarea 不存在代表還沒連結), 存檔時要記住是哪個 PID
+        const descTextarea = document.getElementById('edit-description-' + iiid);
+        const item = buildDisplayItems(idid).find(it => it.IIID === iiid);
+        const description = descTextarea ? descTextarea.value : null;
+        const descriptionPid = (descTextarea && item) ? item.PID : null;
+
         pendingEdits[iiid] = {
             customName: name,
             stayDurationMin: stay ? Number(stay) : null,
             locationHint: hint || null,
             note: note,
-            showOnMap: showOnMap
+            showOnMap: showOnMap,
+            description: description,
+            descriptionPid: descriptionPid
         };
         markDirty();
         renderDay(idid);
+    }
+
+    // 抓這個景點目前的介紹說明, 顯示在編輯表單最下方 (加入 POI 資料庫時 AI 自動生成的那份)
+    async function loadItemDescription(pid, iiid) {
+        const textarea = document.getElementById('edit-description-' + iiid);
+        if (!textarea) return;
+
+        // 如果這個項目已經有暫存中、還沒儲存的介紹說明修改, 畫面重畫時要保留使用者剛打的內容, 不要被伺服器版本蓋掉
+        if (pendingEdits[iiid] && pendingEdits[iiid].description != null) {
+            textarea.value = pendingEdits[iiid].description;
+            return;
+        }
+
+        try {
+            const data = await fetch(`/poi/${pid}/description`).then(r => r.json());
+            textarea.value = data.description || '';
+            textarea.placeholder = '目前還沒有介紹說明...';
+        } catch (e) {
+            textarea.value = '';
+            textarea.placeholder = '介紹說明載入失敗';
+        }
     }
 
     // 抓這個景點目前綁定的圖片, 顯示縮圖在編輯表單裡; 順便掛上傳按鈕的事件
@@ -1623,6 +1800,16 @@
                 if (edit.note != null) params.set('note', edit.note);
                 const res = await fetch(`/itinerary/day/${idid}/items/${iiid}/edit?` + params.toString(), { method: 'POST' });
                 if (!res.ok) throw new Error(`儲存項目編輯失敗 (HTTP ${res.status})`);
+
+                // 介紹說明是存在景點資料庫上的欄位, 不屬於這個行程項目本身, 要另外呼叫 POI 的 API 同步回去
+                if (edit.descriptionPid != null && edit.description != null) {
+                    const descRes = await fetch(`/poi/${edit.descriptionPid}/description`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ description: edit.description }).toString()
+                    });
+                    if (!descRes.ok) throw new Error(`儲存景點介紹說明失敗 (HTTP ${descRes.status})`);
+                }
             }
 
             // 3) 送出每一天內的新排序 (只有真的拖拉過的那幾天)

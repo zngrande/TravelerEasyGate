@@ -30,8 +30,9 @@
         .greeting { font-size: 22px; font-weight: 700; }
         .user-profile { display: flex; align-items: center; gap: 10px; background: #fff; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border-color); font-size: 14px; font-weight: 500; cursor: pointer;}
 
-        /* Hero Banner：背景改成素材庫圖片循環撥放 (見下方 .hero-bg-layer) */
-        .hero-banner { position: relative; overflow: hidden; border-radius: 16px; padding: 48px; color: #fff; margin-bottom: 32px; }
+        /* Hero Banner：背景改成素材庫圖片循環撥放 (見下方 .hero-bg-layer)
+           版面改成左右並排: 左邊維持原本的標題/按鈕, 右邊放三張統計卡片由上往下排 */
+        .hero-banner { position: relative; overflow: hidden; border-radius: 16px; padding: 48px; color: #fff; margin-bottom: 32px; display: flex; align-items: center; justify-content: space-between; gap: 40px; }
         .hero-bg-layer { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity 1.4s ease-in-out; z-index: 0; }
         .hero-bg-layer.active { opacity: 1; }
         .hero-overlay { position: absolute; inset: 0; background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)); z-index: 1; }
@@ -41,20 +42,28 @@
         .btn-primary { background: var(--primary-blue); color: #fff; padding: 9px 18px; border-radius: 6px; font-weight: 500; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; border: none; cursor: pointer; }
         .btn-primary:hover { background: #1d4ed8; }
 
+        /* Hero 右側的統計卡片: 圖示在最左邊, 接著是行程名稱、數量, 排成一橫排 (不是原本圖示在右側、標題數字疊在一起的樣式),
+           這樣卡片高度變矮, 三張疊起來的 .hero-stats 總高度才不會把整個 Banner 撐得比原本高太多 */
+        .hero-stats { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+        .hero-stats .stat-card { min-width: 190px; padding: 10px 16px; gap: 12px; justify-content: flex-start; }
+        .hero-stats .stat-icon { width: 34px; height: 34px; font-size: 14px; flex-shrink: 0; }
+        .hero-stats .stat-title { font-size: 12.5px; white-space: nowrap; }
+        .hero-stats .stat-number { font-size: 18px; margin-left: auto; }
+
         /* Section Title & AI Button */
         .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .section-title { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
         .btn-ai { background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; padding: 9px 18px; border-radius: 6px; font-weight: 500; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }
 
-        /* Stats Cards */
-        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 32px; }
+        /* Stats Cards (卡片樣式共用給 Hero 右側的 .hero-stats 使用) */
         .stat-card { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
         .stat-info { display: flex; flex-direction: column; gap: 4px; }
         .stat-title { font-size: 13px; color: var(--text-gray); }
         .stat-number { font-size: 32px; font-weight: 700; color: var(--primary-blue); }
         .stat-icon { width: 48px; height: 48px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; color: var(--primary-blue); font-size: 20px; }
-        .stat-card:nth-child(2) .stat-icon { background: #fff7ed; color: #ea580c; }
-        .stat-card:nth-child(2) .stat-number { color: #ea580c; }
+        /* 已完成行程用綠色 (跟「完成行程」按鈕、狀態 Badge 的綠色 #16a34a 一致) */
+        .stat-card:nth-child(2) .stat-icon { background: #f0fdf4; color: #16a34a; }
+        .stat-card:nth-child(2) .stat-number { color: #16a34a; }
         .stat-card:nth-child(3) .stat-icon { background: #f3e8ff; color: var(--primary-purple); }
         .stat-card:nth-child(3) .stat-number { color: var(--primary-purple); }
 
@@ -100,7 +109,8 @@
     <!-- 錯誤訊息提示區 -->
     <div th:if="${deleteError}" class="alert" th:text="${deleteError}"></div>
 
-    <!-- Hero Banner：背景使用「素材庫」圖片循環撥放，見頁尾 initHeroCarousel() -->
+    <!-- Hero Banner：背景使用「素材庫」圖片循環撥放，見頁尾 initHeroCarousel()
+         右側放三張統計卡片 (進行中行程 / 已完成行程 / 素材庫圖片), 由上往下排 -->
     <div class="hero-banner">
         <div class="hero-bg-layer active" id="heroBgLayer0"></div>
         <div class="hero-bg-layer" id="heroBgLayer1"></div>
@@ -112,6 +122,26 @@
                 <i class="fa-solid fa-plus"></i> 建立新行程
             </a>
         </div>
+
+        <!-- Stats Cards：即時計算目前真實資料數量 (見 AgencyController.dashboard())
+             卡片內順序: 圖示 → 行程名稱 → 數量, 一橫排排列 -->
+        <div class="hero-stats">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-suitcase"></i></div>
+                <span class="stat-title">進行中行程</span>
+                <span class="stat-number" th:text="${ongoingCount}">0</span>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+                <span class="stat-title">已完成行程</span>
+                <span class="stat-number" th:text="${completedCount}">0</span>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fa-regular fa-image"></i></div>
+                <span class="stat-title">素材庫圖片</span>
+                <span class="stat-number" th:text="${imageCount}">0</span>
+            </div>
+        </div>
     </div>
 
     <!-- Section Title & AI Button -->
@@ -122,31 +152,6 @@
         <a th:href="@{/ai-import/new}" class="btn-ai">
             <i class="fa-solid fa-wand-magic-sparkles"></i> AI 行程拆解分析
         </a>
-    </div>
-
-    <!-- Stats Cards：即時計算目前真實資料數量 (見 AgencyController.dashboard()) -->
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-info">
-                <span class="stat-title">進行中行程</span>
-                <span class="stat-number" th:text="${ongoingCount}">0</span>
-            </div>
-            <div class="stat-icon"><i class="fa-solid fa-suitcase"></i></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-info">
-                <span class="stat-title">待確認行程</span>
-                <span class="stat-number" th:text="${pendingCount}">0</span>
-            </div>
-            <div class="stat-icon"><i class="fa-regular fa-clipboard"></i></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-info">
-                <span class="stat-title">素材庫圖片</span>
-                <span class="stat-number" th:text="${imageCount}">0</span>
-            </div>
-            <div class="stat-icon"><i class="fa-regular fa-image"></i></div>
-        </div>
     </div>
 
     <!-- Itinerary Table -->
@@ -176,12 +181,19 @@
                     <span th:text="${it.startDate}"></span>
                 </td>
                 <td>
-                    <!-- 狀態 Badge，可依據 status 值給予不同 class -->
-                    <span class="status-badge status-draft" th:text="${it.status}"></span>
+                    <!-- 狀態 Badge: draft(進行中/草稿) 顯示藍色, 其他 (completed 及舊資料的 confirmed/departed) 一律當作已完成顯示綠色 -->
+                    <span th:if="${it.status == null or it.status == 'draft'}" class="status-badge status-draft">草稿</span>
+                    <span th:if="${it.status != null and it.status != 'draft'}" class="status-badge status-confirmed">已完成</span>
                 </td>
                 <td>
                     <div class="actions">
                         <a th:href="@{'/itinerary/' + ${it.ITID} + '/board'}" class="btn-text">編輯行程</a>
+
+                        <form th:if="${it.status == null or it.status == 'draft'}" method="post"
+                              th:action="@{'/itinerary/' + ${it.ITID} + '/complete'}" style="margin:0;"
+                              onsubmit="return confirm('確定要把這個行程標記為已完成嗎？');">
+                            <button type="submit" class="btn-text" style="background:none;border:none;cursor:pointer;color:#16a34a;">完成行程</button>
+                        </form>
 
                         <form method="post" th:action="@{'/itinerary/' + ${it.ITID} + '/delete'}" style="margin:0;"
                               onsubmit="return confirm('確定要刪除「' + this.dataset.title + '」嗎？');"

@@ -148,7 +148,6 @@
             background: #fff;
             border: 1px solid var(--border-color);
             border-radius: 14px;
-            overflow: hidden;
             box-shadow: 0 1px 3px rgba(0,0,0,0.02);
             display: flex;
             flex-direction: column;
@@ -163,6 +162,7 @@
             height: 165px;
             background: #f1f5f9;
             overflow: hidden;
+            border-radius: 14px 14px 0 0;
             position: relative;
         }
         .image-thumb {
@@ -179,15 +179,6 @@
             flex: 1;
             justify-content: space-between;
         }
-        .filename {
-            font-size: 13px;
-            font-weight: 600;
-            color: #0f172a;
-            margin-bottom: 8px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
 
         .tag-status {
             display: inline-block;
@@ -201,42 +192,110 @@
         .tag-status.linked { background: #dcfce7; color: #15803d; }
         .tag-status.unlinked { background: #fef3c7; color: #b45309; }
 
-        /* 下拉綁定與操作 */
-        .link-form {
+        /* 景點綁定搜尋選擇器: 觸發列本身還在卡片上, 但改成點擊後彈出「小視窗」(跟匯出報價單同一套 Modal 樣式),
+           在視窗裡用國家/地區/景點名稱三個欄位搜尋、點選結果直接套用並關閉視窗。 */
+        .poi-picker-trigger {
             display: flex;
+            align-items: center;
+            justify-content: space-between;
             gap: 6px;
-            margin-top: 6px;
+            padding: 7px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: #f8fafc;
+            font-size: 12.5px;
+            color: var(--text-dark);
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 4px;
         }
-        .link-form select {
-            flex: 1;
-            font-size: 12px;
-            padding: 5px 8px;
+        .poi-picker-trigger:hover { border-color: var(--primary-blue); background: #eff6ff; }
+        .poi-picker-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .poi-picker-trigger i { font-size: 10px; color: var(--text-gray); flex-shrink: 0; }
+
+        /* 選擇景點彈窗 (Modal), 樣式跟匯出報價單那個彈窗共用同一套設計 */
+        .poi-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,0.6);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .poi-modal {
+            background: #fff;
+            border-radius: 16px;
+            padding: 24px 28px;
+            width: 420px;
+            max-width: calc(100vw - 40px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        .poi-modal h3 { margin: 0 0 16px 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+        .poi-search-input {
+            width: 100%;
+            padding: 8px 10px;
+            font-size: 13px;
             border: 1px solid var(--border-color);
             border-radius: 6px;
             outline: none;
-            background: #f8fafc;
-            color: var(--text-dark);
+            margin-bottom: 8px;
+            box-sizing: border-box;
         }
-        .link-form button {
+        .poi-search-input:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        .poi-picker-list {
+            max-height: 260px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 4px;
+        }
+        .poi-picker-item {
+            padding: 9px 10px;
+            font-size: 13px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .poi-picker-item:hover { background: #eff6ff; color: var(--primary-blue); }
+        .poi-picker-empty { padding: 14px; font-size: 13px; color: var(--text-gray); text-align: center; }
+        .poi-modal-actions { margin-top: 20px; display: flex; gap: 10px; }
+        .poi-modal-actions button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13.5px;
+            font-weight: 600;
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .poi-modal-actions button:hover { background: #e2e8f0; }
+
+        .card-footer {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
+        }
+        .btn-apply {
             font-size: 12px;
             font-weight: 600;
-            padding: 5px 10px;
+            padding: 5px 12px;
             background: var(--primary-blue);
             color: #fff;
             border: none;
             border-radius: 6px;
             cursor: pointer;
-            white-space: nowrap;
+            transition: background 0.15s;
         }
-        .link-form button:hover { background: #1d4ed8; }
-
-        .card-footer {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px solid #f1f5f9;
-        }
+        .btn-apply:hover { background: #1d4ed8; }
         .btn-delete {
             font-size: 12px;
             font-weight: 500;
@@ -331,27 +390,28 @@
             </div>
             <div class="card-body">
                 <div>
-                    <div class="filename" th:text="${img.originalFilename}" th:title="${img.originalFilename}"></div>
+                    <!-- 景點綁定搜尋選擇器: 點擊開啟彈窗選擇 -->
+                    <div class="poi-picker-trigger" th:onclick="|openPoiPickerModal(${img.IAID})|">
+                        <span th:id="'poiPickerLabel-' + ${img.IAID}">
+                            <span th:if="${img.matchedPid == null}">尚未綁定景點，點擊選擇</span>
+                            <span th:each="p : ${allPois}" th:if="${img.matchedPid != null and p.PID == img.matchedPid}"
+                                  th:text="${p.name} + (${p.city} != null ? ' (' + ${p.city} + ')' : '')"></span>
+                        </span>
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </div>
 
-                    <span th:if="${img.matchedPid != null}" class="tag-status linked"><i class="fa-solid fa-check"></i> 已綁定景點</span>
-                    <span th:if="${img.matchedPid == null}" class="tag-status unlinked"><i class="fa-solid fa-circle-exclamation"></i> 未綁定景點</span>
+                    <span th:if="${img.matchedPid != null}" class="tag-status linked" style="margin-top:8px;"><i class="fa-solid fa-check"></i> 已綁定景點</span>
+                    <span th:if="${img.matchedPid == null}" class="tag-status unlinked" style="margin-top:8px;"><i class="fa-solid fa-circle-exclamation"></i> 未綁定景點</span>
 
-                    <!-- 綁定表單 -->
-                    <form class="link-form" method="post" th:action="@{'/images/' + ${img.IAID} + '/link-poi'}">
-                        <select name="poiId">
-                            <option value="">（未綁定景點）</option>
-                            <optgroup th:each="country : ${#sets.toSet(allPois.![country])}" th:label="${country} ?: '（未分類）'">
-                                <option th:each="p : ${allPois}" th:if="${p.country == country}" th:value="${p.PID}"
-                                        th:selected="${img.matchedPid != null and img.matchedPid == p.PID}"
-                                        th:text="${p.name} + (${p.city} != null ? ' (' + ${p.city} + ')' : '')"></option>
-                            </optgroup>
-                        </select>
-                        <button type="submit">套用</button>
+                    <!-- 綁定表單: 只放隱藏欄位, 實際值由彈窗選擇器設定 -->
+                    <form class="link-form" method="post" th:id="'linkForm-' + ${img.IAID}" th:action="@{'/images/' + ${img.IAID} + '/link-poi'}" style="display:none;">
+                        <input type="hidden" name="poiId" th:id="'poiIdInput-' + ${img.IAID}" th:value="${img.matchedPid}" />
                     </form>
                 </div>
 
-                <!-- 刪除按鈕 -->
+                <!-- 套用 + 刪除按鈕 -->
                 <div class="card-footer">
+                    <button type="button" class="btn-apply" th:onclick="|document.getElementById('linkForm-' + ${img.IAID}).submit()|">套用</button>
                     <form method="post" th:action="@{'/images/' + ${img.IAID} + '/delete'}"
                           onsubmit="return confirm('確定要刪除這張圖片嗎？');" style="margin:0;">
                         <button type="submit" class="btn-delete">
@@ -369,6 +429,21 @@
         還沒有任何圖片素材，立即透過上方上傳第一張照片試試看！
     </div>
 </main>
+
+<!-- 選擇綁定景點彈窗 (所有圖片卡片共用同一個, 用 currentPoiPickerIAID 記住目前是在幫哪張圖片選) -->
+<div id="poiModalOverlay" class="poi-modal-overlay" onclick="if(event.target===this) closePoiPickerModal()">
+    <div class="poi-modal">
+        <h3><i class="fa-solid fa-location-dot" style="color: var(--primary-blue);"></i> 選擇綁定景點</h3>
+        <input type="text" class="poi-search-input" id="modalSearchCountry" placeholder="搜尋國家..." oninput="renderPoiPickerModal()" />
+        <input type="text" class="poi-search-input" id="modalSearchRegion" placeholder="搜尋地區..." oninput="renderPoiPickerModal()" />
+        <input type="text" class="poi-search-input" id="modalSearchKeyword" placeholder="搜尋景點名稱..." oninput="renderPoiPickerModal()" />
+        <div class="poi-picker-list" id="modalPoiList"></div>
+        <div class="poi-modal-actions">
+            <button type="button" onclick="clearPoiForCurrentImage()">不綁定景點</button>
+            <button type="button" onclick="closePoiPickerModal()">取消</button>
+        </div>
+    </div>
+</div>
 
 <script th:inline="javascript">
     const allPois = /*[[${allPois}]]*/ [];
@@ -423,6 +498,62 @@
 
     function showLoading() {
         document.getElementById('loadingHint').style.display = 'inline-flex';
+    }
+
+    // ---------------- 選擇綁定景點彈窗 (所有圖片卡片共用同一個 Modal) ----------------
+    let currentPoiPickerIAID = null;
+
+    function openPoiPickerModal(iaid) {
+        currentPoiPickerIAID = iaid;
+        document.getElementById('modalSearchCountry').value = '';
+        document.getElementById('modalSearchRegion').value = '';
+        document.getElementById('modalSearchKeyword').value = '';
+        document.getElementById('poiModalOverlay').style.display = 'flex';
+        renderPoiPickerModal();
+        document.getElementById('modalSearchKeyword').focus();
+    }
+
+    function closePoiPickerModal() {
+        document.getElementById('poiModalOverlay').style.display = 'none';
+        currentPoiPickerIAID = null;
+    }
+
+    function renderPoiPickerModal() {
+        const country = document.getElementById('modalSearchCountry').value.trim().toLowerCase();
+        const region = document.getElementById('modalSearchRegion').value.trim().toLowerCase();
+        const keyword = document.getElementById('modalSearchKeyword').value.trim().toLowerCase();
+
+        const filtered = allPois.filter(p =>
+            (!country || (p.country || '').toLowerCase().includes(country)) &&
+            (!region || (p.city || '').toLowerCase().includes(region)) &&
+            (!keyword || (p.name || '').toLowerCase().includes(keyword))
+        );
+
+        const listEl = document.getElementById('modalPoiList');
+        if (filtered.length === 0) {
+            listEl.innerHTML = '<div class="poi-picker-empty">沒有符合的景點</div>';
+            return;
+        }
+        listEl.innerHTML = filtered.map(p => {
+            const label = p.name + (p.city ? ` (${p.city})` : '');
+            const safeLabel = label.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `<div class="poi-picker-item" onclick="selectPoiForCurrentImage(${p.PID}, '${safeLabel}')">${label}</div>`;
+        }).join('');
+    }
+
+    function selectPoiForCurrentImage(pid, label) {
+        applyPoiSelection(pid, label);
+    }
+
+    function clearPoiForCurrentImage() {
+        applyPoiSelection('', '');
+    }
+
+    function applyPoiSelection(pid, label) {
+        if (currentPoiPickerIAID == null) return;
+        document.getElementById('poiIdInput-' + currentPoiPickerIAID).value = pid;
+        document.getElementById('poiPickerLabel-' + currentPoiPickerIAID).textContent = pid ? label : '尚未綁定景點，點擊選擇';
+        closePoiPickerModal();
     }
 
     initFilters();

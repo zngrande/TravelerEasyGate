@@ -6,6 +6,7 @@ import com.example.UsefulTravel.service.ImageAssetService;
 import com.example.UsefulTravel.service.PoiService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -91,6 +92,31 @@ public class PoiController {
 
         poiService.save(poi);
         return "redirect:/poi";
+    }
+
+    // GET /poi/{id}/description → 取得這個景點目前的介紹說明 (給行程編輯畫面的編輯表單用, AJAX)
+    @GetMapping("/{id}/description")
+    @ResponseBody
+    public ResponseEntity<?> getDescription(@PathVariable("id") int PID, HttpSession session) {
+        if (session.getAttribute("AID") == null) return ResponseEntity.status(401).build();
+        Poi poi = poiService.findById(PID);
+        if (poi == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(java.util.Map.of("description", poi.getDescription() != null ? poi.getDescription() : ""));
+    }
+
+    // POST /poi/{id}/description → 在行程編輯畫面修改景點介紹說明後, 同步存回 POI 資料庫 (只更新這一個欄位, AJAX)
+    @PostMapping("/{id}/description")
+    @ResponseBody
+    public ResponseEntity<?> updateDescription(@PathVariable("id") int PID,
+                                                @RequestParam String description,
+                                                HttpSession session) {
+        if (session.getAttribute("AID") == null) return ResponseEntity.status(401).build();
+        try {
+            poiService.updateDescription(PID, description);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     // GET /poi/{id}/edit → 編輯景點表單 (含合作紀錄)

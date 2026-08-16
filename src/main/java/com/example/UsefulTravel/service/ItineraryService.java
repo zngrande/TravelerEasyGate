@@ -14,11 +14,15 @@ import com.example.UsefulTravel.entity.ItineraryItemOption;
 import com.example.UsefulTravel.entity.Poi;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * ItineraryService - 行程建立與積木式排版的核心跨表邏輯
@@ -36,13 +40,15 @@ public class ItineraryService {
     private final AiImportDAO aiImportDAO;
     private final GoogleMapsClient googleMapsClient;
     private final AnthropicClient anthropicClient;
+    private final ObjectMapper objectMapper;
 
     @Autowired
     public ItineraryService(ItineraryDAO itineraryDAO, ItineraryDayDAO itineraryDayDAO,
                             ItineraryItemDAO itineraryItemDAO, ItineraryItemOptionDAO itineraryItemOptionDAO,
                             RouteSegmentDAO routeSegmentDAO,
                             RouteService routeService, PoiDAO poiDAO, AiImportDAO aiImportDAO,
-                            GoogleMapsClient googleMapsClient, AnthropicClient anthropicClient) {
+                            GoogleMapsClient googleMapsClient, AnthropicClient anthropicClient,
+                            ObjectMapper objectMapper) {
         this.itineraryDAO = itineraryDAO;
         this.itineraryDayDAO = itineraryDayDAO;
         this.itineraryItemDAO = itineraryItemDAO;
@@ -53,6 +59,7 @@ public class ItineraryService {
         this.aiImportDAO = aiImportDAO;
         this.googleMapsClient = googleMapsClient;
         this.anthropicClient = anthropicClient;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -84,8 +91,163 @@ public class ItineraryService {
         return itineraryDayDAO.findByItinerary(ITID);
     }
 
+    /**
+     * 「AI 安排行程」: 跟一般建立行程一樣先產生 Day1~DayN 骨架, 但接著會用 AI 從「這個國家/地區在公司
+     * POI 資料庫裡已有的景點/餐廳/飯店」中挑選、安排進每一天, 不是憑空生出資料庫沒有的地點。
+     * 用在「建立新行程」頁面的「AI 安排行程」按鈕 (跟旁邊「建立行程並進入看板」的差別只在於這個會先幫忙排好初稿)。
+     *
+     * @return 建好的 Itinerary。如果這個國家/地區在資料庫裡完全找不到候選景點、或 AI 呼叫失敗,
+     *         仍然會回傳建立好的行程 (退回成跟原本一樣的空白行程), 呼叫端可以用 hasAnyItem() 判斷要不要提示使用者。
+     */
+    public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
+                                                int daysCount, LocalDate startDate) {
+        Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate);
+
+        List<Poi> candidates = poiDAO.findByAgencyAndCountry(AID, country, region);
+        if (candidates.isEmpty()) return itinerary; // 資料庫裡沒有符合國家/地區的景點, 保持空白行程讓使用者自己排
+
+        List<ItineraryDay> days = itineraryDayDAO.findByItinerary(itinerary.getITID());
+
+        try {
+            Map<Integer, List<Integer>> plan = planDaysWithAi(country, region, daysCount, candidates);
+            if (plan.isEmpty()) return itinerary; // AI 沒排出任何結果, 一樣退回空白行程
+
+            Map<Integer, Poi> candidateByPid = new HashMap<>();
+            for (Poi poi : candidates) candidateByPid.put(poi.getPID(), poi);
+
+            for (ItineraryDay day : days) {
+                List<Integer> pids = plan.get(day.getDayNumber());
+                if (pids == null) continue;
+                for (Integer pid : pids) {
+                    Poi poi = candidateByPid.get(pid); // AI 幻覺出資料庫沒有的 PID 就直接跳過, 不要硬加
+                    if (poi == null) continue;
+                    addItem(day.getIDID(), poi.getPID(), mapPoiCategoryToItemType(poi.getCategory()),
+                            poi.getName(), poi.getSuggestedStayMin());
+                }
+            }
+
+            // 資料庫裡這個國家/地區如果完全沒有餐廳/飯店類的候選景點, AI 當然也排不出真正的早/午/晚餐跟住宿。
+            // 這種情況不要放著不管 (時間軸看起來像漏排), 也不要硬找不相關的地點湊數, 改成先補一個純文字的
+            // 預留項目 (早餐/午餐/晚餐/住宿), 不連結 POI、不查座標、不顯示在地圖上, 讓線控之後自己換成真正的地點。
+            boolean hasRestaurant = candidates.stream().anyMatch(p -> "restaurant".equals(p.getCategory()));
+            boolean hasHotel = candidates.stream().anyMatch(p -> "hotel".equals(p.getCategory()));
+            if (!hasRestaurant || !hasHotel) {
+                for (ItineraryDay day : days) {
+                    if (!hasRestaurant) {
+                        addPlaceholderItem(day.getIDID(), "meal", "早餐");
+                        addPlaceholderItem(day.getIDID(), "meal", "午餐");
+                        addPlaceholderItem(day.getIDID(), "meal", "晚餐");
+                    }
+                    if (!hasHotel) {
+                        addPlaceholderItem(day.getIDID(), "hotel", "住宿");
+                    }
+                }
+            }
+
+            // 加完之後跑一次自動整理 (meal_time 模式): 依序標出早/中/晚餐、住宿排到當天最後面, 排序更像正常行程
+            autoArrangeItinerary(itinerary.getITID(), "meal_time");
+        } catch (Exception e) {
+            // AI 沒設定 API Key / 呼叫失敗 / 回應解析失敗都不應該讓「建立行程」整個失敗,
+            // 保留已經建立好的空白行程骨架, 讓使用者可以照原本流程手動編排
+        }
+
+        return itinerary;
+    }
+
+    // 把資料庫裡的 POI 分類 (attraction/restaurant/hotel/rest_stop) 轉成行程項目的分類 (attraction/meal/hotel/...),
+    // 跟前端地圖上「點灰色建議標記直接加入行程」用的判斷邏輯一致
+    private String mapPoiCategoryToItemType(String poiCategory) {
+        if (poiCategory == null) return "attraction";
+        return switch (poiCategory) {
+            case "restaurant" -> "meal";
+            case "hotel" -> "hotel";
+            default -> "attraction";
+        };
+    }
+
+    // 資料庫裡完全沒有符合的餐廳/飯店時, 用這個補一個純文字的預留項目 (早餐/午餐/晚餐/住宿):
+    // 不連結 POI (PID=null)、完全不查座標、不顯示在地圖上 —— 只是先佔住這個位置, 之後線控可以自己換成真正的地點
+    private void addPlaceholderItem(int IDID, String itemType, String customName) {
+        List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
+        int nextOrder = existing.size();
+        ItineraryItem item = new ItineraryItem(IDID, null, itemType, customName, nextOrder);
+        item.setShowOnMap(false);
+        itineraryItemDAO.save(item);
+    }
+
+    // 把候選景點清單丟給 AI, 請它只從清單裡挑選 PID 並安排每一天要去哪些, 回傳 {天數 -> [PID,...]}
+    private Map<Integer, List<Integer>> planDaysWithAi(String country, String region, int daysCount, List<Poi> candidates) throws Exception {
+        String system = """
+            你是旅遊行程規劃助手, 負責幫旅行社從「已有的景點/餐廳/飯店資料庫」裡挑選並安排出一份 N 天的行程初稿。
+            使用者會給你這個國家/地區在資料庫裡「所有可用」的候選清單 (每筆有 pid / name / category / stay_min),
+            以及總共要安排幾天。你的任務是決定每一天要排哪幾個地點、排幾個, 只能使用候選清單裡出現過的 pid,
+            絕對不可以自己生出候選清單沒有的地點或 pid。
+
+            規則:
+            - category=attraction 的排每天 2~4 個當作主要行程; category=restaurant 的每天安排 1~3 個 (盡量涵蓋午餐/晚餐);
+              category=hotel 的每天最多安排 1 個 (如果只有一間飯店, 每天都排同一間也沒關係, 代表這幾天都住這裡)。
+            - 同一個 pid 不要在同一天重複出現; 不同天之間, 如果 attraction/restaurant 數量足夠, 盡量不要重複,
+              但如果候選數量比行程天數少, 允許合理重複使用, 不要留空某一天。
+            - 每個地點只放在最適合的一天就好, 不要漏掉候選清單裡看起來明顯必去的知名景點。
+            - 只能輸出一個 JSON 物件, 不要有任何其他文字, 不要用 markdown code fence 包起來, 格式如下:
+              {"days":[{"day":1,"pids":[12,7,45]},{"day":2,"pids":[3,9]}]}
+              day 是第幾天 (從 1 開始), pids 是這一天依造訪順序排列的候選 pid 陣列。
+            """;
+
+        StringBuilder userContent = new StringBuilder();
+        userContent.append("國家: ").append(country != null ? country : "未指定");
+        userContent.append("\n地區: ").append(region != null && !region.isBlank() ? region : "未指定");
+        userContent.append("\n總天數: ").append(daysCount);
+        userContent.append("\n候選景點清單 (JSON 陣列, 每筆是 pid/name/category/stay_min):\n");
+        userContent.append("[");
+        for (int i = 0; i < candidates.size(); i++) {
+            Poi poi = candidates.get(i);
+            if (i > 0) userContent.append(",");
+            userContent.append("{\"pid\":").append(poi.getPID())
+                    .append(",\"name\":\"").append(poi.getName() != null ? poi.getName().replace("\"", "") : "")
+                    .append("\",\"category\":\"").append(poi.getCategory() != null ? poi.getCategory() : "attraction")
+                    .append("\",\"stay_min\":").append(poi.getSuggestedStayMin() != null ? poi.getSuggestedStayMin() : 60)
+                    .append("}");
+        }
+        userContent.append("]");
+
+        String response = anthropicClient.complete(system, userContent.toString(), 4000);
+        JsonNode root = objectMapper.readTree(stripCodeFence(response));
+
+        Map<Integer, List<Integer>> plan = new HashMap<>();
+        for (JsonNode dayNode : root.path("days")) {
+            int dayNumber = dayNode.path("day").asInt();
+            List<Integer> pids = new ArrayList<>();
+            for (JsonNode pidNode : dayNode.path("pids")) {
+                pids.add(pidNode.asInt());
+            }
+            plan.put(dayNumber, pids);
+        }
+        return plan;
+    }
+
+    // Claude 有時仍會習慣性包 ```json ... ``` , 保險起見去掉 (跟 AiParseService 同樣的處理方式)
+    private String stripCodeFence(String text) {
+        String trimmed = text.trim();
+        if (trimmed.startsWith("```")) {
+            trimmed = trimmed.replaceFirst("^```[a-zA-Z]*\\s*", "");
+            if (trimmed.endsWith("```")) {
+                trimmed = trimmed.substring(0, trimmed.length() - 3);
+            }
+        }
+        return trimmed.trim();
+    }
+
     public Itinerary getItinerary(int ITID) {
         return itineraryDAO.findById(ITID);
+    }
+
+    // 給「AI 安排行程」用: 建立完後檢查有沒有真的排到任何項目, 沒有的話 controller 要提示使用者手動編排
+    public boolean hasAnyItem(int ITID) {
+        for (ItineraryDay day : itineraryDayDAO.findByItinerary(ITID)) {
+            if (!itineraryItemDAO.findByDay(day.getIDID()).isEmpty()) return true;
+        }
+        return false;
     }
 
     public void deleteItinerary(int ITID) {
@@ -187,6 +349,14 @@ public class ItineraryService {
         }
     }
 
+    // 行程排版看板按下「完成行程」: 把狀態改成 completed, 首頁「已完成行程」統計會反映這筆
+    public void markCompleted(int ITID) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) throw new IllegalArgumentException("找不到這個行程");
+        itinerary.setStatus("completed");
+        itineraryDAO.save(itinerary);
+    }
+
     /**
      * 把排版看板上「還沒連結 POI」的項目 (item.PID == null, 通常是手動打字加的自訂項目)
      * 寫進公司 POI 資料庫 (時間預設 NULL), 寫完後自動把這個項目連結到新建立的 POI
@@ -217,21 +387,37 @@ public class ItineraryService {
 
         Poi poi = new Poi(AID, category, item.getCustomName(), country, region, null, null, null);
 
-        if (item.getLatitude() != null && item.getLongitude() != null) {
+        // 地理編碼跟 AI 生成介紹說明平行呼叫, 不要依序做 (這是「加入景點資料庫」按鈕之前很慢的主因:
+        // 地理編碼本身可能就要試兩次 Google API, 加上又要再等一次 AI 生成介紹, 依序做形同疊加兩次網路等待時間)
+        final String finalCountry = country, finalRegion = region;
+        boolean alreadyHasCoord = item.getLatitude() != null && item.getLongitude() != null;
+        java.util.concurrent.CompletableFuture<GoogleMapsClient.GeocodeResult> geoFuture;
+        if (!alreadyHasCoord && shouldGeocode(item.getItemType(), item.getTimeSlot(), item.getCustomName())) {
+            geoFuture = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                String query = String.join(" ", item.getCustomName(), finalRegion != null ? finalRegion : "", finalCountry != null ? finalCountry : "");
+                GoogleMapsClient.GeocodeResult r = googleMapsClient.findPlace(query, finalCountry);
+                return r != null ? r : googleMapsClient.geocode(query, finalCountry);
+            });
+        } else {
+            geoFuture = java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+        java.util.concurrent.CompletableFuture<String> descriptionFuture = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> anthropicClient.generateDescription(item.getCustomName(), category, finalCountry, finalRegion, item.getNote()));
+
+        if (alreadyHasCoord) {
             poi.setLatitude(item.getLatitude());
             poi.setLongitude(item.getLongitude());
-        } else if (shouldGeocode(item.getItemType(), item.getTimeSlot(), item.getCustomName())) {
-            GoogleMapsClient.GeocodeResult geo = googleMapsClient.findPlace(
-                    String.join(" ", item.getCustomName(), region != null ? region : "", country != null ? country : ""), country);
-            if (geo == null) {
-                geo = googleMapsClient.geocode(
-                        String.join(" ", item.getCustomName(), region != null ? region : "", country != null ? country : ""), country);
-            }
+        } else {
+            GoogleMapsClient.GeocodeResult geo = geoFuture.join();
             if (geo != null) {
                 poi.setLatitude(BigDecimal.valueOf(geo.latitude));
                 poi.setLongitude(BigDecimal.valueOf(geo.longitude));
             }
         }
+
+        // 自動生成景點介紹說明: 用這個項目跟著行程的備註當提示; AI 生成失敗就 fallback 用原本的備註, 至少不要留白
+        String generatedDescription = descriptionFuture.join();
+        poi.setDescription(generatedDescription != null ? generatedDescription : item.getNote());
 
         poiDAO.save(poi);
         item.setPID(poi.getPID());

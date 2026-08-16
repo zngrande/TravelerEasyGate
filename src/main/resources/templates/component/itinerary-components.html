@@ -83,36 +83,7 @@
 <body>
 
 <!-- Sidebar -->
-<aside class="sidebar">
-    <div class="logo">
-        <i class="fa-regular fa-compass"></i>
-        <div>
-            TEG
-            <span>TRAVELER EASY GATE</span>
-        </div>
-    </div>
-    <nav class="nav-menu">
-        <a th:href="@{/agency/dashboard}" class="nav-item active">
-            <i class="fa-solid fa-suitcase"></i> 行程列表
-        </a>
-        <a th:href="@{/poi}" class="nav-item">
-            <i class="fa-solid fa-location-dot"></i> 景點 / 飯店資料庫
-        </a>
-        <a th:href="@{/component}" class="nav-item">
-            <i class="fa-solid fa-layer-group"></i> 元件庫
-        </a>
-        <a th:href="@{/images}" class="nav-item">
-            <i class="fa-regular fa-image"></i> 圖片資源庫
-        </a>
-    </nav>
-    <div class="help-box">
-        <div>
-            <div style="font-weight: 700; color: var(--text-dark);">需要協助嗎？</div>
-            <div style="color: var(--text-gray); margin-top: 4px;">查看教學文件或聯絡客服</div>
-        </div>
-        <i class="fa-solid fa-chevron-right" style="font-size: 12px;"></i>
-    </div>
-</aside>
+<aside th:replace="~{fragments/sidebar :: sidebar(active='itinerary', userName=${session.name})}"></aside>
 
 <!-- Main Content -->
 <main class="main-content">

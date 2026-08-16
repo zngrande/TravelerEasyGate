@@ -24,10 +24,12 @@
         .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
         .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
 
-        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 16px; padding: 36px; max-width: 640px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 16px; padding: 36px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
         .card-desc { font-size: 14px; color: var(--text-gray); margin-bottom: 24px; line-height: 1.5; }
 
         .form-group { margin-bottom: 20px; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+        .form-row .form-group { margin-bottom: 0; }
         .form-label { display: block; font-size: 13.5px; font-weight: 600; color: #334155; margin-bottom: 8px; }
         .form-control {
             width: 100%; padding: 11px 14px; font-size: 14px;
@@ -36,11 +38,19 @@
         }
         .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
         .btn-submit {
-            width: 100%; padding: 12px; background: var(--primary-blue);
+            flex: 1; padding: 12px; background: var(--primary-blue);
             color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
-            transition: background 0.15s; margin-top: 10px;
+            transition: background 0.15s;
         }
         .btn-submit:hover { background: #1d4ed8; }
+        .btn-ai-plan {
+            flex: 1; padding: 12px; background: linear-gradient(135deg, #a855f7, #6366f1);
+            color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+            transition: opacity 0.15s;
+        }
+        .btn-ai-plan:hover { opacity: 0.9; }
+        .btn-row { display: flex; gap: 10px; margin-top: 10px; }
+        .ai-plan-hint { font-size: 12px; color: var(--text-gray); margin-top: 8px; line-height: 1.5; }
     </style>
 </head>
 <body>
@@ -65,17 +75,39 @@
                 <label class="form-label">行程名稱 / 團名</label>
                 <input type="text" name="title" class="form-control" placeholder="例：東京璀璨五日遊 (富士山・迪士尼)" required />
             </div>
-            <div class="form-group">
-                <label class="form-label">目的地國家 / 地區</label>
-                <input type="text" name="destination" class="form-control" placeholder="例：日本東京" required />
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">目的地國家</label>
+                    <input type="text" name="country" class="form-control" placeholder="例：日本" required />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">地區 / 城市 (選填)</label>
+                    <input type="text" name="region" class="form-control" placeholder="例：東京 (留空代表整個國家)" />
+                </div>
             </div>
-            <div class="form-group">
-                <label class="form-label">預計天數</label>
-                <input type="number" name="durationDays" class="form-control" min="1" max="30" value="5" required />
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">預計天數</label>
+                    <input type="number" name="daysCount" class="form-control" min="1" max="30" value="5" required />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">出發日期 (選填)</label>
+                    <input type="date" name="startDate" class="form-control" />
+                </div>
             </div>
-            <button type="submit" class="btn-submit">
-                <i class="fa-solid fa-check"></i> 建立行程並進入看板
-            </button>
+            <div class="btn-row">
+                <button type="submit" class="btn-submit">
+                    <i class="fa-solid fa-check"></i> 建立行程並進入看板
+                </button>
+                <button type="submit" formaction="/itinerary/new/ai" class="btn-ai-plan">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> AI 安排行程
+                </button>
+            </div>
+            <p class="ai-plan-hint">
+                「AI 安排行程」會從公司景點資料庫裡篩選出符合目的地國家/地區的景點、餐廳、飯店，
+                依填寫的天數自動安排好每一天的行程初稿，進入看板後仍可以自由調整。
+                如果資料庫裡還沒有符合的景點，會建立空白行程並提示您手動編排。
+            </p>
         </form>
     </div>
 </main>

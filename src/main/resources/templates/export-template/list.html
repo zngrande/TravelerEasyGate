@@ -16,15 +16,24 @@
             --sidebar-width: 200px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Noto Sans TC', sans-serif; background-color: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+        html, body { height: 100vh; overflow: hidden; } /* 整頁不捲動, 只有需要的區塊內部自己捲 */
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: var(--bg-gray); color: var(--text-dark); display: flex; -webkit-font-smoothing: antialiased; }
         a { text-decoration: none; color: inherit; }
 
         /* 主內容工作區 */
-        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
-        .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .main-content {
+            margin-left: var(--sidebar-width);
+            flex: 1;
+            padding: 32px 40px;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-shrink: 0; }
         .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
 
-        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 10px; padding: 24px; margin-bottom: 24px; max-width: 780px; }
+        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 10px; padding: 24px; margin-bottom: 24px; }
         .card h2 { font-size: 15px; margin-bottom: 16px; }
         .form-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
         .form-row label { font-size: 13px; color: var(--text-gray); width: 90px; }
@@ -36,7 +45,7 @@
         .btn.danger:hover { background: #fef2f2; }
         .btn.ghost { background: #fff; color: var(--text-gray); border: 1px solid var(--border-color); }
         .btn.ghost:hover { background: #f1f5f9; }
-        table { width: 100%; border-collapse: collapse; max-width: 780px; }
+        table { width: 100%; border-collapse: collapse; }
         th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border-color); font-size: 13px; }
         th { color: var(--text-gray); font-weight: 500; }
         .badge { background: #eff6ff; color: var(--primary-blue); font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
@@ -45,6 +54,89 @@
         .msg { font-size: 13px; margin-top: 10px; display: none; }
         .msg.error { color: #dc2626; }
         .msg.success { color: #16a34a; }
+
+        /* 左側主要內容 (上傳/範本清單) | 右側教學文件, 雙欄版面
+           兩欄都固定高度、各自內部捲動, 不會把整頁撐高需要捲動 (跟行程排版看板/景點資料維護同一套做法) */
+        .page-grid { display: grid; grid-template-columns: 1fr 380px; gap: 24px; align-items: stretch; flex: 1; min-height: 0; }
+        .page-grid-left { height: 100%; min-height: 0; overflow-y: auto; padding-right: 4px; }
+
+        /* 右側「教學文件」展開式模組, 跟行程排版看板 / 景點資料維護的手風琴設計同一套樣式 */
+        .tools-col { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; overflow: hidden; }
+        .accordion-trigger {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 11px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            flex-shrink: 0;
+        }
+        .accordion-trigger:hover { border-color: #cbd5e1; background: #f8fafc; }
+        .trigger-left { display: flex; align-items: center; gap: 10px; }
+        .trigger-icon {
+            width: 32px; height: 32px; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; flex-shrink: 0;
+            background: #eef2ff; color: #4f46e5;
+        }
+        .trigger-text { font-size: 13.5px; font-weight: 700; color: var(--text-dark); }
+        .trigger-sub { font-size: 11px; color: var(--text-gray); margin-top: 1px; }
+
+        .accordion-panel {
+            display: none;
+            flex-direction: column;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 16px 18px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);
+            animation: fadeIn 0.2s ease-in-out;
+            /* 不主動撐滿 (flex-grow:0) 所以內容短就短、不留白；
+               但空間不夠時要能縮小塞進剩餘空間 (flex-shrink:1 + min-height:0), 不然會把旁邊的觸發按鈕擠出畫面外。
+               縮小後多出來的內容交給裡面的 .doc-text 自己 overflow-y:auto 捲動。 */
+            flex: 0 1 auto;
+            min-height: 0;
+            overflow: hidden;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .panel-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;
+            flex-shrink: 0;
+        }
+        .panel-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+        .btn-close-panel { background: none; border: none; color: var(--text-gray); font-size: 13px; cursor: pointer; padding: 2px; }
+        .btn-close-panel:hover { color: var(--text-dark); }
+
+        /* 內容本身跟 poi-list-wrap 同一套做法: 只有這裡面自己出現捲軸 */
+        .doc-text { font-size: 12.5px; color: #334155; line-height: 1.7; flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+        .doc-text p { margin-bottom: 8px; }
+        .doc-table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; }
+        .doc-table th, .doc-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+        .doc-table th { color: var(--text-gray); font-weight: 600; background: #f8fafc; }
+        .doc-code {
+            background: #eef2ff;
+            color: #4338ca;
+            border: 1px solid #e0e7ff;
+            font-family: 'Consolas', 'Menlo', monospace;
+            font-size: 11.5px;
+            line-height: 1.6;
+            padding: 10px 12px;
+            border-radius: 8px;
+            white-space: pre-wrap; /* 改成 pre-wrap: 保留手動換行, 但太長的行會自動換行, 不用再左右捲動才看得到 */
+            word-break: break-word;
+            margin: 8px 0 12px;
+        }
+        .doc-tag { background: #eef2ff; color: #4338ca; font-family: 'Consolas', 'Menlo', monospace; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+        .doc-list { margin: 4px 0 8px 18px; }
+        .doc-list li { margin-bottom: 6px; }
     </style>
 </head>
 <body>
@@ -56,55 +148,228 @@
         <div class="page-title"><i class="fa-solid fa-file-word" style="color: var(--primary-blue);"></i> 行程輸出範本</div>
     </div>
 
-    <div class="card">
-        <h2>上傳新範本</h2>
-        <div class="form-row">
-            <label>範本名稱</label>
-            <input type="text" id="templateName" placeholder="例如：北海道熱門版" />
-        </div>
-        <div class="form-row">
-            <label>檔案</label>
-            <input type="file" id="templateFile" accept=".docx" />
-        </div>
-        <div class="form-row">
-            <label></label>
-            <label style="width:auto; display:flex; align-items:center; gap:6px;">
-                <input type="checkbox" id="templateSetDefault" /> 設為預設範本
-            </label>
-        </div>
-        <button class="btn" onclick="uploadTemplate()">上傳</button>
-        <div class="hint">
-            範本要照特定標記規則製作（{{title}}、{{day_start}}...{{day_end}} 等），
-            規則說明請跟系統管理員索取 template-placeholder-spec.md。
-        </div>
-        <div id="uploadMsg" class="msg"></div>
-    </div>
+    <div class="page-grid">
 
-    <div class="card">
-        <h2>我的範本</h2>
-        <table th:if="${not #lists.isEmpty(templates)}">
-            <thead>
-                <tr><th>名稱</th><th>上傳時間</th><th>狀態</th><th></th></tr>
-            </thead>
-            <tbody>
-                <tr th:each="t : ${templates}">
-                    <td th:text="${t.name}">範本名稱</td>
-                    <td th:text="${#temporals.format(t.createdAt, 'yyyy/MM/dd HH:mm')}">2026/01/01</td>
-                    <td>
-                        <span th:if="${t.default}" class="badge">預設</span>
-                    </td>
-                    <td>
-                        <button th:if="${!t.default}" class="btn ghost" th:onclick="'setDefault(' + ${t.AETID} + ')'">設為預設</button>
-                        <button class="btn danger" th:onclick="'deleteTemplate(' + ${t.AETID} + ')'">刪除</button>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-        <div class="empty" th:if="${#lists.isEmpty(templates)}">還沒有上傳任何範本，上傳後就能在匯出行程時選用。</div>
+        <!-- 左側：上傳範本 / 我的範本 -->
+        <div class="page-grid-left">
+            <div class="card">
+                <h2>上傳新範本</h2>
+                <div class="form-row">
+                    <label>範本名稱</label>
+                    <input type="text" id="templateName" placeholder="例如：北海道熱門版" />
+                </div>
+                <div class="form-row">
+                    <label>檔案</label>
+                    <input type="file" id="templateFile" accept=".docx" />
+                </div>
+                <div class="form-row">
+                    <label></label>
+                    <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                        <input type="checkbox" id="templateSetDefault" /> 設為預設範本
+                    </label>
+                </div>
+                <button class="btn" onclick="uploadTemplate()">上傳</button>
+                <div class="hint">
+                    範本要照特定標記規則製作（{{title}}、{{day_start}}...{{day_end}} 等），
+                    規則說明請參考右側「範本格式教學」。
+                </div>
+                <div id="uploadMsg" class="msg"></div>
+            </div>
+
+            <div class="card">
+                <h2>我的範本</h2>
+                <table th:if="${not #lists.isEmpty(templates)}">
+                    <thead>
+                    <tr><th>名稱</th><th>上傳時間</th><th>狀態</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="t : ${templates}">
+                        <td th:text="${t.name}">範本名稱</td>
+                        <td th:text="${#temporals.format(t.createdAt, 'yyyy/MM/dd HH:mm')}">2026/01/01</td>
+                        <td>
+                            <span th:if="${t.default}" class="badge">預設</span>
+                        </td>
+                        <td>
+                            <button th:if="${!t.default}" class="btn ghost" th:onclick="'setDefault(' + ${t.AETID} + ')'">設為預設</button>
+                            <button class="btn danger" th:onclick="'deleteTemplate(' + ${t.AETID} + ')'">刪除</button>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+                <div class="empty" th:if="${#lists.isEmpty(templates)}">還沒有上傳任何範本，上傳後就能在匯出行程時選用。</div>
+            </div>
+        </div>
+
+        <!-- 右側：範本格式教學 (展開式模組, 跟其他頁面的手風琴設計同一套) -->
+        <div class="tools-col">
+
+            <!-- 模組一：一次性欄位 -->
+            <div id="triggerOnce" class="accordion-trigger" onclick="toggleDocAccordion('Once')">
+                <div class="trigger-left">
+                    <div class="trigger-icon"><i class="fa-solid fa-tag"></i></div>
+                    <div>
+                        <div class="trigger-text">一次性欄位</div>
+                        <div class="trigger-sub">標題、國家、天數...</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelOnce" class="accordion-panel">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-solid fa-tag" style="color:#4f46e5;"></i> 一次性欄位</div>
+                    <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="doc-text">
+                    <p>文件裡任何地方都可以用，出現一次就換一次：</p>
+                    <table class="doc-table">
+                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                        <tbody>
+                        <tr><td><span class="doc-tag">{{title}}</span></td><td>行程標題</td></tr>
+                        <tr><td><span class="doc-tag">{{country}}</span></td><td>國家/地區</td></tr>
+                        <tr><td><span class="doc-tag">{{days_count}}</span></td><td>天數</td></tr>
+                        <tr><td><span class="doc-tag">{{date_range}}</span></td><td>出發～回程日期，格式 2026/03/01 ~ 2026/03/05</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 模組二：圖片區塊 -->
+            <div id="triggerImages" class="accordion-trigger" onclick="toggleDocAccordion('Images')">
+                <div class="trigger-left">
+                    <div class="trigger-icon"><i class="fa-regular fa-images"></i></div>
+                    <div>
+                        <div class="trigger-text">圖片區塊</div>
+                        <div class="trigger-sub">圖片及景點名稱</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelImages" class="accordion-panel">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-regular fa-images" style="color:#4f46e5;"></i> 圖片區塊</div>
+                    <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="doc-text">
+                    <p>在你想要放圖片的地方，<strong>單獨一個段落</strong>，裡面只打：</p>
+                    <div class="doc-code">{{images_block}}</div>
+                    <p>系統會把這一段換成這趟行程所有景點照片，<strong>每張照片下方自動附上名稱</strong>。如果這趟行程完全沒有照片，這個段落會被整個移除，不會留空白。</p>
+                </div>
+            </div>
+
+            <!-- 模組三：每日行程區塊 -->
+            <div id="triggerDay" class="accordion-trigger" onclick="toggleDocAccordion('Day')">
+                <div class="trigger-left">
+                    <div class="trigger-icon"><i class="fa-solid fa-calendar-days"></i></div>
+                    <div>
+                        <div class="trigger-text">每日行程區塊</div>
+                        <div class="trigger-sub">依實際天數自動重複</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelDay" class="accordion-panel">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-solid fa-calendar-days" style="color:#4f46e5;"></i> 每日行程區塊</div>
+                    <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="doc-text">
+                    <p>用兩個各自獨立的段落當「起點」跟「終點」標記：</p>
+                    <div class="doc-code">{{day_start}}
+
+中間放你想要的一天份版面
+可以是表格、可以是段落，隨便設計
+
+{{day_end}}</div>
+                    <p>系統會把 <span class="doc-tag">{{day_start}}</span> 和 <span class="doc-tag">{{day_end}}</span> 中間的內容，當成「一天的版面樣式」，依這趟行程實際天數複製多份，並把裡面的標記換成當天資料：</p>
+                    <table class="doc-table">
+                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                        <tbody>
+                        <tr><td><span class="doc-tag">{{day.number}}</span></td><td>第幾天（數字）</td></tr>
+                        <tr><td><span class="doc-tag">{{day.title}}</span></td><td>當天標題（自動把當天所有景點名稱串起來）</td></tr>
+                        <tr><td><span class="doc-tag">{{day.content}}</span></td><td>當天景點行程內容（條列成一整段文字）</td></tr>
+                        <tr><td><span class="doc-tag">{{day.meals}}</span></td><td>當天餐食安排</td></tr>
+                        <tr><td><span class="doc-tag">{{day.hotel}}</span></td><td>當天住宿</td></tr>
+                        <tr><td><span class="doc-tag">{{day.map}}</span></td><td>當天景點連線地圖圖片（沒設定地圖功能或抓不到座標，這個段落會整段移除，不留空白）</td></tr>
+                        </tbody>
+                    </table>
+                    <p><strong>範例</strong>：如果你的範本長這樣（一個表格）：</p>
+                    <div class="doc-code">{{day_start}}
+第{{day.number}}天 | {{day.title}}
+{{day.content}}
+餐食: {{day.meals}} | 住宿: {{day.hotel}}
+{{day.map}}
+{{day_end}}</div>
+                    <p>系統會依天數把這整個表格複製對應份數，各自帶入該天的資料。</p>
+
+                    <p style="margin-top:16px;"><strong>逐項目區塊（選用）</strong>：如果 <span class="doc-tag">{{day.content}}</span> 這種「全部景點擠成一整段文字」不夠用，想要每個景點自己獨立一列/一格（例如要分開排版、加框線），可以改用 <span class="doc-tag">{{item_start}}</span> / <span class="doc-tag">{{item_end}}</span>，放在 <span class="doc-tag">{{day_start}}</span>...<span class="doc-tag">{{day_end}}</span> 裡面的表格儲存格中：</p>
+                    <div class="doc-code">{{item_start}}
+{{item.name}} {{item.note}}
+{{item.description}}
+{{item.route}}
+{{item_end}}</div>
+                    <p>系統會依這一天實際的景點數量，把 <span class="doc-tag">{{item_start}}</span> 和 <span class="doc-tag">{{item_end}}</span> 中間的內容複製對應份數，各自帶入該景點的資料（餐食、住宿不算在內，只有景點/亮點類項目才會列進來）：</p>
+                    <table class="doc-table">
+                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                        <tbody>
+                        <tr><td><span class="doc-tag">{{item.name}}</span></td><td>景點/項目名稱</td></tr>
+                        <tr><td><span class="doc-tag">{{item.note}}</span></td><td>這個項目的備註</td></tr>
+                        <tr><td><span class="doc-tag">{{item.description}}</span></td><td>景點資料庫裡的介紹說明（自訂項目沒有連結資料庫就會是空的）</td></tr>
+                        <tr><td><span class="doc-tag">{{item.route}}</span></td><td>離開這個景點前往下一站的拉車距離/時間</td></tr>
+                        </tbody>
+                    </table>
+                    <p><span class="doc-tag">{{item_start}}</span>...<span class="doc-tag">{{item_end}}</span> 是選用的，跟 <span class="doc-tag">{{day.content}}</span> 兩種寫法擇一使用即可，沒放 <span class="doc-tag">{{item_start}}</span> 完全不影響 <span class="doc-tag">{{day.content}}</span> 正常運作。</p>
+                </div>
+            </div>
+
+            <!-- 模組四：注意事項 -->
+            <div id="triggerNote" class="accordion-trigger" onclick="toggleDocAccordion('Note')">
+                <div class="trigger-left">
+                    <div class="trigger-icon"><i class="fa-solid fa-circle-info"></i></div>
+                    <div>
+                        <div class="trigger-text">注意事項</div>
+                        <div class="trigger-sub">製作範本前務必看一下</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelNote" class="accordion-panel">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-solid fa-circle-info" style="color:#4f46e5;"></i> 注意事項</div>
+                    <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="doc-text">
+                    <ul class="doc-list">
+                        <li><span class="doc-tag">{{day_start}}</span> / <span class="doc-tag">{{day_end}}</span> / <span class="doc-tag">{{images_block}}</span> 這三個標記，每份範本裡<strong>只能各出現一次</strong>，而且該段落<strong>只能有這個標記</strong>，不要跟其他文字混在同一段。</li>
+                        <li><span class="doc-tag">{{item_start}}</span> / <span class="doc-tag">{{item_end}}</span> 是放在 <span class="doc-tag">{{day_start}}</span>...<span class="doc-tag">{{day_end}}</span> 裡面的巢狀標記，在同一個逐日版面裡<strong>只能各出現一次</strong>；沒有放這兩個標記也完全沒關係，系統會照原本的 <span class="doc-tag">{{day.content}}</span> 輸出。</li>
+                        <li>上傳範本後建議用系統的「預覽」功能實際看一次輸出結果，確認排版跟預期一致（尤其是表格框線、跨頁狀況）。</li>
+                        <li>目前不支援頁首/頁尾裡放逐日標記，逐日區塊請放在內文（正文）範圍。</li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+
     </div>
 </main>
 
 <script>
+    // 右側「範本格式教學」手風琴: 同時間只展開一個, 跟其他頁面的手風琴模組同一套邏輯
+    function toggleDocAccordion(type) {
+        const types = ['Once', 'Images', 'Day', 'Note'];
+        types.forEach(t => {
+            const trigger = document.getElementById('trigger' + t);
+            const panel = document.getElementById('panel' + t);
+            if (t === type) {
+                const isOpen = panel.style.display === 'flex';
+                panel.style.display = isOpen ? 'none' : 'flex';
+                trigger.style.display = isOpen ? 'flex' : 'none';
+            } else {
+                panel.style.display = 'none';
+                trigger.style.display = 'flex';
+            }
+        });
+    }
+
     function uploadTemplate() {
         const fileInput = document.getElementById('templateFile');
         const name = document.getElementById('templateName').value.trim();

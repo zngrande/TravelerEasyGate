@@ -24,8 +24,8 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body {
             width: 100%;
-            min-height: 100vh;
-            overflow-x: hidden;
+            height: 100vh;
+            overflow: hidden; /* 整頁不捲動, 太長的內容改成各自區塊內部自己捲 */
         }
         body {
             font-family: 'Noto Sans TC', sans-serif;
@@ -36,13 +36,14 @@
         }
         a { text-decoration: none; color: inherit; }
 
-        /* 主內容工作區 (100% 滿版) */
+        /* 主內容工作區 (100% 滿版, 固定滿版高度不捲動) */
         .main-content {
             margin-left: var(--sidebar-width);
             width: calc(100vw - var(--sidebar-width));
             flex: 1;
             padding: 24px 36px;
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
         }
@@ -71,17 +72,17 @@
         }
         .back-link:hover { color: var(--primary-blue); }
 
-        /* 滿版雙欄佈局：左側主表單 (彈性擴展 1fr) | 右側附屬功能欄 (400px) */
+        /* 滿版雙欄佈局：左側主表單 (彈性擴展 1fr) | 右側附屬功能欄 (400px)
+           新增/編輯都固定用這個雙欄滿版佈局, 且高度精準填滿剩餘可用空間 (不用猜的 vh 數字),
+           讓左右兩欄都能各自在內部捲動、不會把整頁撐高需要滾動。 */
         .poi-grid-layout {
             display: grid;
             grid-template-columns: 1fr 400px;
             gap: 24px;
-            align-items: flex-start;
+            align-items: stretch;
             width: 100%;
-        }
-        .poi-grid-layout.single-column {
-            grid-template-columns: 1fr;
-            max-width: 800px;
+            flex: 1;
+            min-height: 0;
         }
 
         /* 卡片設計 */
@@ -103,6 +104,23 @@
             gap: 8px;
             color: var(--text-dark);
         }
+
+        /* 左側主表單卡片: 標題固定不動, 表單內容太長時只有 .form-scroll 這裡面自己捲動 */
+        .form-card {
+            height: 100%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            margin-bottom: 0;
+        }
+        .form-card .card-title { flex-shrink: 0; }
+        .form-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+        /* 表單本身撐滿 .form-scroll 的高度, 讓「介紹說明」欄位可以往下長, 把儲存按鈕推到底部,
+           這樣「介紹說明→按鈕」跟「按鈕→卡片底部」這兩段間距才會一樣大, 不會忽大忽小。 */
+        .form-scroll > form { display: flex; flex-direction: column; min-height: 100%; }
+        .form-group-grow { display: flex; flex-direction: column; flex: 1; }
+        .form-group-grow textarea.form-control { flex: 1; resize: none; min-height: 90px; }
 
         /* 表單元素 */
         .form-group { margin-bottom: 16px; }
@@ -127,24 +145,6 @@
         }
         textarea.form-control { resize: vertical; }
         .hint-text { font-size: 11.5px; color: #d97706; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
-
-        /* 專屬資源區塊 (黃金/暖色調) */
-        .resource-section {
-            background: #fffbeb;
-            border: 1px solid #fde68a;
-            border-radius: 12px;
-            padding: 18px 20px;
-            margin: 20px 0 18px;
-        }
-        .resource-title {
-            font-size: 14.5px;
-            font-weight: 700;
-            color: #92400e;
-            margin-bottom: 14px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
 
         /* 按鈕樣式 */
         .btn-primary {
@@ -181,27 +181,143 @@
         }
         .btn-danger:hover { background: var(--danger-red); color: #fff; }
 
-        /* 圖片庫區塊 */
-        .img-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-            gap: 10px;
-            margin-top: 8px;
-            max-height: 220px;
-            overflow-y: auto;
+        /* 右側改成跟行程排版看板左側三大模組一樣的手風琴式設計:
+           同時間只展開一個, 展開的那個撐滿剩餘高度、內部自己捲動, 整欄不會超出畫面高度。 */
+        .tools-col {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            height: 100%;
+            min-height: 0;
+            overflow: hidden;
         }
-        .img-thumbnail {
-            width: 100%;
-            height: 80px;
-            object-fit: cover;
-            border-radius: 8px;
+        .accordion-trigger {
+            background: #fff;
             border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 11px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            flex-shrink: 0;
         }
+        .accordion-trigger:hover { border-color: #cbd5e1; background: #f8fafc; }
+        .trigger-left { display: flex; align-items: center; gap: 10px; }
+        .trigger-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .trigger-icon.images { background: #f3e8ff; color: var(--primary-purple); }
+        .trigger-icon.resource { background: #fffbeb; color: #d97706; }
+        .trigger-icon.log { background: #ecfdf5; color: #059669; }
+        .trigger-text { font-size: 13.5px; font-weight: 700; color: var(--text-dark); white-space: nowrap; }
+        .trigger-sub { font-size: 11px; color: var(--text-gray); margin-top: 1px; white-space: nowrap; }
+
+        .accordion-panel {
+            display: none;
+            flex-direction: column;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px 18px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #f1f5f9;
+            flex-shrink: 0;
+        }
+        .panel-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+        .btn-close-panel { background: none; border: none; color: var(--text-gray); font-size: 13px; cursor: pointer; padding: 2px; }
+        .btn-close-panel:hover { color: var(--text-dark); }
+        /* 圖片跟資源庫兩個面板內容本來就短, 不用撐滿剩餘高度, 不然下面會空一大塊;
+           合作紀錄面板需要撐滿才能讓清單有空間自己捲動 */
+        #panelImages, #panelResource { flex: none; }
+
+        /* 危險操作固定顯示在最下面, 不放進手風琴裡 (刪除是重要操作, 不希望被摺疊藏起來) */
+        .danger-strip {
+            flex-shrink: 0;
+            border: 1px solid #fecaca;
+            background: #fffaf0;
+            border-radius: 12px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* 圖片庫區塊：改成一次顯示一張、用左右箭頭翻頁的輪播 */
+        .img-carousel {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .carousel-viewport {
+            position: relative;
+            flex: 1;
+            min-width: 0;
+            aspect-ratio: 4 / 3;
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .carousel-img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.2s ease-in-out;
+        }
+        .carousel-img.active { opacity: 1; }
+        .carousel-arrow {
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 1px solid var(--border-color);
+            background: #fff;
+            color: var(--text-gray);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            transition: all 0.15s;
+        }
+        .carousel-arrow:hover { background: #f1f5f9; color: var(--text-dark); }
+        .carousel-dots { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
+        .carousel-dots .dot { width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; }
+        .carousel-dots .dot.active { background: var(--primary-purple); }
+        .carousel-counter { text-align: center; font-size: 11.5px; color: var(--text-gray); margin-top: 8px; }
         .empty-text { color: var(--text-gray); font-size: 13px; line-height: 1.5; }
         .empty-text a { color: var(--primary-blue); font-weight: 600; text-decoration: underline; }
 
-        /* 合作紀錄列表 */
-        .log-list-wrap { max-height: 200px; overflow-y: auto; margin-bottom: 12px; }
+        /* 合作紀錄列表：在展開面板內佔滿剩餘高度、自己捲動, 下面的新增表單固定不動 */
+        .log-list-wrap { flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 12px; }
         .log-item {
             display: flex;
             align-items: baseline;
@@ -238,30 +354,32 @@
         <a th:href="@{/poi}" class="back-link"><i class="fa-solid fa-arrow-left"></i> 返回景點列表</a>
     </div>
 
-    <!-- 滿版雙欄佈局 (若為新增則自動變單欄) -->
-    <div class="poi-grid-layout" th:classappend="${poi == null || poi.PID == null} ? ' single-column' : ''">
+    <!-- 滿版雙欄佈局 (新增/編輯都固定雙欄) -->
+    <div class="poi-grid-layout">
 
         <!-- 1. 左側主要資料欄位卡片 -->
-        <div class="card">
+        <div class="card form-card">
             <div class="card-title">
                 <i class="fa-solid fa-pen-to-square" style="color: var(--primary-blue);"></i> 基本資料設定
             </div>
 
-            <form th:action="${poi != null && poi.PID != null} ? @{'/poi/' + ${poi.PID} + '/edit'} : @{/poi/new}" method="POST">
+            <div class="form-scroll">
+            <form id="poiForm" th:action="${poi != null && poi.PID != null} ? @{'/poi/' + ${poi.PID} + '/edit'} : @{/poi/new}" method="POST">
 
-                <div class="form-group">
-                    <label class="form-label">類型</label>
-                    <select name="category" class="form-control" required>
-                        <option value="attraction" th:selected="${poi?.category == 'attraction'}">景點</option>
-                        <option value="restaurant" th:selected="${poi?.category == 'restaurant'}">餐廳</option>
-                        <option value="hotel" th:selected="${poi?.category == 'hotel'}">飯店 / 住宿</option>
-                        <option value="rest_stop" th:selected="${poi?.category == 'rest_stop'}">休息站</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">景點 / 餐廳 / 飯店名稱</label>
-                    <input type="text" name="name" class="form-control" th:value="${poi?.name}" placeholder="例：東京晴空塔" required />
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">景點 / 餐廳 / 飯店名稱</label>
+                        <input type="text" name="name" class="form-control" th:value="${poi?.name}" placeholder="例：東京晴空塔" required />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">類型</label>
+                        <select name="category" class="form-control" required>
+                            <option value="attraction" th:selected="${poi?.category == 'attraction'}">景點</option>
+                            <option value="restaurant" th:selected="${poi?.category == 'restaurant'}">餐廳</option>
+                            <option value="hotel" th:selected="${poi?.category == 'hotel'}">飯店 / 住宿</option>
+                            <option value="rest_stop" th:selected="${poi?.category == 'rest_stop'}">休息站</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="form-row">
@@ -289,72 +407,120 @@
                         <label class="form-label">經度 (Longitude)</label>
                         <input type="number" step="0.0000001" name="longitude" class="form-control" th:value="${poi?.longitude}" placeholder="例：139.8107" />
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">建議停留時間 (分鐘)</label>
+                        <input type="number" name="suggestedStayMin" class="form-control" th:value="${poi?.suggestedStayMin}" placeholder="例：90" />
+                    </div>
                 </div>
                 <div class="hint-text" style="margin-top: -10px; margin-bottom: 16px;">
                     <i class="fa-solid fa-circle-info"></i> 經緯度留空存檔時，系統將自動根據名稱＋城市＋國家重新查詢地理座標。
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">建議停留時間 (分鐘)</label>
-                    <input type="number" name="suggestedStayMin" class="form-control" th:value="${poi?.suggestedStayMin}" placeholder="例：90" />
-                </div>
-
-                <div class="form-group">
+                <div class="form-group form-group-grow" style="margin-bottom: 0;">
                     <label class="form-label">介紹說明</label>
                     <textarea name="description" class="form-control" rows="3" th:text="${poi?.description}" placeholder="輸入景點特色、行程提醒或景點介紹..."></textarea>
                 </div>
 
-                <!-- 商業機密專區：公司專屬資源庫 -->
-                <section class="resource-section">
-                    <div class="resource-title">
-                        <i class="fa-solid fa-sack-dollar"></i> 公司專屬資源庫
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">成本價 (TWD)</label>
-                            <input type="number" step="0.01" name="costPrice" class="form-control" th:value="${poi?.costPrice}" placeholder="與供應商合約價" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">同行價 / 建議售價</label>
-                            <input type="number" step="0.01" name="agencyPrice" class="form-control" th:value="${poi?.agencyPrice}" placeholder="對外報價基準" />
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">供應商窗口</label>
-                        <input type="text" name="supplierContact" class="form-control" th:value="${poi?.supplierContact}" placeholder="例：陳小姐 0912-345-678 / LINE ID" />
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label">合作備註</label>
-                        <textarea name="supplierNotes" class="form-control" rows="2" th:text="${poi?.supplierNotes}" placeholder="例：付款帳期、取消政策、免票門檻等"></textarea>
-                    </div>
-                </section>
-
-                <button type="submit" class="btn-primary">
+                <button type="submit" class="btn-primary" style="margin-top: 24px;">
                     <i class="fa-solid fa-floppy-disk"></i> 儲存景點資料
                 </button>
             </form>
+            </div>
         </div>
 
-        <!-- 2. 右側延伸附屬功能區 (僅在編輯模式下呈現) -->
-        <div th:if="${poi != null && poi.PID != null}">
+        <!-- 2. 右側延伸附屬功能區: 改成跟行程排版看板左側三大模組一樣的手風琴設計,
+             同時間只展開一個, 這樣不管視窗多矮, 整欄都不會超出畫面需要捲動。
+             合作紀錄只有編輯模式才有 (需要 poi.PID); 刪除是重要操作固定顯示在最下面, 不放進手風琴。 -->
+        <div class="tools-col">
 
-            <!-- 綁定圖片清單卡片 -->
-            <div class="card">
-                <div class="card-title">
-                    <i class="fa-regular fa-images" style="color: var(--primary-purple);"></i> 綁定圖片
+            <!-- 模組一：綁定圖片 (預設展開) -->
+            <div id="triggerImages" class="accordion-trigger" data-type="Images" onclick="togglePoiAccordion('Images')" style="display:none;">
+                <div class="trigger-left">
+                    <div class="trigger-icon images"><i class="fa-regular fa-images"></i></div>
+                    <div>
+                        <div class="trigger-text">綁定圖片</div>
+                        <div class="trigger-sub" th:text="${images != null && !images.isEmpty()} ? ${images.size()} + ' 張圖片' : '尚未綁定'">尚未綁定</div>
+                    </div>
                 </div>
-                <div class="img-grid" th:if="${images != null && !images.isEmpty()}">
-                    <img th:each="img : ${images}" th:src="@{'/images/' + ${img.IAID} + '/file'}" class="img-thumbnail" alt="景點圖片" />
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelImages" class="accordion-panel" style="display:flex;">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-regular fa-images" style="color: var(--primary-purple);"></i> 綁定圖片</div>
+                    <button type="button" class="btn-close-panel" onclick="togglePoiAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="img-carousel" th:if="${images != null && !images.isEmpty()}">
+                    <button type="button" class="carousel-arrow" onclick="poiImgPrev()" th:if="${images.size() > 1}">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </button>
+                    <div class="carousel-viewport">
+                        <img th:each="img, iter : ${images}" th:src="@{'/images/' + ${img.IAID} + '/file'}"
+                             th:class="${iter.index == 0} ? 'carousel-img active' : 'carousel-img'" alt="景點圖片" />
+                    </div>
+                    <button type="button" class="carousel-arrow" onclick="poiImgNext()" th:if="${images.size() > 1}">
+                        <i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                </div>
+                <div class="carousel-dots" th:if="${images != null && images.size() > 1}">
+                    <span th:each="img, iter : ${images}" th:class="${iter.index == 0} ? 'dot active' : 'dot'"></span>
                 </div>
                 <p th:if="${images == null || images.isEmpty()}" class="empty-text">
-                    尚未綁定任何圖片。<br><a th:href="@{/images}">前往圖片資源庫</a> 進行上傳或關聯。
+                    <span th:if="${poi != null && poi.PID != null}">尚未綁定任何圖片。<br><a th:href="@{/images}">前往圖片資源庫</a> 進行上傳或關聯。</span>
+                    <span th:if="${poi == null || poi.PID == null}">請先儲存景點資料後，才能上傳／綁定圖片。</span>
                 </p>
             </div>
 
-            <!-- 合作紀錄卡片 -->
-            <div class="card">
-                <div class="card-title">
-                    <i class="fa-solid fa-clock-rotate-left" style="color: #059669;"></i> 合作紀錄
+            <!-- 模組二：公司專屬資源庫 (欄位用 form="poiForm" 跟左側主表單一起送出) -->
+            <div id="triggerResource" class="accordion-trigger" data-type="Resource" onclick="togglePoiAccordion('Resource')">
+                <div class="trigger-left">
+                    <div class="trigger-icon resource"><i class="fa-solid fa-sack-dollar"></i></div>
+                    <div>
+                        <div class="trigger-text">公司專屬資源庫</div>
+                        <div class="trigger-sub">成本價・供應商資訊</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelResource" class="accordion-panel">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-solid fa-sack-dollar" style="color:#d97706;"></i> 公司專屬資源庫</div>
+                    <button type="button" class="btn-close-panel" onclick="togglePoiAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">成本價 (TWD)</label>
+                        <input type="number" step="0.01" name="costPrice" form="poiForm" class="form-control" th:value="${poi?.costPrice}" placeholder="與供應商合約價" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">同行價 / 建議售價</label>
+                        <input type="number" step="0.01" name="agencyPrice" form="poiForm" class="form-control" th:value="${poi?.agencyPrice}" placeholder="對外報價基準" />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">供應商窗口</label>
+                    <input type="text" name="supplierContact" form="poiForm" class="form-control" th:value="${poi?.supplierContact}" placeholder="例：陳小姐 0912-345-678 / LINE ID" />
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">合作備註</label>
+                    <textarea name="supplierNotes" form="poiForm" class="form-control" rows="2" th:text="${poi?.supplierNotes}" placeholder="例：付款帳期、取消政策、免票門檻等"></textarea>
+                </div>
+            </div>
+
+            <!-- 模組三：合作紀錄 (只有編輯模式才有, 因為需要 poi.PID) -->
+            <div id="triggerLog" class="accordion-trigger" data-type="Log" onclick="togglePoiAccordion('Log')" th:if="${poi != null && poi.PID != null}">
+                <div class="trigger-left">
+                    <div class="trigger-icon log"><i class="fa-solid fa-clock-rotate-left"></i></div>
+                    <div>
+                        <div class="trigger-text">合作紀錄</div>
+                        <div class="trigger-sub" th:text="${logs != null && !logs.isEmpty()} ? ${logs.size()} + ' 筆紀錄' : '尚無紀錄'">尚無紀錄</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelLog" class="accordion-panel" th:if="${poi != null && poi.PID != null}">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-solid fa-clock-rotate-left" style="color: #059669;"></i> 合作紀錄</div>
+                    <button type="button" class="btn-close-panel" onclick="togglePoiAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
                 </div>
 
                 <div class="log-list-wrap" th:if="${logs != null && !logs.isEmpty()}">
@@ -363,7 +529,7 @@
                         <span class="log-note" th:text="${log.note}">紀錄說明</span>
                     </div>
                 </div>
-                <p th:if="${logs == null || logs.isEmpty()}" class="empty-text">尚無歷史合作紀錄。</p>
+                <p th:if="${logs == null || logs.isEmpty()}" class="empty-text" style="flex:1;">尚無歷史合作紀錄。</p>
 
                 <form class="log-form" method="post" th:action="@{'/poi/' + ${poi.PID} + '/cooperation-log'}">
                     <input type="date" name="logDate" class="form-control" />
@@ -372,25 +538,63 @@
                 </form>
             </div>
 
-            <!-- 危險操作區 (刪除) -->
-            <div class="card" style="border-color: #fee2e2; background: #fffaf0;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <div>
-                        <div style="font-weight: 700; color: #991b1b; font-size: 13.5px; margin-bottom: 2px;">刪除景點資料</div>
-                        <div style="font-size: 11.5px; color: #7f1d1d;">此動作無法復原。</div>
-                    </div>
-                    <form method="post" th:action="@{'/poi/' + ${poi.PID} + '/delete'}" onsubmit="return confirm('確定要刪除這筆景點資料嗎？此動作無法復原。');" style="margin:0;">
-                        <button type="submit" class="btn-danger">
-                            <i class="fa-regular fa-trash-can"></i> 刪除
-                        </button>
-                    </form>
+            <!-- 危險操作區 (刪除, 只有編輯模式才有; 固定顯示、不放進手風琴) -->
+            <div class="danger-strip" th:if="${poi != null && poi.PID != null}">
+                <div>
+                    <div style="font-weight: 700; color: #991b1b; font-size: 13.5px; margin-bottom: 2px;">刪除景點資料</div>
+                    <div style="font-size: 11.5px; color: #7f1d1d;">此動作無法復原。</div>
                 </div>
+                <form method="post" th:action="@{'/poi/' + ${poi.PID} + '/delete'}" onsubmit="return confirm('確定要刪除這筆景點資料嗎？此動作無法復原。');" style="margin:0;">
+                    <button type="submit" class="btn-danger">
+                        <i class="fa-regular fa-trash-can"></i> 刪除
+                    </button>
+                </form>
             </div>
 
         </div>
 
     </div>
 </main>
+
+<script>
+    // 右側手風琴模組: 同時間只展開一個 (跟行程排版看板左側三大模組同一套邏輯)
+    function togglePoiAccordion(type) {
+        document.querySelectorAll('.accordion-trigger[data-type]').forEach(trigger => {
+            const t = trigger.dataset.type;
+            const panel = document.getElementById('panel' + t);
+            if (!panel) return;
+            if (t === type) {
+                const isOpen = panel.style.display === 'flex';
+                panel.style.display = isOpen ? 'none' : 'flex';
+                trigger.style.display = isOpen ? 'flex' : 'none';
+            } else {
+                panel.style.display = 'none';
+                trigger.style.display = 'flex';
+            }
+        });
+    }
+
+    // 綁定圖片輪播: 一次只顯示一張, 用左右箭頭切換
+    let poiImgIndex = 0;
+    function updatePoiCarousel() {
+        const imgs = document.querySelectorAll('.carousel-img');
+        imgs.forEach((img, i) => img.classList.toggle('active', i === poiImgIndex));
+        const dots = document.querySelectorAll('.carousel-dots .dot');
+        dots.forEach((d, i) => d.classList.toggle('active', i === poiImgIndex));
+    }
+    function poiImgPrev() {
+        const imgs = document.querySelectorAll('.carousel-img');
+        if (!imgs.length) return;
+        poiImgIndex = (poiImgIndex - 1 + imgs.length) % imgs.length;
+        updatePoiCarousel();
+    }
+    function poiImgNext() {
+        const imgs = document.querySelectorAll('.carousel-img');
+        if (!imgs.length) return;
+        poiImgIndex = (poiImgIndex + 1) % imgs.length;
+        updatePoiCarousel();
+    }
+</script>
 
 </body>
 </html>

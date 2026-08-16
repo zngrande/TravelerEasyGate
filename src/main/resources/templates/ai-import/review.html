@@ -83,17 +83,6 @@
             color: var(--text-dark);
             margin-bottom: 6px;
         }
-        .summary-meta {
-            font-size: 13px;
-            color: var(--text-gray);
-            display: flex;
-            gap: 16px;
-        }
-        .summary-meta span {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-        }
 
         .confirm-box { background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 24px; }
         .confirm-box label { display: block; font-weight: bold; margin-top: 10px; font-size: 13px; }
@@ -200,7 +189,6 @@
         .edit-form input, .edit-form select { width: 100%; padding: 6px; box-sizing: border-box; font-size: 13px; border: 1px solid var(--border-color); border-radius: 4px; }
 
         .error-box { background: #fee2e2; color: #991b1b; padding: 14px; border-radius: 8px; margin-bottom: 20px; }
-        .tag { background: #e0e7ff; color: #3730a3; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -231,11 +219,6 @@
     <div class="summary-card" style="flex-direction: column; align-items: stretch;" th:if="${aiImport != null and aiImport.status == 'parsed'}">
         <div class="summary-info" style="margin-bottom: 16px;">
             <h2>AI 解析行程草稿</h2>
-            <div class="summary-meta">
-                <span><i class="fa-regular fa-calendar"></i> 風格：
-                    <span class="tag" th:text="${aiImport.templateStyle == 'wenqing'} ? '文青風' : (${aiImport.templateStyle == 'luxury'} ? '高端奢華風' : (${aiImport.templateStyle == 'corporate'} ? '企業簡報風' : '一般風格'))">一般風格</span>
-                </span>
-            </div>
         </div>
 
         <div class="confirm-box">

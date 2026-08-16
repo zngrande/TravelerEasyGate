@@ -37,16 +37,16 @@ public class AgencyController {
 
         // 統計卡片: 依 status 欄位即時算出目前真實數量
         // status 欄位定義 (Itinerary.java): draft / confirmed / departed / completed
-        // 進行中行程 = 已確認且尚未結束的行程 (confirmed / departed)
-        // 待確認行程 = 還在草稿、尚未確認的行程 (draft)
+        // 進行中行程 = 還在草稿、OP 還在編輯排版的行程 (draft)
+        // 已完成行程 = 在行程排版看板按下「完成行程」之後的行程 (completed, 舊資料的 confirmed/departed 也視為已完成)
         long ongoingCount = itineraries.stream()
-                .filter(it -> "confirmed".equals(it.getStatus()) || "departed".equals(it.getStatus()))
-                .count();
-        long pendingCount = itineraries.stream()
                 .filter(it -> it.getStatus() == null || "draft".equals(it.getStatus()))
                 .count();
+        long completedCount = itineraries.stream()
+                .filter(it -> it.getStatus() != null && !"draft".equals(it.getStatus()))
+                .count();
         model.addAttribute("ongoingCount", ongoingCount);
-        model.addAttribute("pendingCount", pendingCount);
+        model.addAttribute("completedCount", completedCount);
 
         // 素材庫圖片: 這個旅行社在「圖片資源庫」上傳的圖片總數
         List<ImageAsset> images = imageAssetDAO.findByAgency(AID);

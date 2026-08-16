@@ -80,6 +80,50 @@ public class AnthropicClient {
     }
 
     /**
+     * 幫景點/餐廳/飯店自動生成一段簡短的介紹說明, 用在:
+     *   1) AI 解析行程時, 把項目寫進 POI 資料庫的當下自動產生介紹
+     *   2) 行程編輯畫面手動把自訂項目加入 POI 資料庫時自動產生介紹
+     *
+     * @param name     地點名稱 (必填)
+     * @param category attraction / restaurant / hotel 等分類, 可為 null
+     * @param country  國家, 可為 null
+     * @param region   地區/城市, 可為 null
+     * @param hint     原始行程文字裡跟這個地點有關的補充說明 (例如 AI 解析時的 note), 可為 null,
+     *                 用來讓生成的介紹更貼近這份行程實際提到的重點, 不是必要資訊
+     * @return 生成的介紹文字 (繁體中文, 約 80~150 字); 生成失敗 (API 沒設定/呼叫失敗) 回傳 null, 呼叫端要自己處理 fallback
+     */
+    public String generateDescription(String name, String category, String country, String region, String hint) {
+        try {
+            String system = """
+                你是旅遊行程規劃助手, 負責幫旅行社的景點/餐廳/飯店資料庫生成簡短的介紹說明。
+                使用者會給你一個地點的名稱、類型、國家/地區, 有時還會附上這個地點在某份行程文件裡原本的補充備註。
+                請用繁體中文寫一段大約 80~150 字的介紹, 內容可以包含: 這個地方的特色/賣點、適合什麼樣的遊客、
+                如果是景點可以提一下歷史或亮點, 如果是餐廳可以提一下料理特色, 如果是飯店可以提一下服務/位置優勢。
+                只能輸出介紹文字本身, 不要加標題、不要加任何前言或說明文字、不要用引號包起來。
+                如果給的資訊不足以判斷細節, 就用這個地點的類型/地區合理推測, 寫一段通用但不失真的介紹, 不要留白。
+                """;
+            StringBuilder userContent = new StringBuilder();
+            userContent.append("名稱: ").append(name);
+            userContent.append("\n類型: ").append(category != null ? category : "未知");
+            String location = String.join(" ", nonBlank(region), nonBlank(country)).trim();
+            userContent.append("\n地區: ").append(location.isEmpty() ? "未知" : location);
+            if (hint != null && !hint.isBlank()) {
+                userContent.append("\n行程文件裡的原始備註 (僅供參考, 不要照抄): ").append(hint);
+            }
+
+            String response = complete(system, userContent.toString(), 400);
+            String trimmed = response == null ? "" : response.trim();
+            return trimmed.isEmpty() ? null : trimmed;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String nonBlank(String s) {
+        return s == null ? "" : s;
+    }
+
+    /**
      * 分析圖片內容, 用於圖片資源庫的自動標籤/描述
      *
      * @param imageBytes 圖片位元組內容

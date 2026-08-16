@@ -41,7 +41,6 @@ public class AiParseService {
 
         JSON 格式規則:
         {
-          "template_style": "wenqing | luxury | corporate | default",
           "suggested_title": "根據內容建議的行程標題, 例如「花蓮經典三日遊」",
           "country": "根據內容判斷的國家, 例如「台灣」「日本」「泰國」, 判斷不出來就填「未知」",
           "region": "根據內容判斷的地區/城市 (國家底下更細的地點), 例如「花蓮」「北海道」「清邁」, 判斷不出來就填「未知」",
@@ -64,12 +63,6 @@ public class AiParseService {
           ]
         }
 
-        template_style 判斷規則 (依照原文的文字風格/用詞判斷, 只能選以下四種之一):
-        - "wenqing" (文青風): 原文用詞抒情、感性, 常見詩意描述、生活風格用語, 較少制式條列
-        - "luxury" (高端奢華風): 原文強調五星、尊榮、獨家、頂級、私人管家等高端字眼
-        - "corporate" (企業員工旅遊簡報風): 原文用詞正式、條列、商務用語多, 像公司內部簡報或制式報價單
-        - "default": 看不出明顯風格, 或原文很簡短沒有太多形容詞時使用
-
         規則:
         - item_type=attraction 是景點/活動; meal 是餐食; hotel 是住宿; transport 是航班/高鐵/包車等交通;
           highlight 是行銷亮點文案或注意事項(不屬於實體地點的敘述)。
@@ -83,9 +76,9 @@ public class AiParseService {
 
     @Autowired
     public AiParseService(AnthropicClient anthropicClient, AiImportDAO aiImportDAO,
-                           AiParsedDayDAO aiParsedDayDAO, AiParsedItemDAO aiParsedItemDAO,
-                           PoiDAO poiDAO, ItineraryService itineraryService,
-                           ObjectMapper objectMapper, GoogleMapsClient googleMapsClient) {
+                          AiParsedDayDAO aiParsedDayDAO, AiParsedItemDAO aiParsedItemDAO,
+                          PoiDAO poiDAO, ItineraryService itineraryService,
+                          ObjectMapper objectMapper, GoogleMapsClient googleMapsClient) {
         this.anthropicClient = anthropicClient;
         this.aiImportDAO = aiImportDAO;
         this.aiParsedDayDAO = aiParsedDayDAO;
@@ -100,18 +93,18 @@ public class AiParseService {
      * 送出文字給 Claude 解析, 存成暫存資料, 回傳 AiImport 讓 controller 導去 review 頁面
      */
     public AiImport parseText(int AID, int UID, String rawText) {
-        return parseText(AID, UID, rawText, "text", "auto");
+        return parseText(AID, UID, rawText, "text", "default");
     }
 
     /**
      * @param sourceType 記錄這份資料原始來源: text / pdf / docx (方便之後在列表分辨)
      */
     public AiImport parseText(int AID, int UID, String rawText, String sourceType) {
-        return parseText(AID, UID, rawText, sourceType, "auto");
+        return parseText(AID, UID, rawText, sourceType, "default");
     }
 
     /**
-     * @param userStyle 使用者手動指定的風格 (wenqing/luxury/corporate/default), 傳 "auto" 就用 AI 判斷的結果
+     * @param userStyle 使用者手動指定的風格 (wenqing/luxury/corporate/default)
      */
     public AiImport parseText(int AID, int UID, String rawText, String sourceType, String userStyle) {
         AiImport aiImport = new AiImport(AID, UID, sourceType, rawText);
@@ -121,11 +114,7 @@ public class AiParseService {
             String jsonText = anthropicClient.complete(SYSTEM_PROMPT, rawText, 16000);
             JsonNode root = objectMapper.readTree(stripCodeFence(jsonText));
 
-            // 使用者有手動指定風格就用使用者的, 不然才用 AI 自己判斷的結果
-            boolean useManualStyle = userStyle != null && !userStyle.equalsIgnoreCase("auto");
-            aiImport.setTemplateStyle(useManualStyle
-                    ? normalizeStyle(userStyle)
-                    : normalizeStyle(root.path("template_style").asText("default")));
+            aiImport.setTemplateStyle(normalizeStyle(userStyle));
 
             aiImport.setSuggestedTitle(emptyToNull(root.path("suggested_title").asText(null)));
             String country = emptyToNull(root.path("country").asText(null));
@@ -258,10 +247,10 @@ public class AiParseService {
                 : (aiImport != null ? firstToken(aiImport.getSuggestedRegion()) : null);
 
         Poi poi = new Poi(AID, category, item.getName(), country, region, null, null, null);
-        poi.setDescription(item.getNote());
 
-        // 地理編碼 (先試 Places API 準確定位, 找不到再 fallback Geocoding API) 跟 AI 停留時間估算平行呼叫,
-        // 兩個都是外部 API 呼叫, 依序做的話等於等兩次網路來回。飛機/飯店早餐這類不需要座標的項目直接跳過地理編碼。
+        // 地理編碼 (先試 Places API 準確定位, 找不到再 fallback Geocoding API)、AI 停留時間估算、
+        // AI 景點介紹說明生成三個平行呼叫, 都是外部 API/AI 呼叫, 依序做的話要等三次網路來回。
+        // 飛機/飯店早餐這類不需要座標的項目直接跳過地理編碼。
         java.util.concurrent.CompletableFuture<GoogleMapsClient.GeocodeResult> geoFuture;
         if (shouldGeocode(item.getItemType(), item.getTimeSlot(), item.getName())) {
             String geocodeQuery = String.join(" ", nonBlank(item.getName()), nonBlank(region), nonBlank(country)).trim();
@@ -275,6 +264,9 @@ public class AiParseService {
         java.util.concurrent.CompletableFuture<Integer> stayFuture = (item.getStayMinutes() != null)
                 ? java.util.concurrent.CompletableFuture.completedFuture(item.getStayMinutes())
                 : java.util.concurrent.CompletableFuture.supplyAsync(() -> anthropicClient.estimateStayMinutes(item.getName(), category, null));
+        // 自動生成景點介紹說明: 用 AI 解析時附帶的 note 當提示, 讓介紹更貼近這份行程實際提到的重點
+        java.util.concurrent.CompletableFuture<String> descriptionFuture = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> anthropicClient.generateDescription(item.getName(), category, country, region, item.getNote()));
 
         GoogleMapsClient.GeocodeResult geo = geoFuture.join();
         if (geo != null) {
@@ -282,6 +274,10 @@ public class AiParseService {
             poi.setLongitude(BigDecimal.valueOf(geo.longitude));
         }
         poi.setSuggestedStayMin(stayFuture.join());
+
+        // AI 生成失敗就 fallback 用原文的 note, 至少不要留白
+        String generatedDescription = descriptionFuture.join();
+        poi.setDescription(generatedDescription != null ? generatedDescription : item.getNote());
 
         poiDAO.save(poi);
 
@@ -345,7 +341,7 @@ public class AiParseService {
      * 編輯 AI 解析出來、還沒確認轉正式行程的項目 (讓線控可以在 review 頁面直接修正)
      */
     public void updateParsedItem(int APIID, String name, String itemType, String timeSlot,
-                                  String note, Integer stayMinutes) {
+                                 String note, Integer stayMinutes) {
         AiParsedItem item = aiParsedItemDAO.findById(APIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
@@ -371,7 +367,7 @@ public class AiParseService {
         Itinerary itinerary = itineraryService.createItinerary(
                 aiImport.getAID(), aiImport.getCreatedBy(), title, country, region, daysCount, LocalDate.now());
 
-        // 把 AI 判斷出來的文件風格帶到正式行程上, 匯出企劃書時會套用同樣風格
+        // 把使用者選擇的企劃書風格帶到正式行程上, 匯出企劃書時會套用同樣風格
         itineraryService.updateTemplateStyle(itinerary.getITID(), aiImport.getTemplateStyle());
         itinerary.setTemplateStyle(aiImport.getTemplateStyle());
 

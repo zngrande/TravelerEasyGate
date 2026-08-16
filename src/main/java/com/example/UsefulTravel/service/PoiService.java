@@ -37,6 +37,17 @@ public class PoiService {
         poiDAO.save(poi);
     }
 
+    /**
+     * 只更新景點的介紹說明 (給行程編輯畫面用: 編輯已連結 POI 的項目時, 在底部顯示/修改介紹說明,
+     * 存檔時直接同步回 POI 資料庫, 不影響這個景點的其他欄位)
+     */
+    public void updateDescription(int PID, String description) {
+        Poi poi = poiDAO.findById(PID);
+        if (poi == null) throw new IllegalArgumentException("找不到這個景點");
+        poi.setDescription(description);
+        poiDAO.save(poi);
+    }
+
     public Poi findById(int PID) {
         return poiDAO.findById(PID);
     }

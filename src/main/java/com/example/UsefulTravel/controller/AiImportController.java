@@ -47,8 +47,8 @@ public class AiImportController {
     // POST /ai-import/new → 呼叫 Claude 解析, 完成後導去 review 頁
     @PostMapping("/new")
     public String parse(@RequestParam String rawText,
-                         @RequestParam(defaultValue = "auto") String templateStyle,
-                         HttpSession session) {
+                        @RequestParam(defaultValue = "default") String templateStyle,
+                        HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null || UID == null) return "redirect:/login";
@@ -60,8 +60,8 @@ public class AiImportController {
     // POST /ai-import/upload → 上傳 PDF/Word, 抽出文字後跟貼上文字走同一套 AI 解析流程
     @PostMapping("/upload")
     public String uploadAndParse(@RequestParam("file") MultipartFile file,
-                                  @RequestParam(defaultValue = "auto") String templateStyle,
-                                  HttpSession session, Model model) {
+                                 @RequestParam(defaultValue = "default") String templateStyle,
+                                 HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null || UID == null) return "redirect:/login";
@@ -85,12 +85,12 @@ public class AiImportController {
     // POST /ai-import/item/{apiid}/edit → 編輯 AI 解析出來、還沒確認的項目
     @PostMapping("/item/{apiid}/edit")
     public String editItem(@PathVariable("apiid") int APIID,
-                            @RequestParam String name,
-                            @RequestParam String itemType,
-                            @RequestParam(required = false) String timeSlot,
-                            @RequestParam(required = false) String note,
-                            @RequestParam(required = false) Integer stayMinutes,
-                            HttpSession session) {
+                           @RequestParam String name,
+                           @RequestParam String itemType,
+                           @RequestParam(required = false) String timeSlot,
+                           @RequestParam(required = false) String note,
+                           @RequestParam(required = false) Integer stayMinutes,
+                           HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
 
         int IPID = aiParseService.getIpidByItem(APIID);
@@ -136,10 +136,10 @@ public class AiImportController {
     // POST /ai-import/{id}/confirm → 確認無誤, 轉成正式行程並導去排版看板
     @PostMapping("/{id}/confirm")
     public String confirm(@PathVariable("id") int IPID,
-                           @RequestParam String title,
-                           @RequestParam String country,
-                           @RequestParam(required = false) String region,
-                           HttpSession session) {
+                          @RequestParam String title,
+                          @RequestParam String country,
+                          @RequestParam(required = false) String region,
+                          HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
 
         Itinerary itinerary = aiParseService.confirmImport(IPID, title, country, region);

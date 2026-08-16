@@ -42,7 +42,7 @@ public class ItineraryController {
         return "itinerary/new";
     }
 
-    // POST /itinerary/new → 建立行程 + 自動產生 Day1~DayN 骨架
+    // POST /itinerary/new → 建立行程 + 自動產生 Day1~DayN 骨架 (空白行程, 使用者自己手動排)
     @PostMapping("/new")
     public String create(@RequestParam String title,
                          @RequestParam String country,
@@ -56,6 +56,31 @@ public class ItineraryController {
 
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
         Itinerary itinerary = itineraryService.createItinerary(AID, UID, title, country, region, daysCount, parsedDate);
+        return "redirect:/itinerary/" + itinerary.getITID() + "/board";
+    }
+
+    // POST /itinerary/new/ai → 「AI 安排行程」按鈕: 建立行程骨架後, 用 AI 從公司 POI 資料庫裡挑選/安排每一天的行程,
+    // 不是空白行程。跟旁邊「建立行程並進入看板」共用同一組表單欄位, 只是多這個按鈕會多跑一次 AI 排程。
+    @PostMapping("/new/ai")
+    public String createWithAiPlan(@RequestParam String title,
+                                    @RequestParam String country,
+                                    @RequestParam(required = false) String region,
+                                    @RequestParam int daysCount,
+                                    @RequestParam(required = false) String startDate,
+                                    HttpSession session,
+                                    org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        Integer UID = (Integer) session.getAttribute("UID");
+        if (AID == null || UID == null) return "redirect:/login";
+
+        LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
+        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate);
+
+        if (!itineraryService.hasAnyItem(itinerary.getITID())) {
+            redirectAttributes.addFlashAttribute("aiPlanNotice",
+                    "AI 沒有找到「" + country + (region != null && !region.isBlank() ? " / " + region : "")
+                            + "」符合的景點資料 (或 AI 排程失敗), 已建立空白行程, 請從左側手動加入景點。");
+        }
         return "redirect:/itinerary/" + itinerary.getITID() + "/board";
     }
 
@@ -98,6 +123,24 @@ public class ItineraryController {
         model.addAttribute("googleMapsConfigured", googleMapsClient.isConfigured());
         model.addAttribute("googleMapsApiKey", googleMapsClient.getApiKey());
         return "itinerary/board";
+    }
+
+    // POST /itinerary/{id}/complete → 行程排版看板 or 首頁列表按下「完成行程」, 狀態改成 completed
+    // (首頁「進行中行程」變成「已完成行程」)。跟 delete 用同樣的寫法直接 redirect 回首頁, 而不是回空的
+    // ResponseEntity —— 因為首頁的按鈕是一般 HTML form 送出 (非 AJAX), 回空白 response 瀏覽器會整頁跳轉
+    // 到一片空白, 讓人以為「跳到其他網頁但沒有動作」。改成 redirect 後, 首頁 form 送出會直接導回首頁看到最新狀態；
+    // board.html 那邊用 fetch() 呼叫時, fetch 會自動跟隨 redirect 拿到最終的 200 回應, 不影響原本的 AJAX 邏輯。
+    @PostMapping("/{id}/complete")
+    public String complete(@PathVariable("id") int ITID, HttpSession session,
+                            org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        try {
+            itineraryService.markCompleted(ITID);
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("deleteError",
+                    "標記完成失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString()));
+        }
+        return "redirect:/agency/dashboard";
     }
 
     // POST /itinerary/{id}/delete → 刪除整個行程
