@@ -31,8 +31,8 @@ public class ExportController {
 
     @Autowired
     public ExportController(ExportService exportService, TemplateMergeService templateMergeService,
-                             AgencyExportTemplateDAO templateDAO, ItineraryDAO itineraryDAO,
-                             ImageStorageService storageService) {
+                            AgencyExportTemplateDAO templateDAO, ItineraryDAO itineraryDAO,
+                            ImageStorageService storageService) {
         this.exportService = exportService;
         this.templateMergeService = templateMergeService;
         this.templateDAO = templateDAO;
@@ -45,13 +45,13 @@ public class ExportController {
     // 傳了就改用該旅行社自己上傳的 .docx 範本做合併 (templateId = 0 代表用該旅行社設的預設範本)
     @GetMapping("/itinerary/{id}/export")
     public ResponseEntity<byte[]> export(@PathVariable("id") int ITID,
-                                          @RequestParam(defaultValue = "b2c") String format,
-                                          @RequestParam(defaultValue = "true") boolean includeItinerary,
-                                          @RequestParam(defaultValue = "true") boolean includeRoutes,
-                                          @RequestParam(defaultValue = "true") boolean includeMap,
-                                          @RequestParam(defaultValue = "false") boolean includeImages,
-                                          @RequestParam(required = false) Integer templateId,
-                                          HttpSession session) throws Exception {
+                                         @RequestParam(defaultValue = "b2c") String format,
+                                         @RequestParam(defaultValue = "true") boolean includeItinerary,
+                                         @RequestParam(defaultValue = "true") boolean includeRoutes,
+                                         @RequestParam(defaultValue = "true") boolean includeMap,
+                                         @RequestParam(defaultValue = "false") boolean includeImages,
+                                         @RequestParam(required = false) Integer templateId,
+                                         HttpSession session) throws Exception {
         Integer UID = (Integer) session.getAttribute("UID");
         Integer AID = (Integer) session.getAttribute("AID");
         if (UID == null) {
@@ -66,7 +66,7 @@ public class ExportController {
             if (itinerary == null) return ResponseEntity.notFound().build();
 
             byte[] templateBytes = storageService.load(template.getFilePath());
-            TemplateMergeService.TemplateData data = templateMergeService.buildTemplateData(itinerary, includeImages);
+            TemplateMergeService.TemplateData data = templateMergeService.buildTemplateData(itinerary, includeImages, includeRoutes, includeMap);
             fileBytes = templateMergeService.merge(templateBytes, data);
         } else {
             ExportService.ExportOptions options = new ExportService.ExportOptions();

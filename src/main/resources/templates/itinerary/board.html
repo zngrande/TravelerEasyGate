@@ -1270,18 +1270,32 @@
     // 帶入這家旅行社上傳的範本清單, 讓使用者選要用哪一份 (或維持內建版面)
     function loadExportTemplates() {
         const select = document.getElementById('exportTemplateId');
-        select.innerHTML = '<option value="">使用系統內建版面</option>';
+        select.innerHTML = '';
         fetch('/export-templates/api')
             .then(res => res.ok ? res.json() : [])
             .then(templates => {
+                let defaultAETID = null;
                 templates.forEach(t => {
                     const opt = document.createElement('option');
                     opt.value = t.AETID;
                     opt.textContent = t.name + (t.default ? '（預設）' : '');
                     select.appendChild(opt);
+                    if (t.default) defaultAETID = t.AETID;
                 });
+
+                // 「使用系統內建版面」放在最下面, 當作沒有自訂範本時的保底選項
+                const builtIn = document.createElement('option');
+                builtIn.value = '';
+                builtIn.textContent = '使用系統內建版面';
+                select.appendChild(builtIn);
+
+                // 有設定預設範本就自動帶入選到那份, 不用每次手動選; 沒設預設才維持選到系統內建版面
+                select.value = defaultAETID !== null ? String(defaultAETID) : '';
             })
-            .catch(() => {}); // 讀不到範本清單就維持只有「系統內建版面」這個選項
+            .catch(() => {
+                // 讀不到範本清單就至少保留「系統內建版面」這個選項, 不然下拉選單會整個空白
+                select.innerHTML = '<option value="">使用系統內建版面</option>';
+            });
     }
 
     function closeExportModal() {

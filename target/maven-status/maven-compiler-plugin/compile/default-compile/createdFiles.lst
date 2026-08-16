@@ -22,6 +22,7 @@ com\example\UsefulTravel\service\ImageAssetService.class
 com\example\UsefulTravel\controller\AgencyExportTemplateController.class
 com\example\UsefulTravel\DAO\AiImportDAO.class
 com\example\UsefulTravel\entity\TravelComponent.class
+com\example\UsefulTravel\service\TemplateMergeService$ItemData.class
 com\example\UsefulTravel\DAO\ItineraryDAOImpl.class
 com\example\UsefulTravel\DAO\ItineraryComponentDAOImpl.class
 com\example\UsefulTravel\service\RouteService.class
