@@ -694,9 +694,18 @@
                     style="font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid var(--border-color);background:transparent;color:#059669;cursor:default;margin-right:6px;transition:all 0.15s;">
                 ✓ 已儲存
             </button>
-            <a th:href="@{'/itinerary/' + ${itineraryId} + '/components'}" class="btn-nav comp">
-                <i class="fa-solid fa-coins"></i> 報價元件
+            <a th:href="@{'/itinerary/' + ${itineraryId} + '/quotations'}" class="btn-nav comp">
+                <i class="fa-solid fa-file-invoice-dollar"></i> 報價單
             </a>
+            <a th:href="@{'/itinerary/' + ${itineraryId} + '/quick-quote'}" class="btn-nav comp">
+                <i class="fa-solid fa-tags"></i> 快速抓價錢
+            </a>
+            <button type="button" id="lockToggleBtn" onclick="toggleItineraryLock()"
+                    th:attr="data-locked=${itinerary != null and itinerary.locked}"
+                    style="font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer;">
+                <i class="fa-solid" th:classappend="${itinerary != null and itinerary.locked} ? 'fa-lock' : 'fa-lock-open'"></i>
+                <span th:text="${itinerary != null and itinerary.locked} ? '解鎖行程' : '鎖定行程'"></span>
+            </button>
             <a href="#" onclick="completeItinerary(); return false;" class="btn-nav done">
                 <i class="fa-solid fa-circle-check"></i> 完成行程
             </a>
@@ -711,6 +720,11 @@
             </a>
         </div>
     </header>
+
+    <div th:if="${lockedByOther}" style="background:#fef3c7;border-bottom:1px solid #fde68a;color:#92400e;padding:10px 40px;font-size:13.5px;display:flex;align-items:center;gap:8px;">
+        <i class="fa-solid fa-lock"></i>
+        這個行程目前被其他人鎖定中，你可以檢視但無法編輯內容，請確認對方完成編輯後再操作，或聯絡管理者強制解鎖。
+    </div>
 
     <div class="board-wrapper">
         <!-- AI 安排行程沒找到符合景點時的提示 (只有從「AI 安排行程」按鈕建立、又剛好資料庫沒有符合景點時才會出現) -->
@@ -883,6 +897,21 @@
 <script th:inline="javascript">
     let currentDayId = /*[[${!days.isEmpty() ? days[0].IDID : null}]]*/ null;
     const itineraryId = /*[[${itineraryId}]]*/ 0;
+
+    // 頂部「鎖定/解鎖行程」按鈕: 上鎖後其他人只能檢視, 避免多人同時編輯互相覆蓋
+    function toggleItineraryLock() {
+        const btn = document.getElementById('lockToggleBtn');
+        const currentlyLocked = btn.dataset.locked === 'true';
+        const url = `/itinerary/${itineraryId}/${currentlyLocked ? 'unlock' : 'lock'}`;
+        fetch(url, { method: 'POST' })
+            .then(res => {
+                if (!res.ok) {
+                    return res.text().then(msg => { throw new Error(msg); });
+                }
+                window.location.reload();
+            })
+            .catch(err => alert('操作失敗：' + err.message));
+    }
 
     // 頂部「完成行程」按鈕: 把這個行程的狀態改成 completed, 首頁「進行中行程」統計會變成「已完成行程」
     function completeItinerary() {
@@ -1156,15 +1185,28 @@
                 list.appendChild(info);
             }
 
-            // 智慧中途推薦
+            // 智慧中途推薦：先偷看有沒有推薦結果, 沒有的話這顆按鈕 (連框框) 都不顯示
             const nextItem = items[index + 1];
             if (nextItem && item.PID != null && nextItem.PID != null) {
                 const suggestBtn = document.createElement('button');
                 suggestBtn.type = 'button';
                 suggestBtn.className = 'suggest-between-btn';
+                suggestBtn.style.display = 'none';
                 suggestBtn.textContent = '💡 推薦這中間順路的景點 / 餐廳';
-                suggestBtn.onclick = () => loadSuggestions(idid, item.IIID, nextItem.IIID, suggestBtn);
                 list.appendChild(suggestBtn);
+
+                fetch(`/itinerary/day/${idid}/suggest-between?fromIIID=${item.IIID}&toIIID=${nextItem.IIID}`)
+                    .then(r => r.json())
+                    .then(results => {
+                        if (results.length > 0) {
+                            suggestBtn.dataset.cachedResults = JSON.stringify(results);
+                            suggestBtn.onclick = () => loadSuggestions(idid, item.IIID, nextItem.IIID, suggestBtn);
+                            suggestBtn.style.display = '';
+                        } else {
+                            suggestBtn.remove();
+                        }
+                    })
+                    .catch(() => suggestBtn.remove());
             }
         });
 
@@ -1184,8 +1226,14 @@
     }
 
     async function loadSuggestions(idid, fromIIID, toIIID, btnEl) {
-        btnEl.textContent = '推薦中...';
-        const results = await fetch(`/itinerary/day/${idid}/suggest-between?fromIIID=${fromIIID}&toIIID=${toIIID}`).then(r => r.json());
+        // 按鈕顯示前就已經偷看過一次結果並存在 dataset 裡了, 這裡直接重用, 不用再打一次 API
+        let results;
+        if (btnEl.dataset.cachedResults) {
+            results = JSON.parse(btnEl.dataset.cachedResults);
+        } else {
+            btnEl.textContent = '推薦中...';
+            results = await fetch(`/itinerary/day/${idid}/suggest-between?fromIIID=${fromIIID}&toIIID=${toIIID}`).then(r => r.json());
+        }
 
         const panel = document.createElement('div');
         panel.className = 'suggest-panel';

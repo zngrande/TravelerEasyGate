@@ -7,7 +7,7 @@
   <aside th:replace="~{fragments/sidebar :: sidebar(active='poi')}"></aside>
 
   active 參數對應哪個 nav-item 要加 .active, 可傳:
-  'itinerary' | 'poi' | 'component' | 'images' | 'export-template'
+  'itinerary' | 'poi' | 'component' | 'margin-setting' | 'images' | 'export-template' | 'account' | 'staff'
 
   userName 參數是選填的: 有傳的話, 側邊欄最下面會多顯示登入者名稱 + 登出連結
   (目前只有 agency/dashboard.html 有帶這個參數, 其他頁面不用傳這個變數,
@@ -59,11 +59,20 @@
         <a th:href="@{/component}" class="nav-item" th:classappend="${active == 'component'} ? ' active' : ''">
             <i class="fa-solid fa-layer-group"></i> 元件資料庫
         </a>
+        <a th:href="@{/margin-setting}" class="nav-item" th:classappend="${active == 'margin-setting'} ? ' active' : ''">
+            <i class="fa-solid fa-percent"></i> 加成規則
+        </a>
         <a th:href="@{/images}" class="nav-item" th:classappend="${active == 'images'} ? ' active' : ''">
             <i class="fa-regular fa-image"></i> 圖片資料庫
         </a>
         <a th:href="@{/export-templates}" class="nav-item" th:classappend="${active == 'export-template'} ? ' active' : ''">
             <i class="fa-solid fa-file-word"></i> 行程輸出範本
+        </a>
+        <a th:href="@{/account}" class="nav-item" th:classappend="${active == 'account'} ? ' active' : ''">
+            <i class="fa-solid fa-circle-user"></i> 帳號設定
+        </a>
+        <a th:if="${session.role == 'ADMIN'}" th:href="@{/staff}" class="nav-item" th:classappend="${active == 'staff'} ? ' active' : ''">
+            <i class="fa-solid fa-users-gear"></i> 員工管理
         </a>
     </nav>
     <div class="help-box">

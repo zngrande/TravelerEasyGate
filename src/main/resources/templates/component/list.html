@@ -137,6 +137,15 @@
             transition: background 0.15s; margin-top: 4px;
         }
         .btn-submit:hover { background: #1d4ed8; }
+
+        /* 錯誤警告區塊 */
+        .alert-error {
+            background: #fef2f2; color: #991b1b; padding: 12px 18px; border-radius: 10px;
+            margin-bottom: 20px; font-size: 13.5px; border: 1px solid #fecaca;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .btn-icon-delete { background: none; border: none; cursor: pointer; color: var(--text-gray); font-size: 14px; padding: 4px 6px; border-radius: 6px; }
+        .btn-icon-delete:hover { color: #dc2626; background: #fef2f2; }
     </style>
 </head>
 <body>
@@ -157,6 +166,11 @@
 
     <p class="page-desc">把航班、餐食等級、住宿等級、自費項目建成標準元件，之後在各行程的「報價元件」裡直接掛上去，B2B 報價單會自動加總成本與售價。</p>
 
+    <div th:if="${deleteError}" class="alert-error">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span th:text="${deleteError}"></span>
+    </div>
+
     <div class="grid-layout">
         <!-- 左側：現有元件清單 -->
         <div class="card">
@@ -172,6 +186,7 @@
                         <th>類型</th>
                         <th>預設單價 (TWD)</th>
                         <th>說明</th>
+                        <th></th>
                     </tr>
                     </thead>
                     <tbody>
@@ -180,6 +195,12 @@
                         <td><span class="tag" th:text="${c.type}"></span></td>
                         <td style="font-weight:600; color:#0f172a;" th:text="${c.defaultPrice != null ? 'NT$ ' + c.defaultPrice : '-'}"></td>
                         <td style="color: var(--text-gray);" th:text="${c.description != null ? c.description : '-'}"></td>
+                        <td>
+                            <form method="post" th:action="@{'/component/' + ${c.CPID} + '/delete'}"
+                                  onsubmit="return confirm('確定要刪除這個元件嗎？');">
+                                <button type="submit" class="btn-icon-delete" title="刪除"><i class="fa-solid fa-trash"></i></button>
+                            </form>
+                        </td>
                     </tr>
                     </tbody>
                 </table>

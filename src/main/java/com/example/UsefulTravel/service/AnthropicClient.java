@@ -101,6 +101,7 @@ public class AnthropicClient {
                 如果是景點可以提一下歷史或亮點, 如果是餐廳可以提一下料理特色, 如果是飯店可以提一下服務/位置優勢。
                 只能輸出介紹文字本身, 不要加標題、不要加任何前言或說明文字、不要用引號包起來。
                 如果給的資訊不足以判斷細節, 就用這個地點的類型/地區合理推測, 寫一段通用但不失真的介紹, 不要留白。
+                標點符號一律使用繁體中文全形標點(，。、「」！？), 不要使用半形標點(, . ! ?)。
                 """;
             StringBuilder userContent = new StringBuilder();
             userContent.append("名稱: ").append(name);
@@ -113,7 +114,11 @@ public class AnthropicClient {
 
             String response = complete(system, userContent.toString(), 400);
             String trimmed = response == null ? "" : response.trim();
-            return trimmed.isEmpty() ? null : trimmed;
+            if (trimmed.isEmpty()) return null;
+            // 保險機制: 即使 AI 沒有完全照 prompt 指示, 也把常見的半形標點轉成全形,
+            // 避免混用半形、全形逗號句號等問題。刻意跳過數字前後的逗號/句號/冒號,
+            // 避免誤轉小數點(3.5)、千分位(1,000)、時間(9:00)等本來就該用半形的情況。
+            return toFullWidthPunctuation(trimmed);
         } catch (Exception e) {
             return null;
         }
@@ -121,6 +126,24 @@ public class AnthropicClient {
 
     private String nonBlank(String s) {
         return s == null ? "" : s;
+    }
+
+    /**
+     * 把常見的半形中文標點轉成全形, 用在 AI 生成的中文介紹文字上。
+     * 逗號/句號/冒號會避開前後緊接數字的情況(例如小數點、千分位、時間), 保留半形；
+     * 其餘標點(驚嘆號、問號、分號、括號)一律轉全形。
+     */
+    private String toFullWidthPunctuation(String text) {
+        if (text == null || text.isBlank()) return text;
+        String result = text;
+        result = result.replaceAll("(?<!\\d),(?!\\d)", "，");
+        result = result.replaceAll("(?<!\\d)\\.(?!\\d)", "。");
+        result = result.replaceAll("(?<!\\d):(?!\\d)", "：");
+        result = result.replace("!", "！");
+        result = result.replace("?", "？");
+        result = result.replace(";", "；");
+        result = result.replace("(", "（").replace(")", "）");
+        return result;
     }
 
     /**

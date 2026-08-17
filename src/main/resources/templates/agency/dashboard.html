@@ -189,11 +189,7 @@
                     <div class="actions">
                         <a th:href="@{'/itinerary/' + ${it.ITID} + '/board'}" class="btn-text">編輯行程</a>
 
-                        <form th:if="${it.status == null or it.status == 'draft'}" method="post"
-                              th:action="@{'/itinerary/' + ${it.ITID} + '/complete'}" style="margin:0;"
-                              onsubmit="return confirm('確定要把這個行程標記為已完成嗎？');">
-                            <button type="submit" class="btn-text" style="background:none;border:none;cursor:pointer;color:#16a34a;">完成行程</button>
-                        </form>
+                        <a th:href="@{'/itinerary/' + ${it.ITID} + '/quick-quote'}" class="btn-text" style="color:#8b5cf6;">編輯報價</a>
 
                         <form method="post" th:action="@{'/itinerary/' + ${it.ITID} + '/delete'}" style="margin:0;"
                               onsubmit="return confirm('確定要刪除「' + this.dataset.title + '」嗎？');"

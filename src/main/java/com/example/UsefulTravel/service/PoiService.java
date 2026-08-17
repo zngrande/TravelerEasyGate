@@ -3,31 +3,25 @@ package com.example.UsefulTravel.service;
 import com.example.UsefulTravel.DAO.AiParsedItemDAO;
 import com.example.UsefulTravel.DAO.ImageAssetDAO;
 import com.example.UsefulTravel.DAO.ItineraryItemDAO;
-import com.example.UsefulTravel.DAO.PoiCooperationLogDAO;
 import com.example.UsefulTravel.DAO.PoiDAO;
 import com.example.UsefulTravel.entity.Poi;
-import com.example.UsefulTravel.entity.PoiCooperationLog;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
 import java.util.List;
 
 @Service
 public class PoiService {
 
     private final PoiDAO poiDAO;
-    private final PoiCooperationLogDAO poiCooperationLogDAO;
     private final ItineraryItemDAO itineraryItemDAO;
     private final AiParsedItemDAO aiParsedItemDAO;
     private final ImageAssetDAO imageAssetDAO;
 
     @Autowired
-    public PoiService(PoiDAO poiDAO, PoiCooperationLogDAO poiCooperationLogDAO,
-                      ItineraryItemDAO itineraryItemDAO, AiParsedItemDAO aiParsedItemDAO,
-                      ImageAssetDAO imageAssetDAO) {
+    public PoiService(PoiDAO poiDAO, ItineraryItemDAO itineraryItemDAO,
+                      AiParsedItemDAO aiParsedItemDAO, ImageAssetDAO imageAssetDAO) {
         this.poiDAO = poiDAO;
-        this.poiCooperationLogDAO = poiCooperationLogDAO;
         this.itineraryItemDAO = itineraryItemDAO;
         this.aiParsedItemDAO = aiParsedItemDAO;
         this.imageAssetDAO = imageAssetDAO;
@@ -74,14 +68,5 @@ public class PoiService {
         aiParsedItemDAO.clearMatchedPid(PID);
         imageAssetDAO.clearMatchedPid(PID);
         poiDAO.deleteById(PID);
-    }
-    // ---------------- 公司專屬資源庫: 合作紀錄 ----------------
-
-    public void addCooperationLog(int PID, LocalDate logDate, String note, Integer createdBy) {
-        poiCooperationLogDAO.save(new PoiCooperationLog(PID, logDate, note, createdBy));
-    }
-
-    public List<PoiCooperationLog> getCooperationLogs(int PID) {
-        return poiCooperationLogDAO.findByPoi(PID);
     }
 }

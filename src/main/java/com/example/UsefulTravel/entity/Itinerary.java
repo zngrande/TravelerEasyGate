@@ -49,6 +49,15 @@ public class Itinerary {
     @Column(name = "arrange_mode")
     private String arrangeMode = "meal_time"; // all_last / meal_time, 記錄上次用哪個「自動整理」模式, 看板選單重新整理頁面後還記得
 
+    @Column(name = "is_locked")
+    private boolean isLocked = false; // 上鎖後其他人不能編輯行程內容, 避免多人協作互相覆蓋
+
+    @Column(name = "locked_by")
+    private Integer lockedBy; // staff_user.UID, 誰上的鎖
+
+    @Column(name = "locked_at")
+    private LocalDateTime lockedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -103,6 +112,15 @@ public class Itinerary {
 
     public String getArrangeMode() { return arrangeMode; }
     public void setArrangeMode(String arrangeMode) { this.arrangeMode = arrangeMode; }
+
+    public boolean isLocked() { return isLocked; }
+    public void setLocked(boolean locked) { isLocked = locked; }
+
+    public Integer getLockedBy() { return lockedBy; }
+    public void setLockedBy(Integer lockedBy) { this.lockedBy = lockedBy; }
+
+    public LocalDateTime getLockedAt() { return lockedAt; }
+    public void setLockedAt(LocalDateTime lockedAt) { this.lockedAt = lockedAt; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

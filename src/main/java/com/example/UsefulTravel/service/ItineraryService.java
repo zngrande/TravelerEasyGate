@@ -100,7 +100,7 @@ public class ItineraryService {
      *         仍然會回傳建立好的行程 (退回成跟原本一樣的空白行程), 呼叫端可以用 hasAnyItem() 判斷要不要提示使用者。
      */
     public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
-                                                int daysCount, LocalDate startDate) {
+                                               int daysCount, LocalDate startDate) {
         Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate);
 
         List<Poi> candidates = poiDAO.findByAgencyAndCountry(AID, country, region);
@@ -240,6 +240,50 @@ public class ItineraryService {
 
     public Itinerary getItinerary(int ITID) {
         return itineraryDAO.findById(ITID);
+    }
+
+    // ------------------------------------------------------------
+    // 行程上鎖 (需求文件 2.2「行程是否上鎖（供他人編輯）」)
+    // ------------------------------------------------------------
+
+    /** 上鎖：只有還沒上鎖時才能鎖, 避免蓋掉別人剛上的鎖。回傳 false 代表已經被別人鎖住了。 */
+    public boolean lockItinerary(int ITID, int UID) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) return false;
+        if (itinerary.isLocked() && itinerary.getLockedBy() != null && itinerary.getLockedBy() != UID) {
+            return false; // 已經被別人鎖住
+        }
+        itinerary.setLocked(true);
+        itinerary.setLockedBy(UID);
+        itinerary.setLockedAt(java.time.LocalDateTime.now());
+        itineraryDAO.save(itinerary);
+        return true;
+    }
+
+    /** 解鎖：任何有編輯權限的人都能解鎖 (例如原本上鎖的人下線忘記解鎖, 主管可以強制解鎖)。 */
+    public void unlockItinerary(int ITID) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) return;
+        itinerary.setLocked(false);
+        itinerary.setLockedBy(null);
+        itinerary.setLockedAt(null);
+        itineraryDAO.save(itinerary);
+    }
+
+    /**
+     * 檢查這個行程目前是否可以被 UID 編輯：沒上鎖，或上鎖的人就是自己。
+     * 供 controller 在寫入動作前擋一下, 避免兩人同時改同一個行程互相覆蓋。
+     */
+    public boolean isEditableBy(int ITID, int UID) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) return false;
+        return !itinerary.isLocked() || itinerary.getLockedBy() == null || itinerary.getLockedBy() == UID;
+    }
+
+    /** 依 IDID (某一天) 反查所屬的 ITID, 給只帶 IDID 的 API 用來檢查上鎖狀態。 */
+    public Integer getItineraryIdByDay(int IDID) {
+        ItineraryDay day = itineraryDayDAO.findById(IDID);
+        return day != null ? day.getITID() : null;
     }
 
     // 給「AI 安排行程」用: 建立完後檢查有沒有真的排到任何項目, 沒有的話 controller 要提示使用者手動編排
@@ -653,6 +697,16 @@ public class ItineraryService {
             item.setShowOnMap(showOnMap);
         }
 
+        // 如果這個項目本來就連結公司 POI 資料庫, 停留時間也順便同步回 POI 本身,
+        // 這樣以後別的行程用到同一個 POI, 停留時間預設值也會是最新修正過的, 邏輯跟下面的座標同步一致。
+        if (stayDurationMin != null && item.getPID() != null) {
+            Poi poi = poiDAO.findById(item.getPID());
+            if (poi != null) {
+                poi.setSuggestedStayMin(stayDurationMin);
+                poiDAO.save(poi);
+            }
+        }
+
         if (locationHint != null && !locationHint.isBlank()) {
             GoogleMapsClient.GeocodeResult geo = googleMapsClient.resolveLocationHint(locationHint);
             if (geo != null) {
@@ -881,8 +935,12 @@ public class ItineraryService {
     /**
      * 智慧景點推薦: 找出公司 POI 資料庫裡, 落在「fromItem → toItem」順路範圍內的其他景點/餐廳/休息站
      *
-     * 判斷邏輯: 用三角不等式的概念——如果 (from→候選點的距離 + 候選點→to的距離) 跟 (from→to直線距離) 差不多,
-     * 代表這個候選點大致落在路徑上, 才算「順路」。 迂迴超過 30% 就不推薦, 避免建議繞遠路的地方。
+     * 判斷邏輯改成「拉車時間」而不是直線距離：
+     *   1) 先用直線距離做粗篩 (haversine), 把候選點縮小到一個合理範圍內, 避免每個候選點都打 Google API 太慢太貴。
+     *   2) 針對粗篩後的候選點, 呼叫 Distance Matrix API 拿「A→候選點」「候選點→B」的實際開車時間,
+     *      跟「A→B」的實際開車時間比較：候選點路線總時間必須在 A→B 直達時間的 1.5 倍以內才算「順路」。
+     *      例如 A→B 直達 60 分鐘, 那 A→C→B 加起來最多只能 90 分鐘, 才會推薦 C。
+     *   3) 沒有設定 Google Maps API Key 時退回舊的直線距離估算法 (迂迴不超過 1.5 倍距離), 至少還能用。
      */
     public List<com.example.UsefulTravel.entity.Poi> suggestPoiBetween(int AID, int IDID, int fromIIID, int toIIID) {
         ItineraryItem fromItem = itineraryItemDAO.findById(fromIIID);
@@ -900,22 +958,55 @@ public class ItineraryService {
         double fLat = fromPoi.getLatitude().doubleValue(), fLng = fromPoi.getLongitude().doubleValue();
         double tLat = toPoi.getLatitude().doubleValue(), tLng = toPoi.getLongitude().doubleValue();
         double directKm = haversineKm(fLat, fLng, tLat, tLng);
+        final double RATIO_LIMIT = 1.5; // 拉車時間 (或退回時的直線距離) 不能超過直達的 1.5 倍
 
         // 已經在這天的項目不重複推薦
         java.util.Set<Integer> alreadyInDay = itineraryItemDAO.findByDay(IDID).stream()
                 .map(ItineraryItem::getPID).filter(java.util.Objects::nonNull)
                 .collect(java.util.stream.Collectors.toSet());
 
-        return poiDAO.findByAgencyAndCountry(AID, fromPoi.getCountry(), null).stream()
+        List<com.example.UsefulTravel.entity.Poi> roughCandidates = poiDAO.findByAgencyAndCountry(AID, fromPoi.getCountry(), null).stream()
                 .filter(p -> p.getLatitude() != null)
                 .filter(p -> !alreadyInDay.contains(p.getPID()))
                 .filter(p -> p.getPID() != fromPoi.getPID() && p.getPID() != toPoi.getPID())
+                .filter(p -> directKm >= 0.3) // 兩點幾乎同位置時, 直線距離太小算比例沒意義, 整批跳過
+                .sorted(java.util.Comparator.comparingDouble(p -> {
+                    double cLat = p.getLatitude().doubleValue(), cLng = p.getLongitude().doubleValue();
+                    return haversineKm(fLat, fLng, cLat, cLng) + haversineKm(cLat, cLng, tLat, tLng);
+                }))
+                .limit(12) // 粗篩留前 12 名再去查真實拉車時間, 避免每個候選點都打 Google API
+                .collect(java.util.stream.Collectors.toList());
+
+        if (roughCandidates.isEmpty() || directKm < 0.3) return List.of();
+
+        // 拿真實開車時間 (A→B 直達) 當基準；拿不到 (沒設定 API key 或呼叫失敗) 就退回直線距離估算
+        GoogleMapsClient.DistanceResult directDrive = googleMapsClient.getDrivingDistance(fLat, fLng, tLat, tLng);
+
+        if (directDrive != null && directDrive.durationMin > 0) {
+            int baseMin = directDrive.durationMin;
+            int limitMin = (int) Math.round(baseMin * RATIO_LIMIT);
+
+            return roughCandidates.stream()
+                    .map(p -> {
+                        double cLat = p.getLatitude().doubleValue(), cLng = p.getLongitude().doubleValue();
+                        GoogleMapsClient.DistanceResult leg1 = googleMapsClient.getDrivingDistance(fLat, fLng, cLat, cLng);
+                        GoogleMapsClient.DistanceResult leg2 = googleMapsClient.getDrivingDistance(cLat, cLng, tLat, tLng);
+                        Integer viaMin = (leg1 != null && leg2 != null) ? leg1.durationMin + leg2.durationMin : null;
+                        return new Object[]{p, viaMin};
+                    })
+                    .filter(pair -> pair[1] != null && (Integer) pair[1] <= limitMin)
+                    .sorted(java.util.Comparator.comparingInt(pair -> (Integer) pair[1]))
+                    .limit(5)
+                    .map(pair -> (com.example.UsefulTravel.entity.Poi) pair[0])
+                    .collect(java.util.stream.Collectors.toList());
+        }
+
+        // 退回直線距離估算 (沒有 Google Maps API 可用時)
+        return roughCandidates.stream()
                 .filter(p -> {
                     double cLat = p.getLatitude().doubleValue(), cLng = p.getLongitude().doubleValue();
                     double viaKm = haversineKm(fLat, fLng, cLat, cLng) + haversineKm(cLat, cLng, tLat, tLng);
-                    // directKm 太小 (兩點幾乎同位置) 時跳過, 避免除以極小值造成誤判
-                    if (directKm < 0.3) return false;
-                    return viaKm <= directKm * 1.3;
+                    return viaKm <= directKm * RATIO_LIMIT;
                 })
                 .limit(5)
                 .collect(java.util.stream.Collectors.toList());

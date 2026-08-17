@@ -27,6 +27,12 @@ public class TravelComponent {
     @Column(name = "description")
     private String description;
 
+    @Column(name = "currency_code")
+    private String currencyCode = "TWD";
+
+    @Column(name = "refundable")
+    private boolean refundable = true;
+
     public TravelComponent() {}
 
     public TravelComponent(int AID, String type, String name, BigDecimal defaultPrice, String description) {
@@ -54,4 +60,10 @@ public class TravelComponent {
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+
+    public String getCurrencyCode() { return currencyCode; }
+    public void setCurrencyCode(String currencyCode) { this.currencyCode = currencyCode; }
+
+    public boolean isRefundable() { return refundable; }
+    public void setRefundable(boolean refundable) { this.refundable = refundable; }
 }

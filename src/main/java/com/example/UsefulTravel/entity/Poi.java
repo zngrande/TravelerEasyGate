@@ -49,9 +49,6 @@ public class Poi {
     @Column(name = "star_rating")
     private BigDecimal starRating;
 
-    @Column(name = "cost_price")
-    private BigDecimal costPrice; // 成本價 (跟供應商談的價格)
-
     @Column(name = "agency_price")
     private BigDecimal agencyPrice; // 同行價/建議售價
 
@@ -116,9 +113,6 @@ public class Poi {
 
     public BigDecimal getStarRating() { return starRating; }
     public void setStarRating(BigDecimal starRating) { this.starRating = starRating; }
-
-    public BigDecimal getCostPrice() { return costPrice; }
-    public void setCostPrice(BigDecimal costPrice) { this.costPrice = costPrice; }
 
     public BigDecimal getAgencyPrice() { return agencyPrice; }
     public void setAgencyPrice(BigDecimal agencyPrice) { this.agencyPrice = agencyPrice; }

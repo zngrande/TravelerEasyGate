@@ -4,8 +4,11 @@ import com.example.UsefulTravel.DAO.AgencyExportTemplateDAO;
 import com.example.UsefulTravel.DAO.ItineraryDAO;
 import com.example.UsefulTravel.entity.AgencyExportTemplate;
 import com.example.UsefulTravel.entity.Itinerary;
+import com.example.UsefulTravel.entity.Quotation;
 import com.example.UsefulTravel.service.ExportService;
 import com.example.UsefulTravel.service.ImageStorageService;
+import com.example.UsefulTravel.service.QuotationExportService;
+import com.example.UsefulTravel.service.QuotationService;
 import com.example.UsefulTravel.service.TemplateMergeService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,16 +31,21 @@ public class ExportController {
     private final AgencyExportTemplateDAO templateDAO;
     private final ItineraryDAO itineraryDAO;
     private final ImageStorageService storageService;
+    private final QuotationExportService quotationExportService;
+    private final QuotationService quotationService;
 
     @Autowired
     public ExportController(ExportService exportService, TemplateMergeService templateMergeService,
                             AgencyExportTemplateDAO templateDAO, ItineraryDAO itineraryDAO,
-                            ImageStorageService storageService) {
+                            ImageStorageService storageService, QuotationExportService quotationExportService,
+                            QuotationService quotationService) {
         this.exportService = exportService;
         this.templateMergeService = templateMergeService;
         this.templateDAO = templateDAO;
         this.itineraryDAO = itineraryDAO;
         this.storageService = storageService;
+        this.quotationExportService = quotationExportService;
+        this.quotationService = quotationService;
     }
 
     // GET /itinerary/{id}/export?format=b2b|b2c → 產生並直接下載 Word 企劃書
@@ -95,5 +103,30 @@ public class ExportController {
         if (templateId == 0) return templateDAO.findDefaultByAgency(AID);
         AgencyExportTemplate t = templateDAO.findById(templateId);
         return (t != null && t.getAID() == AID) ? t : null;
+    }
+
+    // GET /quotation/{qid}/export/excel → 把這份報價單匯出成 Excel (內建固定版型, 對應紙本報價單那張單據)
+    @GetMapping("/quotation/{qid}/export/excel")
+    public ResponseEntity<byte[]> exportQuotationExcel(@PathVariable("qid") int QID, HttpSession session) throws Exception {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return ResponseEntity.status(401).build();
+
+        Quotation quotation = quotationService.findById(QID);
+        if (quotation == null || quotation.getAID() != AID) return ResponseEntity.notFound().build();
+
+        // 草稿階段金額還沒凍結, 隨時可能再變, 不開放匯出以免業務把還會變動的數字寄給客戶
+        if ("draft".equals(quotation.getStatus())) return ResponseEntity.status(409).body(null);
+
+        byte[] fileBytes = quotationExportService.generateExcel(QID);
+        String filename = "quotation_" + QID + "_v" + quotation.getVersion() + ".xlsx";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentDisposition(
+                ContentDisposition.attachment().filename(filename, StandardCharsets.UTF_8).build());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(fileBytes);
     }
 }

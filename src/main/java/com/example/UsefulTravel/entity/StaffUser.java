@@ -28,7 +28,10 @@ public class StaffUser {
     private String pw;
 
     @Column(name = "role")
-    private String role = "OP"; // OP / PM / ADMIN
+    private String role = "OP"; // ADMIN / EDITOR / QUOTER / VIEWER (四級權限矩陣, 見需求文件 1.2)
+
+    @Column(name = "is_active")
+    private boolean isActive = true; // 停用 (非刪除, 避免歷史紀錄斷鏈)
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -64,6 +67,9 @@ public class StaffUser {
 
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+
+    public boolean isActive() { return isActive; }
+    public void setActive(boolean active) { isActive = active; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

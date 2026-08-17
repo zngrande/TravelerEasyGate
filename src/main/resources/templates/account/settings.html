@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>帳號設定 - TRAVELER EASY GATE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-blue: #2563eb; --bg-gray: #f8fafc; --text-dark: #1e293b;
+            --text-gray: #64748b; --border-color: #e2e8f0; --sidebar-width: 200px; --green: #059669;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+        a { text-decoration: none; color: inherit; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; max-width: 640px; }
+        .page-header { margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .page-subtitle { font-size: 13.5px; color: var(--text-gray); margin-top: 4px; }
+        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 24px; }
+        .card-header { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+        .form-control { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; background: #fff; }
+        .form-control[disabled] { background: #f1f5f9; color: var(--text-gray); }
+        .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        .btn-submit { padding: 10px 20px; background: var(--primary-blue); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-submit:hover { background: #1d4ed8; }
+        .alert-success { background: #ecfdf5; border: 1px solid #a7f3d0; color: var(--green); padding: 12px 16px; border-radius: 10px; font-size: 13.5px; margin-bottom: 20px; }
+        .role-pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: #eff6ff; color: var(--primary-blue); display: inline-block; }
+    </style>
+</head>
+<body>
+
+<aside th:replace="~{fragments/sidebar :: sidebar(active='account', userName=${session.name})}"></aside>
+
+<main class="main-content">
+    <div class="page-header">
+        <div class="page-title"><i class="fa-solid fa-circle-user" style="color: var(--primary-blue);"></i> 帳號設定</div>
+        <div class="page-subtitle">管理個人顯示名稱、聯絡電話與登入密碼</div>
+    </div>
+
+    <div class="alert-success" th:if="${accountMessage}" th:text="${accountMessage}"></div>
+
+    <div class="card">
+        <div class="card-header"><i class="fa-solid fa-id-card" style="color: var(--primary-blue);"></i> 基本資料</div>
+        <form method="post" th:action="@{/account/profile}">
+            <div class="form-group">
+                <label class="form-label">登入帳號（不可修改）</label>
+                <input type="text" class="form-control" th:value="${staff.account}" disabled />
+            </div>
+            <div class="form-group">
+                <label class="form-label">目前角色</label>
+                <div>
+                    <span class="role-pill" th:text="${staff.role}"></span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">顯示名稱</label>
+                <input type="text" name="name" class="form-control" th:value="${staff.name}" required />
+            </div>
+            <div class="form-group">
+                <label class="form-label">聯絡電話</label>
+                <input type="text" name="phone" class="form-control" th:value="${staff.phone}" />
+            </div>
+            <button type="submit" class="btn-submit"><i class="fa-solid fa-check"></i> 儲存變更</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><i class="fa-solid fa-key" style="color: var(--primary-blue);"></i> 變更密碼</div>
+        <form method="post" th:action="@{/account/password}">
+            <div class="form-group">
+                <label class="form-label">目前密碼</label>
+                <input type="password" name="oldPw" class="form-control" required />
+            </div>
+            <div class="form-group">
+                <label class="form-label">新密碼</label>
+                <input type="password" name="newPw" class="form-control" minlength="6" required />
+            </div>
+            <button type="submit" class="btn-submit"><i class="fa-solid fa-lock"></i> 更新密碼</button>
+        </form>
+    </div>
+</main>
+
+</body>
+</html>

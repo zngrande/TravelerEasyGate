@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>員工帳號管理 - TRAVELER EASY GATE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-blue: #2563eb; --primary-purple: #8b5cf6; --bg-gray: #f8fafc;
+            --text-dark: #1e293b; --text-gray: #64748b; --border-color: #e2e8f0; --sidebar-width: 200px;
+            --green: #059669; --amber: #d97706; --red: #dc2626;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+        a { text-decoration: none; color: inherit; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
+        .page-header { margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .page-subtitle { font-size: 13.5px; color: var(--text-gray); margin-top: 4px; }
+        .grid-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: flex-start; }
+        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+        .card-header { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .table-container { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13.5px; }
+        th { background: #f8fafc; padding: 12px 14px; font-size: 12.5px; color: var(--text-gray); font-weight: 600; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+        td { padding: 12px 14px; border-bottom: 1px solid var(--border-color); vertical-align: middle; white-space: nowrap; }
+        tr:last-child td { border-bottom: none; }
+        .role-select { padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 12.5px; }
+        .status-pill { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+        .status-active { background: #ecfdf5; color: var(--green); }
+        .status-inactive { background: #f1f5f9; color: var(--text-gray); }
+        .row-actions { display: flex; gap: 8px; align-items: center; }
+        .row-actions button, .row-actions a { background: none; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; color: var(--text-gray); }
+        .row-actions button:hover { color: var(--red); }
+        .self-tag { font-size: 11px; color: var(--text-gray); }
+
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+        .form-control { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; background: #fff; }
+        .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        .btn-submit { width: 100%; padding: 11px; background: var(--primary-blue); color: #fff; border: none; border-radius: 8px; font-size: 14.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; }
+        .btn-submit:hover { background: #1d4ed8; }
+        .alert { background: #fef2f2; border: 1px solid #fecaca; color: var(--red); padding: 12px 16px; border-radius: 10px; font-size: 13.5px; margin-bottom: 20px; }
+        .role-legend { font-size: 12px; color: var(--text-gray); background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-top: 16px; line-height: 1.8; }
+    </style>
+</head>
+<body>
+
+<aside th:replace="~{fragments/sidebar :: sidebar(active='staff', userName=${session.name})}"></aside>
+
+<main class="main-content">
+    <div class="page-header">
+        <div class="page-title"><i class="fa-solid fa-users-gear" style="color: var(--primary-blue);"></i> 員工帳號管理</div>
+        <div class="page-subtitle">新增員工、指派角色、停用離職帳號 — 僅管理者可操作</div>
+    </div>
+
+    <div class="alert" th:if="${staffError}" th:text="${staffError}"></div>
+
+    <div class="grid-layout">
+        <div class="card">
+            <div class="card-header"><i class="fa-solid fa-list" style="color: var(--primary-blue);"></i> 員工列表</div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>姓名</th>
+                        <th>帳號</th>
+                        <th>角色</th>
+                        <th>狀態</th>
+                        <th>操作</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="s : ${staffList}">
+                        <td>
+                            <strong th:text="${s.name}"></strong>
+                            <span class="self-tag" th:if="${s.UID == currentUID}">（我）</span>
+                        </td>
+                        <td th:text="${s.account}"></td>
+                        <td>
+                            <form method="post" th:action="@{'/staff/' + ${s.UID} + '/role'}" style="display:inline;">
+                                <select name="role" class="role-select" onchange="this.form.submit()" th:disabled="${s.UID == currentUID}">
+                                    <option value="ADMIN" th:selected="${s.role == 'ADMIN'}">ADMIN 全權限</option>
+                                    <option value="EDITOR" th:selected="${s.role == 'EDITOR'}">EDITOR 行程編輯者</option>
+                                    <option value="QUOTER" th:selected="${s.role == 'QUOTER'}">QUOTER 報價專員</option>
+                                    <option value="VIEWER" th:selected="${s.role == 'VIEWER'}">VIEWER 唯讀</option>
+                                </select>
+                            </form>
+                        </td>
+                        <td>
+                            <span class="status-pill" th:classappend="${s.active} ? 'status-active' : 'status-inactive'"
+                                  th:text="${s.active} ? '啟用中' : '已停用'"></span>
+                        </td>
+                        <td>
+                            <div class="row-actions">
+                                <form method="post" th:action="@{'/staff/' + ${s.UID} + '/toggle-active'}"
+                                      th:if="${s.UID != currentUID}"
+                                      onsubmit="return confirm('確定要變更這個帳號的啟用狀態嗎？');">
+                                    <button type="submit" th:text="${s.active} ? '停用' : '啟用'"></button>
+                                </form>
+                                <form method="post" th:action="@{'/staff/' + ${s.UID} + '/reset-password'}"
+                                      onsubmit="var pw = prompt('請輸入這個帳號的新密碼（至少 6 碼）：'); if (!pw || pw.length < 6) { return false; } document.getElementById('newPw-' + this.dataset.uid).value = pw; return true;"
+                                      th:attr="data-uid=${s.UID}">
+                                    <input type="hidden" name="newPw" th:id="'newPw-' + ${s.UID}" />
+                                    <button type="submit">重設密碼</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="role-legend">
+                <strong>權限矩陣：</strong><br/>
+                ADMIN 全權限 — 編輯行程 / 製作與調整報價 / 共用槽報價 / 閱覽，皆可<br/>
+                EDITOR 行程編輯者 — 可編輯行程、可閱覽，不可碰報價<br/>
+                QUOTER 報價專員 — 可製作與調整報價、可共用槽報價、可閱覽，不可編輯行程內容<br/>
+                VIEWER 唯讀 — 僅可閱覽
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><i class="fa-solid fa-user-plus" style="color: var(--primary-blue);"></i> 新增員工</div>
+            <form method="post" th:action="@{/staff/new}">
+                <div class="form-group">
+                    <label class="form-label">姓名</label>
+                    <input type="text" name="name" class="form-control" required />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">電話（選填）</label>
+                    <input type="text" name="phone" class="form-control" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">登入帳號</label>
+                    <input type="text" name="account" class="form-control" required />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">初始密碼</label>
+                    <input type="password" name="pw" class="form-control" minlength="6" required />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">角色</label>
+                    <select name="role" class="form-control" required>
+                        <option value="EDITOR" selected>EDITOR 行程編輯者</option>
+                        <option value="QUOTER">QUOTER 報價專員</option>
+                        <option value="VIEWER">VIEWER 唯讀</option>
+                        <option value="ADMIN">ADMIN 全權限</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增帳號</button>
+            </form>
+        </div>
+    </div>
+</main>
+
+</body>
+</html>

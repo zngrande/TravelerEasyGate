@@ -6,6 +6,7 @@ import com.example.UsefulTravel.entity.ItineraryItem;
 import com.example.UsefulTravel.entity.Poi;
 import com.example.UsefulTravel.service.GoogleMapsClient;
 import com.example.UsefulTravel.service.ItineraryService;
+import com.example.UsefulTravel.service.PermissionService;
 import com.example.UsefulTravel.service.PoiService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,12 +28,36 @@ public class ItineraryController {
     private final ItineraryService itineraryService;
     private final PoiService poiService;
     private final GoogleMapsClient googleMapsClient;
+    private final PermissionService permissionService;
 
     @Autowired
-    public ItineraryController(ItineraryService itineraryService, PoiService poiService, GoogleMapsClient googleMapsClient) {
+    public ItineraryController(ItineraryService itineraryService, PoiService poiService,
+                                GoogleMapsClient googleMapsClient, PermissionService permissionService) {
         this.itineraryService = itineraryService;
         this.poiService = poiService;
         this.googleMapsClient = googleMapsClient;
+        this.permissionService = permissionService;
+    }
+
+    /**
+     * 共用守門邏輯：檢查「這個角色能不能編輯行程」+「這個行程有沒有被別人鎖住」。
+     * 回傳 null 代表可以放行；不是 null 就是要擋下來的錯誤訊息, 呼叫端依自己的回傳型別決定怎麼包裝。
+     *
+     * 目前只掛在 controller 層級較粗的動作 (完成/刪除/整體自動整理/日期排序/上鎖/解鎖) 上；
+     * 看板上細部的單一景點新增/編輯/刪除等 AJAX 端點屬於更高頻互動, 先靠前端「上鎖時停用操作按鈕」擋,
+     * 伺服器端逐一補齊屬於後續優化項目, 避免這次一次改動太大範圍造成既有看板互動出問題。
+     */
+    private String checkEditPermission(HttpSession session, int ITID) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        Integer UID = (Integer) session.getAttribute("UID");
+        String role = (String) session.getAttribute("role");
+        if (AID == null || UID == null) return "尚未登入";
+        if (!permissionService.canEditItinerary(role)) return "目前帳號角色沒有編輯行程的權限";
+
+        Itinerary itinerary = itineraryService.getItinerary(ITID);
+        if (itinerary == null || itinerary.getAID() != AID) return "找不到這個行程";
+        if (!itineraryService.isEditableBy(ITID, UID)) return "這個行程目前被其他人鎖定中，無法編輯";
+        return null;
     }
 
     // GET /itinerary/new → 建立行程表單
@@ -122,7 +147,45 @@ public class ItineraryController {
         model.addAttribute("itineraryCountries", new ArrayList<>(countrySet));
         model.addAttribute("googleMapsConfigured", googleMapsClient.isConfigured());
         model.addAttribute("googleMapsApiKey", googleMapsClient.getApiKey());
+
+        // 上鎖狀態: 給看板頂部顯示「XXX 正在編輯」提示 + 決定要不要停用編輯按鈕用
+        Integer UID = (Integer) session.getAttribute("UID");
+        String role = (String) session.getAttribute("role");
+        boolean lockedByOther = itinerary != null && itinerary.isLocked()
+                && itinerary.getLockedBy() != null && UID != null && !itinerary.getLockedBy().equals(UID);
+        model.addAttribute("lockedByOther", lockedByOther);
+        model.addAttribute("canEditItinerary", permissionService.canEditItinerary(role) && !lockedByOther);
+        model.addAttribute("canQuote", permissionService.canQuote(role));
+
         return "itinerary/board";
+    }
+
+    // POST /itinerary/{id}/lock → 上鎖 (供他人編輯時避免互相覆蓋, 需求文件 2.2)
+    @PostMapping("/{id}/lock")
+    @ResponseBody
+    public ResponseEntity<?> lock(@PathVariable("id") int ITID, HttpSession session) {
+        Integer UID = (Integer) session.getAttribute("UID");
+        String err = checkEditPermission(session, ITID);
+        if (err != null) return ResponseEntity.status(403).body(err);
+
+        boolean ok = itineraryService.lockItinerary(ITID, UID);
+        return ok ? ResponseEntity.ok().build() : ResponseEntity.status(409).body("這個行程已經被其他人鎖定");
+    }
+
+    // POST /itinerary/{id}/unlock → 解鎖
+    @PostMapping("/{id}/unlock")
+    @ResponseBody
+    public ResponseEntity<?> unlock(@PathVariable("id") int ITID, HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        String role = (String) session.getAttribute("role");
+        if (AID == null) return ResponseEntity.status(401).build();
+        if (!permissionService.canEditItinerary(role)) return ResponseEntity.status(403).body("沒有權限解鎖");
+
+        Itinerary itinerary = itineraryService.getItinerary(ITID);
+        if (itinerary == null || itinerary.getAID() != AID) return ResponseEntity.status(404).build();
+
+        itineraryService.unlockItinerary(ITID);
+        return ResponseEntity.ok().build();
     }
 
     // POST /itinerary/{id}/complete → 行程排版看板 or 首頁列表按下「完成行程」, 狀態改成 completed
@@ -133,7 +196,12 @@ public class ItineraryController {
     @PostMapping("/{id}/complete")
     public String complete(@PathVariable("id") int ITID, HttpSession session,
                             org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
-        if (session.getAttribute("AID") == null) return "redirect:/login";
+        String err = checkEditPermission(session, ITID);
+        if (err != null) {
+            if (session.getAttribute("AID") == null) return "redirect:/login";
+            redirectAttributes.addFlashAttribute("deleteError", err);
+            return "redirect:/agency/dashboard";
+        }
         try {
             itineraryService.markCompleted(ITID);
         } catch (Exception e) {
@@ -146,7 +214,12 @@ public class ItineraryController {
     // POST /itinerary/{id}/delete → 刪除整個行程
     @PostMapping("/{id}/delete")
     public String delete(@PathVariable("id") int ITID, HttpSession session, org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
-        if (session.getAttribute("AID") == null) return "redirect:/login";
+        String err = checkEditPermission(session, ITID);
+        if (err != null) {
+            if (session.getAttribute("AID") == null) return "redirect:/login";
+            redirectAttributes.addFlashAttribute("deleteError", err);
+            return "redirect:/agency/dashboard";
+        }
         try {
             itineraryService.deleteItinerary(ITID);
         } catch (Exception e) {
@@ -209,8 +282,12 @@ public class ItineraryController {
     // POST /itinerary/{id}/auto-arrange → 自動整理「整個行程」(所有天), 不是只有目前這天
     @PostMapping("/{id}/auto-arrange")
     @ResponseBody
-    public void autoArrangeItinerary(@PathVariable("id") int ITID, @RequestParam(defaultValue = "meal_time") String mode) {
+    public ResponseEntity<?> autoArrangeItinerary(@PathVariable("id") int ITID, @RequestParam(defaultValue = "meal_time") String mode,
+                                                   HttpSession session) {
+        String err = checkEditPermission(session, ITID);
+        if (err != null) return ResponseEntity.status(403).body(err);
         itineraryService.autoArrangeItinerary(ITID, mode);
+        return ResponseEntity.ok().build();
     }
 
     // GET /itinerary/day/{IDID}/items/{IIID}/options → 取得這個項目的候選點列表 (只有用「或」分隔新增的項目才有多筆)
@@ -345,8 +422,12 @@ public class ItineraryController {
     // body 範例: { "order": [102, 100, 101] }  <- IDID 陣列, 代表新的 Day1, Day2, Day3...
     @PostMapping("/{id}/reorder-days")
     @ResponseBody
-    public void reorderDays(@PathVariable("id") int ITID, @RequestBody Map<String, List<Integer>> body) {
+    public ResponseEntity<?> reorderDays(@PathVariable("id") int ITID, @RequestBody Map<String, List<Integer>> body,
+                                          HttpSession session) {
+        String err = checkEditPermission(session, ITID);
+        if (err != null) return ResponseEntity.status(403).body(err);
         itineraryService.reorderDays(ITID, body.get("order"));
+        return ResponseEntity.ok().build();
     }
 
     // POST /itinerary/day/{IDID}/segments/{RSID}/mode → 手動覆寫單一段的通勤方式, 並重算該段時間/距離

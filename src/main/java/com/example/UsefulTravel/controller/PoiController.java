@@ -12,7 +12,6 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 
 @Controller
 @RequestMapping("/poi")
@@ -32,8 +31,8 @@ public class PoiController {
     // GET /poi → 景點/飯店資料庫列表 (含搜尋)
     @GetMapping
     public String list(@RequestParam(required = false) String keyword,
-                        @RequestParam(required = false) String category,
-                        HttpSession session, Model model) {
+                       @RequestParam(required = false) String category,
+                       HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
 
@@ -53,26 +52,24 @@ public class PoiController {
     // POST /poi/new → 新增一筆景點/餐廳/飯店資料 (經緯度沒填會自動地理編碼)
     @PostMapping("/new")
     public String create(@RequestParam String category,
-                          @RequestParam String name,
-                          @RequestParam(required = false) String country,
-                          @RequestParam(required = false) String city,
-                          @RequestParam(required = false) String address,
-                          @RequestParam(required = false) BigDecimal latitude,
-                          @RequestParam(required = false) BigDecimal longitude,
-                          @RequestParam(required = false) Integer suggestedStayMin,
-                          @RequestParam(required = false) String description,
-                          @RequestParam(required = false) BigDecimal costPrice,
-                          @RequestParam(required = false) BigDecimal agencyPrice,
-                          @RequestParam(required = false) String supplierContact,
-                          @RequestParam(required = false) String supplierNotes,
-                          HttpSession session) {
+                         @RequestParam String name,
+                         @RequestParam(required = false) String country,
+                         @RequestParam(required = false) String city,
+                         @RequestParam(required = false) String address,
+                         @RequestParam(required = false) BigDecimal latitude,
+                         @RequestParam(required = false) BigDecimal longitude,
+                         @RequestParam(required = false) Integer suggestedStayMin,
+                         @RequestParam(required = false) String description,
+                         @RequestParam(required = false) BigDecimal agencyPrice,
+                         @RequestParam(required = false) String supplierContact,
+                         @RequestParam(required = false) String supplierNotes,
+                         HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
 
         Poi poi = new Poi(AID, category, name, country, city, address, latitude, longitude);
         if (suggestedStayMin != null) poi.setSuggestedStayMin(suggestedStayMin);
         poi.setDescription(description);
-        poi.setCostPrice(costPrice);
         poi.setAgencyPrice(agencyPrice);
         poi.setSupplierContact(supplierContact);
         poi.setSupplierNotes(supplierNotes);
@@ -108,8 +105,8 @@ public class PoiController {
     @PostMapping("/{id}/description")
     @ResponseBody
     public ResponseEntity<?> updateDescription(@PathVariable("id") int PID,
-                                                @RequestParam String description,
-                                                HttpSession session) {
+                                               @RequestParam String description,
+                                               HttpSession session) {
         if (session.getAttribute("AID") == null) return ResponseEntity.status(401).build();
         try {
             poiService.updateDescription(PID, description);
@@ -119,7 +116,7 @@ public class PoiController {
         }
     }
 
-    // GET /poi/{id}/edit → 編輯景點表單 (含合作紀錄)
+    // GET /poi/{id}/edit → 編輯景點表單
     @GetMapping("/{id}/edit")
     public String editForm(@PathVariable("id") int PID, HttpSession session, Model model) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
@@ -128,7 +125,6 @@ public class PoiController {
         if (poi == null) return "redirect:/poi";
 
         model.addAttribute("poi", poi);
-        model.addAttribute("logs", poiService.getCooperationLogs(PID));
         model.addAttribute("images", imageAssetService.listForPoi(PID));
         return "poi/edit";
     }
@@ -136,20 +132,19 @@ public class PoiController {
     // POST /poi/{id}/edit → 儲存編輯 (經緯度留空會自動重新地理編碼)
     @PostMapping("/{id}/edit")
     public String edit(@PathVariable("id") int PID,
-                        @RequestParam String category,
-                        @RequestParam String name,
-                        @RequestParam(required = false) String country,
-                        @RequestParam(required = false) String city,
-                        @RequestParam(required = false) String address,
-                        @RequestParam(required = false) BigDecimal latitude,
-                        @RequestParam(required = false) BigDecimal longitude,
-                        @RequestParam(required = false) Integer suggestedStayMin,
-                        @RequestParam(required = false) String description,
-                        @RequestParam(required = false) BigDecimal costPrice,
-                        @RequestParam(required = false) BigDecimal agencyPrice,
-                        @RequestParam(required = false) String supplierContact,
-                        @RequestParam(required = false) String supplierNotes,
-                        HttpSession session) {
+                       @RequestParam String category,
+                       @RequestParam String name,
+                       @RequestParam(required = false) String country,
+                       @RequestParam(required = false) String city,
+                       @RequestParam(required = false) String address,
+                       @RequestParam(required = false) BigDecimal latitude,
+                       @RequestParam(required = false) BigDecimal longitude,
+                       @RequestParam(required = false) Integer suggestedStayMin,
+                       @RequestParam(required = false) String description,
+                       @RequestParam(required = false) BigDecimal agencyPrice,
+                       @RequestParam(required = false) String supplierContact,
+                       @RequestParam(required = false) String supplierNotes,
+                       HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
 
         Poi poi = poiService.findById(PID);
@@ -162,7 +157,6 @@ public class PoiController {
         poi.setAddress(address);
         poi.setSuggestedStayMin(suggestedStayMin);
         poi.setDescription(description);
-        poi.setCostPrice(costPrice);
         poi.setAgencyPrice(agencyPrice);
         poi.setSupplierContact(supplierContact);
         poi.setSupplierNotes(supplierNotes);
@@ -189,24 +183,10 @@ public class PoiController {
         return "redirect:/poi/" + PID + "/edit";
     }
 
-    // POST /poi/{id}/cooperation-log → 新增一筆合作紀錄
-    @PostMapping("/{id}/cooperation-log")
-    public String addCooperationLog(@PathVariable("id") int PID,
-                                     @RequestParam(required = false) String logDate,
-                                     @RequestParam String note,
-                                     HttpSession session) {
-        if (session.getAttribute("AID") == null) return "redirect:/login";
-        Integer UID = (Integer) session.getAttribute("UID");
-
-        LocalDate parsedDate = (logDate != null && !logDate.isBlank()) ? LocalDate.parse(logDate) : LocalDate.now();
-        poiService.addCooperationLog(PID, parsedDate, note, UID);
-        return "redirect:/poi/" + PID + "/edit";
-    }
-
     // POST /poi/{id}/delete → 刪除景點
     @PostMapping("/{id}/delete")
     public String delete(@PathVariable("id") int PID, HttpSession session,
-                          org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+                         org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         try {
             poiService.delete(PID);

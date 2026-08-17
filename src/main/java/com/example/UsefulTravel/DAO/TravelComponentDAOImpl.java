@@ -36,8 +36,33 @@ public class TravelComponentDAOImpl implements TravelComponentDAO {
     @Override
     public List<TravelComponent> findByAgency(int AID) {
         return em.createQuery(
-                "SELECT c FROM TravelComponent c WHERE c.AID = :aid ORDER BY c.type ASC", TravelComponent.class)
+                        "SELECT c FROM TravelComponent c WHERE c.AID = :aid ORDER BY c.type ASC", TravelComponent.class)
                 .setParameter("aid", AID)
                 .getResultList();
+    }
+
+    @Override
+    @Transactional
+    public void deleteById(int CPID) {
+        TravelComponent component = em.find(TravelComponent.class, CPID);
+        if (component != null) {
+            em.remove(component);
+        }
+    }
+
+    @Override
+    public long countItineraryUsage(int CPID) {
+        return em.createQuery(
+                        "SELECT COUNT(ic) FROM ItineraryComponent ic WHERE ic.CPID = :cpid", Long.class)
+                .setParameter("cpid", CPID)
+                .getSingleResult();
+    }
+
+    @Override
+    @Transactional
+    public void clearQuotationLineReferences(int CPID) {
+        em.createQuery("UPDATE QuotationLine l SET l.CPID = NULL WHERE l.CPID = :cpid")
+                .setParameter("cpid", CPID)
+                .executeUpdate();
     }
 }

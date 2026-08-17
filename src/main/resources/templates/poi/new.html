@@ -218,8 +218,7 @@
         }
         .trigger-icon.images { background: #f3e8ff; color: var(--primary-purple); }
         .trigger-icon.resource { background: #fffbeb; color: #d97706; }
-        .trigger-icon.log { background: #ecfdf5; color: #059669; }
-        .trigger-text { font-size: 13.5px; font-weight: 700; color: var(--text-dark); white-space: nowrap; }
+                .trigger-text { font-size: 13.5px; font-weight: 700; color: var(--text-dark); white-space: nowrap; }
         .trigger-sub { font-size: 11px; color: var(--text-gray); margin-top: 1px; white-space: nowrap; }
 
         .accordion-panel {
@@ -250,8 +249,7 @@
         .panel-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
         .btn-close-panel { background: none; border: none; color: var(--text-gray); font-size: 13px; cursor: pointer; padding: 2px; }
         .btn-close-panel:hover { color: var(--text-dark); }
-        /* 圖片跟資源庫兩個面板內容本來就短, 不用撐滿剩餘高度, 不然下面會空一大塊;
-           合作紀錄面板需要撐滿才能讓清單有空間自己捲動 */
+        /* 圖片跟資源庫兩個面板內容本來就短, 不用撐滿剩餘高度, 不然下面會空一大塊 */
         #panelImages, #panelResource { flex: none; }
 
         /* 危險操作固定顯示在最下面, 不放進手風琴裡 (刪除是重要操作, 不希望被摺疊藏起來) */
@@ -316,24 +314,6 @@
         .empty-text { color: var(--text-gray); font-size: 13px; line-height: 1.5; }
         .empty-text a { color: var(--primary-blue); font-weight: 600; text-decoration: underline; }
 
-        /* 合作紀錄列表：在展開面板內佔滿剩餘高度、自己捲動, 下面的新增表單固定不動 */
-        .log-list-wrap { flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 12px; }
-        .log-item {
-            display: flex;
-            align-items: baseline;
-            gap: 10px;
-            padding: 8px 0;
-            border-bottom: 1px solid #f1f5f9;
-            font-size: 12.5px;
-        }
-        .log-item:last-child { border-bottom: none; }
-        .log-date { font-weight: 700; color: var(--text-gray); min-width: 80px; font-size: 11.5px; }
-        .log-note { color: var(--text-dark); flex: 1; line-height: 1.4; }
-        .log-form { display: flex; gap: 8px; margin-top: 10px; }
-        .log-form input[type="date"] { width: 130px; font-size: 12px; padding: 6px 8px; }
-        .log-form input[type="text"] { font-size: 12px; padding: 6px 8px; }
-        .log-form button { white-space: nowrap; padding: 0 14px; width: auto; font-size: 12px; }
-
         @media (max-width: 1200px) {
             .poi-grid-layout { grid-template-columns: 1fr; }
         }
@@ -364,73 +344,73 @@
             </div>
 
             <div class="form-scroll">
-            <form id="poiForm" th:action="${poi != null && poi.PID != null} ? @{'/poi/' + ${poi.PID} + '/edit'} : @{/poi/new}" method="POST">
+                <form id="poiForm" th:action="${poi != null && poi.PID != null} ? @{'/poi/' + ${poi.PID} + '/edit'} : @{/poi/new}" method="POST">
 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">景點 / 餐廳 / 飯店名稱</label>
-                        <input type="text" name="name" class="form-control" th:value="${poi?.name}" placeholder="例：東京晴空塔" required />
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">景點 / 餐廳 / 飯店名稱</label>
+                            <input type="text" name="name" class="form-control" th:value="${poi?.name}" placeholder="例：東京晴空塔" required />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">類型</label>
+                            <select name="category" class="form-control" required>
+                                <option value="attraction" th:selected="${poi?.category == 'attraction'}">景點</option>
+                                <option value="restaurant" th:selected="${poi?.category == 'restaurant'}">餐廳</option>
+                                <option value="hotel" th:selected="${poi?.category == 'hotel'}">飯店 / 住宿</option>
+                                <option value="rest_stop" th:selected="${poi?.category == 'rest_stop'}">休息站</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">類型</label>
-                        <select name="category" class="form-control" required>
-                            <option value="attraction" th:selected="${poi?.category == 'attraction'}">景點</option>
-                            <option value="restaurant" th:selected="${poi?.category == 'restaurant'}">餐廳</option>
-                            <option value="hotel" th:selected="${poi?.category == 'hotel'}">飯店 / 住宿</option>
-                            <option value="rest_stop" th:selected="${poi?.category == 'rest_stop'}">休息站</option>
-                        </select>
-                    </div>
-                </div>
 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">國家</label>
-                        <input type="text" name="country" class="form-control" th:value="${poi?.country}" placeholder="例：日本" />
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">國家</label>
+                            <input type="text" name="country" class="form-control" th:value="${poi?.country}" placeholder="例：日本" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">城市 / 地區</label>
+                            <input type="text" name="city" class="form-control" th:value="${poi?.city}" placeholder="例：東京" required />
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">城市 / 地區</label>
-                        <input type="text" name="city" class="form-control" th:value="${poi?.city}" placeholder="例：東京" required />
-                    </div>
-                </div>
 
-                <div class="form-group">
-                    <label class="form-label">詳細地址</label>
-                    <input type="text" name="address" class="form-control" th:value="${poi?.address}" placeholder="例：東京都墨田區押上一丁目1-2" />
-                </div>
-
-                <div class="form-row">
                     <div class="form-group">
-                        <label class="form-label">緯度 (Latitude)</label>
-                        <input type="number" step="0.0000001" name="latitude" class="form-control" th:value="${poi?.latitude}" placeholder="例：35.710063" />
+                        <label class="form-label">詳細地址</label>
+                        <input type="text" name="address" class="form-control" th:value="${poi?.address}" placeholder="例：東京都墨田區押上一丁目1-2" />
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">經度 (Longitude)</label>
-                        <input type="number" step="0.0000001" name="longitude" class="form-control" th:value="${poi?.longitude}" placeholder="例：139.8107" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">建議停留時間 (分鐘)</label>
-                        <input type="number" name="suggestedStayMin" class="form-control" th:value="${poi?.suggestedStayMin}" placeholder="例：90" />
-                    </div>
-                </div>
-                <div class="hint-text" style="margin-top: -10px; margin-bottom: 16px;">
-                    <i class="fa-solid fa-circle-info"></i> 經緯度留空存檔時，系統將自動根據名稱＋城市＋國家重新查詢地理座標。
-                </div>
 
-                <div class="form-group form-group-grow" style="margin-bottom: 0;">
-                    <label class="form-label">介紹說明</label>
-                    <textarea name="description" class="form-control" rows="3" th:text="${poi?.description}" placeholder="輸入景點特色、行程提醒或景點介紹..."></textarea>
-                </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">緯度 (Latitude)</label>
+                            <input type="number" step="0.0000001" name="latitude" class="form-control" th:value="${poi?.latitude}" placeholder="例：35.710063" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">經度 (Longitude)</label>
+                            <input type="number" step="0.0000001" name="longitude" class="form-control" th:value="${poi?.longitude}" placeholder="例：139.8107" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">建議停留時間 (分鐘)</label>
+                            <input type="number" name="suggestedStayMin" class="form-control" th:value="${poi?.suggestedStayMin}" placeholder="例：90" />
+                        </div>
+                    </div>
+                    <div class="hint-text" style="margin-top: -10px; margin-bottom: 16px;">
+                        <i class="fa-solid fa-circle-info"></i> 經緯度留空存檔時，系統將自動根據名稱＋城市＋國家重新查詢地理座標。
+                    </div>
 
-                <button type="submit" class="btn-primary" style="margin-top: 24px;">
-                    <i class="fa-solid fa-floppy-disk"></i> 儲存景點資料
-                </button>
-            </form>
+                    <div class="form-group form-group-grow" style="margin-bottom: 0;">
+                        <label class="form-label">介紹說明</label>
+                        <textarea name="description" class="form-control" rows="3" th:text="${poi?.description}" placeholder="輸入景點特色、行程提醒或景點介紹..."></textarea>
+                    </div>
+
+                    <button type="submit" class="btn-primary" style="margin-top: 24px;">
+                        <i class="fa-solid fa-floppy-disk"></i> 儲存景點資料
+                    </button>
+                </form>
             </div>
         </div>
 
         <!-- 2. 右側延伸附屬功能區: 改成跟行程排版看板左側三大模組一樣的手風琴設計,
              同時間只展開一個, 這樣不管視窗多矮, 整欄都不會超出畫面需要捲動。
-             合作紀錄只有編輯模式才有 (需要 poi.PID); 刪除是重要操作固定顯示在最下面, 不放進手風琴。 -->
+             刪除是重要操作固定顯示在最下面, 不放進手風琴。 -->
         <div class="tools-col">
 
             <!-- 模組一：綁定圖片 (預設展開) -->
@@ -476,7 +456,7 @@
                     <div class="trigger-icon resource"><i class="fa-solid fa-sack-dollar"></i></div>
                     <div>
                         <div class="trigger-text">公司專屬資源庫</div>
-                        <div class="trigger-sub">成本價・供應商資訊</div>
+                        <div class="trigger-sub">同行價・供應商資訊</div>
                     </div>
                 </div>
                 <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
@@ -487,10 +467,6 @@
                     <button type="button" class="btn-close-panel" onclick="togglePoiAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">成本價 (TWD)</label>
-                        <input type="number" step="0.01" name="costPrice" form="poiForm" class="form-control" th:value="${poi?.costPrice}" placeholder="與供應商合約價" />
-                    </div>
                     <div class="form-group">
                         <label class="form-label">同行價 / 建議售價</label>
                         <input type="number" step="0.01" name="agencyPrice" form="poiForm" class="form-control" th:value="${poi?.agencyPrice}" placeholder="對外報價基準" />
@@ -504,38 +480,6 @@
                     <label class="form-label">合作備註</label>
                     <textarea name="supplierNotes" form="poiForm" class="form-control" rows="2" th:text="${poi?.supplierNotes}" placeholder="例：付款帳期、取消政策、免票門檻等"></textarea>
                 </div>
-            </div>
-
-            <!-- 模組三：合作紀錄 (只有編輯模式才有, 因為需要 poi.PID) -->
-            <div id="triggerLog" class="accordion-trigger" data-type="Log" onclick="togglePoiAccordion('Log')" th:if="${poi != null && poi.PID != null}">
-                <div class="trigger-left">
-                    <div class="trigger-icon log"><i class="fa-solid fa-clock-rotate-left"></i></div>
-                    <div>
-                        <div class="trigger-text">合作紀錄</div>
-                        <div class="trigger-sub" th:text="${logs != null && !logs.isEmpty()} ? ${logs.size()} + ' 筆紀錄' : '尚無紀錄'">尚無紀錄</div>
-                    </div>
-                </div>
-                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
-            </div>
-            <div id="panelLog" class="accordion-panel" th:if="${poi != null && poi.PID != null}">
-                <div class="panel-header">
-                    <div class="panel-title"><i class="fa-solid fa-clock-rotate-left" style="color: #059669;"></i> 合作紀錄</div>
-                    <button type="button" class="btn-close-panel" onclick="togglePoiAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-
-                <div class="log-list-wrap" th:if="${logs != null && !logs.isEmpty()}">
-                    <div th:each="log : ${logs}" class="log-item">
-                        <span class="log-date" th:text="${log.logDate}">2026-08-14</span>
-                        <span class="log-note" th:text="${log.note}">紀錄說明</span>
-                    </div>
-                </div>
-                <p th:if="${logs == null || logs.isEmpty()}" class="empty-text" style="flex:1;">尚無歷史合作紀錄。</p>
-
-                <form class="log-form" method="post" th:action="@{'/poi/' + ${poi.PID} + '/cooperation-log'}">
-                    <input type="date" name="logDate" class="form-control" />
-                    <input type="text" name="note" class="form-control" placeholder="紀錄內容..." required />
-                    <button type="submit" class="btn-primary" style="background:#059669;">＋ 新增</button>
-                </form>
             </div>
 
             <!-- 危險操作區 (刪除, 只有編輯模式才有; 固定顯示、不放進手風琴) -->

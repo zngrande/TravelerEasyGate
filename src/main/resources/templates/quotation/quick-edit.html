@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>簡易報價編輯 - TRAVELER EASY GATE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-blue: #2563eb; --primary-purple: #8b5cf6; --bg-gray: #f8fafc;
+            --text-dark: #1e293b; --text-gray: #64748b; --border-color: #e2e8f0;
+            --sidebar-width: 200px; --green: #059669; --amber: #d97706; --red: #dc2626;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+        a { text-decoration: none; color: inherit; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
+        .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .page-subtitle { font-size: 13.5px; color: var(--text-gray); margin-top: 4px; }
+        .header-actions { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13px; font-weight: 600; color: var(--text-gray); }
+        .header-actions a:hover { color: var(--primary-blue); }
+        .status-pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: #f1f5f9; color: var(--text-gray); }
+
+        .layout { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 16px; padding: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 20px; }
+        .card-header { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+
+        .day-block { margin-bottom: 22px; }
+        .day-block:last-child { margin-bottom: 0; }
+        .day-heading { font-size: 14px; font-weight: 700; color: var(--primary-blue); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); }
+        .item-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
+        .item-row:last-child { border-bottom: none; }
+        .item-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: #f1f5f9; color: var(--text-gray); white-space: nowrap; }
+        .item-name { flex: 1; min-width: 140px; font-size: 13.5px; font-weight: 500; }
+        .price-form { display: flex; align-items: center; gap: 6px; }
+        .price-input { width: 110px; padding: 7px 10px; font-size: 13px; border: 1px solid var(--border-color); border-radius: 8px; text-align: right; }
+        .price-input:focus { border-color: var(--primary-blue); outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        .price-unit { font-size: 12px; color: var(--text-gray); }
+        .price-save { background: var(--primary-blue); color: #fff; border: none; border-radius: 8px; padding: 7px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .price-save:hover { background: #1d4ed8; }
+        .price-filled { color: var(--green); font-size: 11px; font-weight: 600; }
+        .empty-day { font-size: 13px; color: var(--text-gray); padding: 6px 0; }
+
+        .misc-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+        .misc-row:last-child { border-bottom: none; }
+        .misc-price { font-weight: 600; }
+        .misc-del { background: none; border: none; cursor: pointer; color: var(--text-gray); }
+        .misc-del:hover { color: var(--red); }
+        .misc-add-form { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-color); }
+        .misc-add-form input, .misc-add-form select { padding: 8px 10px; font-size: 13px; border: 1px solid var(--border-color); border-radius: 8px; }
+        .misc-add-form button { background: var(--primary-blue); color: #fff; border: none; border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 600; cursor: pointer; }
+
+        .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+        .summary-row .label { color: var(--text-gray); }
+        .summary-row .value { font-weight: 700; }
+        .empty-state { padding: 20px; text-align: center; color: var(--text-gray); font-size: 13px; }
+        .readonly-banner { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+
+<aside th:replace="~{fragments/sidebar :: sidebar(active='itinerary', userName=${session.name})}"></aside>
+
+<main class="main-content">
+<div id="pageContent" th:fragment="pageContent" th:attr="data-fragment-url=@{'/quotation/' + ${quotation.QID} + '/quick-edit/fragment'}">
+    <div class="page-header">
+        <div>
+            <div class="page-title">
+                <i class="fa-solid fa-tags" style="color: var(--primary-blue);"></i>
+                簡易報價編輯
+                <span class="status-pill" th:text="${quotation.status == 'draft'} ? '草稿' : (${quotation.status == 'locked'} ? '已鎖定' : '已確認')"></span>
+            </div>
+            <div class="page-subtitle" th:text="${itinerary.title} + '　·　第 ' + ${quotation.version} + ' 版　·　' + ${quotation.groupSize} + ' 人團'"></div>
+        </div>
+        <div class="header-actions">
+            <a th:href="@{'/itinerary/' + ${itinerary.ITID} + '/board'}"><i class="fa-solid fa-chalkboard"></i> 排版看板</a>
+            <a th:href="@{'/quotation/' + ${quotation.QID}}"><i class="fa-solid fa-sliders"></i> 正式報價頁（幣別/FOC/區間價錢等進階設定）</a>
+        </div>
+    </div>
+
+    <div class="readonly-banner" th:if="${!canEdit}">
+        <i class="fa-solid fa-circle-info"></i>
+        這份報價單目前無法在這裡編輯（已鎖定，或這個帳號沒有報價權限），以下僅供檢視。
+    </div>
+
+    <div class="layout">
+        <!-- 主要內容: 每天的行程項目, 名稱旁邊填價錢 -->
+        <div>
+            <div class="card">
+                <div class="card-header"><i class="fa-solid fa-list-check" style="color: var(--primary-blue);"></i> 行程項目價錢</div>
+
+                <div th:if="${days.isEmpty()}" class="empty-state">這個行程還沒有排任何天數內容。</div>
+
+                <div class="day-block" th:each="day : ${days}">
+                    <div class="day-heading" th:text="'Day ' + ${day.dayNumber} + (${day.theme} != null ? '　' + ${day.theme} : '')"></div>
+
+                    <div th:if="${itemsByDay.get(day.IDID).isEmpty()}" class="empty-day">（這天還沒有安排項目）</div>
+
+                    <div class="item-row" th:each="item : ${itemsByDay.get(day.IDID)}">
+                        <span class="item-tag" th:text="${item.itemType}"></span>
+                        <span class="item-name" th:text="${item.customName}"></span>
+                        <span class="price-filled" th:if="${lineByItem.get(item.IIID) != null}">
+                            <i class="fa-solid fa-check"></i> 已填
+                        </span>
+                        <form class="price-form" th:if="${canEdit}"
+                              method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/quick-edit/items/' + ${item.IIID} + '/price'}">
+                            <input type="hidden" name="itemName" th:value="${item.customName}" />
+                            <input type="hidden" name="category" th:value="${item.itemType}" />
+                            <input type="number" step="0.01" name="unitPrice" class="price-input" placeholder="價錢"
+                                   th:value="${lineByItem.get(item.IIID) != null} ? ${lineByItem.get(item.IIID).unitPrice} : ''" />
+                            <span class="price-unit">TWD / 人</span>
+                            <button type="submit" class="price-save">存</button>
+                        </form>
+                        <span th:if="${!canEdit}" class="price-unit"
+                              th:text="${lineByItem.get(item.IIID) != null} ? ('NT$ ' + ${#numbers.formatDecimal(lineByItem.get(item.IIID).unitPrice, 0, 'COMMA', 0, 'POINT')} + ' / 人') : '尚未填價'"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 側邊: 雜費 + 總計 -->
+        <div>
+            <div class="card">
+                <div class="card-header"><i class="fa-solid fa-receipt" style="color: var(--primary-blue);"></i> 雜費</div>
+                <div th:if="${miscLines.isEmpty()}" class="empty-state" style="padding:12px 0;">還沒有新增任何雜費項目</div>
+
+                <div th:each="line : ${miscLines}" class="misc-row">
+                    <span th:text="${line.itemName}"></span>
+                    <span style="display:flex;align-items:center;gap:8px;">
+                        <span class="misc-price" th:text="'NT$ ' + ${#numbers.formatDecimal(line.netCost, 0, 'COMMA', 0, 'POINT')}"></span>
+                        <form th:if="${canEdit}" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines/' + ${line.QLID} + '/delete'}"
+                              data-confirm="確定要刪除這筆雜費嗎？">
+                            <input type="hidden" name="back" value="quick" />
+                            <button type="submit" class="misc-del"><i class="fa-solid fa-trash"></i></button>
+                        </form>
+                    </span>
+                </div>
+
+                <form th:if="${canEdit}" class="misc-add-form" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines'}">
+                    <input type="hidden" name="back" value="quick" />
+                    <input type="text" name="itemName" placeholder="項目名稱（例：導遊薪資、保險）" required />
+                    <select name="costType">
+                        <option value="FIXED_GROUP" selected>全團固定一口價</option>
+                        <option value="PER_PAX">按人頭計費</option>
+                    </select>
+                    <input type="number" step="0.01" name="unitPrice" placeholder="價錢" required />
+                    <input type="hidden" name="category" value="other" />
+                    <input type="hidden" name="quantity" value="1" />
+                    <button type="submit"><i class="fa-solid fa-plus"></i> 新增雜費</button>
+                </form>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><i class="fa-solid fa-calculator" style="color: var(--primary-blue);"></i> 目前總計</div>
+                <div class="summary-row"><span class="label">總淨成本</span><span class="value" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('netCost'), 0, 'COMMA', 0, 'POINT')}"></span></div>
+                <div class="summary-row"><span class="label">總同業價</span><span class="value" style="color:var(--primary-blue);" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('tradePrice'), 0, 'COMMA', 0, 'POINT')}"></span></div>
+                <div class="summary-row"><span class="label">總直售價</span><span class="value" style="color:var(--primary-purple);" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('retailPrice'), 0, 'COMMA', 0, 'POINT')}"></span></div>
+            </div>
+        </div>
+    </div>
+</div>
+</main>
+
+<script>
+    (function () {
+        document.addEventListener('submit', async function (e) {
+            const form = e.target;
+            if (!form.closest('#pageContent')) return;
+            if (form.dataset.fullRedirect === 'true') return;
+
+            e.preventDefault();
+            if (form.dataset.confirm && !confirm(form.dataset.confirm)) return;
+
+            const formData = new FormData(form);
+            try {
+                const res = await fetch(form.action, { method: 'POST', body: formData });
+                if (!res.ok) {
+                    alert('操作失敗，畫面重新整理後會顯示目前實際狀態，請確認一下。');
+                }
+            } catch (err) {
+                alert('連線失敗：' + err.message);
+            }
+            await refreshPageContent();
+        });
+
+        async function refreshPageContent() {
+            const current = document.getElementById('pageContent');
+            if (!current) return;
+            try {
+                const res = await fetch(current.dataset.fragmentUrl);
+                const html = await res.text();
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = html;
+                const newContent = wrapper.querySelector('#pageContent');
+                if (newContent) {
+                    document.getElementById('pageContent').replaceWith(newContent);
+                }
+            } catch (err) {
+                console.error('重新整理報價內容失敗', err);
+            }
+        }
+    })();
+</script>
+
+</body>
+</html>

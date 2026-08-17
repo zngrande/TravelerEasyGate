@@ -1,0 +1,464 @@
+package com.example.UsefulTravel.controller;
+
+import com.example.UsefulTravel.DAO.CurrencyDAO;
+import com.example.UsefulTravel.DAO.ItineraryDAO;
+import com.example.UsefulTravel.DAO.MarginSettingDAO;
+import com.example.UsefulTravel.DAO.TravelComponentDAO;
+import com.example.UsefulTravel.entity.Itinerary;
+import com.example.UsefulTravel.entity.ItineraryDay;
+import com.example.UsefulTravel.entity.ItineraryItem;
+import com.example.UsefulTravel.entity.MarginSetting;
+import com.example.UsefulTravel.entity.Quotation;
+import com.example.UsefulTravel.entity.QuotationLine;
+import com.example.UsefulTravel.service.ItineraryService;
+import com.example.UsefulTravel.service.PermissionService;
+import com.example.UsefulTravel.service.QuotationService;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 報價 / 財務引擎 (需求文件第三章) 的操作入口。
+ * 行程排版看板「跳轉報價單編輯」會導到這裡。
+ */
+@Controller
+public class QuotationController {
+
+    private final QuotationService quotationService;
+    private final ItineraryDAO itineraryDAO;
+    private final ItineraryService itineraryService;
+    private final MarginSettingDAO marginSettingDAO;
+    private final CurrencyDAO currencyDAO;
+    private final TravelComponentDAO travelComponentDAO;
+    private final PermissionService permissionService;
+
+    @Autowired
+    public QuotationController(QuotationService quotationService, ItineraryDAO itineraryDAO,
+                               ItineraryService itineraryService, MarginSettingDAO marginSettingDAO,
+                               CurrencyDAO currencyDAO, TravelComponentDAO travelComponentDAO,
+                               PermissionService permissionService) {
+        this.quotationService = quotationService;
+        this.itineraryDAO = itineraryDAO;
+        this.itineraryService = itineraryService;
+        this.marginSettingDAO = marginSettingDAO;
+        this.currencyDAO = currencyDAO;
+        this.travelComponentDAO = travelComponentDAO;
+        this.permissionService = permissionService;
+    }
+
+    /** 報價相關的寫入動作 (新增版本/新增明細/上鎖/確認...) 都要有「製作/調整報價」權限 (ADMIN 或 QUOTER)。 */
+    private boolean canQuote(HttpSession session) {
+        String role = (String) session.getAttribute("role");
+        return permissionService.canQuote(role);
+    }
+
+    // GET /itinerary/{id}/quotations → 這個行程底下所有報價單版本列表
+    @GetMapping("/itinerary/{id}/quotations")
+    public String list(@PathVariable("id") int ITID, HttpSession session, Model model) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null || itinerary.getAID() != AID) return "redirect:/agency/dashboard";
+
+        model.addAttribute("itinerary", itinerary);
+        model.addAttribute("quotations", quotationService.findByItinerary(ITID));
+        model.addAttribute("marginSettings", marginSettingDAO.findByAgency(AID));
+        return "quotation/list";
+    }
+
+    // POST /itinerary/{id}/quotations/new → 建立新版本報價單
+    @PostMapping("/itinerary/{id}/quotations/new")
+    public String create(@PathVariable("id") int ITID,
+                         @RequestParam(required = false) Integer marginSettingId,
+                         @RequestParam(defaultValue = "1") int groupSize,
+                         HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        Integer UID = (Integer) session.getAttribute("UID");
+        if (AID == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/itinerary/" + ITID + "/quotations";
+
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null || itinerary.getAID() != AID) return "redirect:/agency/dashboard";
+
+        Integer msid = marginSettingId;
+        if (msid == null) {
+            MarginSetting def = marginSettingDAO.findDefault(AID);
+            if (def != null) msid = def.getMSID();
+        }
+        int size = groupSize > 0 ? groupSize : (itinerary.getGroupSize() != null ? itinerary.getGroupSize() : 1);
+
+        Quotation q = quotationService.createQuotation(ITID, AID, msid, size, UID);
+        return "redirect:/quotation/" + q.getQID();
+    }
+
+    // GET /itinerary/{id}/quick-quote → 找目前的草稿報價單(沒有就建一個), 導去簡易報價編輯頁
+    @GetMapping("/itinerary/{id}/quick-quote")
+    public String quickQuoteEntry(@PathVariable("id") int ITID, HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        Integer UID = (Integer) session.getAttribute("UID");
+        if (AID == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/itinerary/" + ITID + "/board";
+
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null || itinerary.getAID() != AID) return "redirect:/agency/dashboard";
+
+        Integer msid = null;
+        MarginSetting def = marginSettingDAO.findDefault(AID);
+        if (def != null) msid = def.getMSID();
+        int size = itinerary.getGroupSize() != null ? itinerary.getGroupSize() : 1;
+
+        Quotation q = quotationService.findOrCreateDraftQuotation(ITID, AID, msid, size, UID);
+        return "redirect:/quotation/" + q.getQID() + "/quick-edit";
+    }
+
+    // GET /quotation/{qid}/quick-edit → 簡易報價編輯頁: 跟編輯行程模板類似, 但沒有地圖,
+    // 景點只顯示名稱旁邊填價錢, 左側改放雜費, 適合遊程規劃師快速抓個大概價錢用
+    @GetMapping("/quotation/{qid}/quick-edit")
+    public String quickEdit(@PathVariable("qid") int QID, HttpSession session, Model model) {
+        String view = buildQuickEditModel(QID, session, model);
+        return view != null ? view : "quotation/quick-edit";
+    }
+
+    // GET /quotation/{qid}/quick-edit/fragment → 跟上面同一份資料, 但只回傳畫面內容片段, 給前端 AJAX 局部刷新用
+    @GetMapping("/quotation/{qid}/quick-edit/fragment")
+    public String quickEditFragment(@PathVariable("qid") int QID, HttpSession session, Model model) {
+        String view = buildQuickEditModel(QID, session, model);
+        return view != null ? view : "quotation/quick-edit :: pageContent";
+    }
+
+    /** 回傳 null 代表資料正常, model 已經填好可以渲染; 回傳非 null 代表要導頁 (沒登入/找不到資料), 兩個 GET 端點共用。 */
+    private String buildQuickEditModel(int QID, HttpSession session, Model model) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+
+        Quotation quotation = quotationService.findById(QID);
+        if (quotation == null || quotation.getAID() != AID) return "redirect:/agency/dashboard";
+
+        Itinerary itinerary = itineraryDAO.findById(quotation.getITID());
+        List<ItineraryDay> days = itineraryService.getDays(quotation.getITID());
+
+        // 每一天的項目清單 + 這個項目目前有沒有填過價錢 (依 IIID 對應到同一筆報價明細)
+        Map<Integer, List<ItineraryItem>> itemsByDay = new LinkedHashMap<>();
+        Map<Integer, QuotationLine> lineByItem = new LinkedHashMap<>();
+        for (ItineraryDay day : days) {
+            List<ItineraryItem> items = itineraryService.getItems(day.getIDID());
+            itemsByDay.put(day.getIDID(), items);
+            for (ItineraryItem item : items) {
+                QuotationLine line = quotationService.findLineByItem(QID, item.getIIID());
+                if (line != null) lineByItem.put(item.getIIID(), line);
+            }
+        }
+
+        // 雜費: 沒有連結到任何行程項目的明細 (接駁車/導遊薪資/保險這類自訂項目)
+        List<QuotationLine> miscLines = quotationService.findLines(QID).stream()
+                .filter(l -> l.getSourceItemId() == null)
+                .toList();
+
+        model.addAttribute("quotation", quotation);
+        model.addAttribute("itinerary", itinerary);
+        model.addAttribute("days", days);
+        model.addAttribute("itemsByDay", itemsByDay);
+        model.addAttribute("lineByItem", lineByItem);
+        model.addAttribute("miscLines", miscLines);
+        model.addAttribute("currencies", currencyDAO.findAvailable(AID));
+        model.addAttribute("totals", quotationService.getTotals(QID));
+        model.addAttribute("canEdit", quotation.isEditable() && canQuote(session));
+        return null;
+    }
+
+    // POST /quotation/{qid}/quick-edit/items/{iiid}/price → 幫某個景點/餐廳/飯店項目填價錢
+    @PostMapping("/quotation/{qid}/quick-edit/items/{iiid}/price")
+    public ResponseEntity<String> updateItemPrice(@PathVariable("qid") int QID, @PathVariable("iiid") int IIID,
+                                                  @RequestParam String itemName,
+                                                  @RequestParam(defaultValue = "other") String category,
+                                                  @RequestParam BigDecimal unitPrice,
+                                                  HttpSession session) {
+        if (session.getAttribute("AID") == null) return ResponseEntity.status(401).body("尚未登入");
+        if (!canQuote(session)) return ResponseEntity.status(403).body("沒有報價權限");
+        try {
+            quotationService.upsertItemPrice(QID, IIID, itemName, category, unitPrice);
+            return ResponseEntity.ok("ok");
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // GET /quotation/{qid} → 報價單編輯/檢視頁 (核心畫面)
+    @GetMapping("/quotation/{qid}")
+    public String edit(@PathVariable("qid") int QID, HttpSession session, Model model) {
+        String view = buildEditModel(QID, session, model);
+        return view != null ? view : "quotation/edit";
+    }
+
+    // GET /quotation/{qid}/fragment → 跟上面同一份資料, 但只回傳畫面內容片段, 給前端 AJAX 局部刷新用
+    @GetMapping("/quotation/{qid}/fragment")
+    public String editFragment(@PathVariable("qid") int QID, HttpSession session, Model model) {
+        String view = buildEditModel(QID, session, model);
+        return view != null ? view : "quotation/edit :: pageContent";
+    }
+
+    /** 回傳 null 代表資料正常, model 已經填好可以渲染; 回傳非 null 代表要導頁, 兩個 GET 端點共用。 */
+    private String buildEditModel(int QID, HttpSession session, Model model) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+
+        Quotation quotation = quotationService.findById(QID);
+        if (quotation == null || quotation.getAID() != AID) return "redirect:/agency/dashboard";
+
+        Itinerary itinerary = itineraryDAO.findById(quotation.getITID());
+
+        model.addAttribute("quotation", quotation);
+        model.addAttribute("itinerary", itinerary);
+        List<QuotationLine> lines = quotationService.findLines(QID);
+        model.addAttribute("lines", lines);
+        model.addAttribute("totals", quotationService.getTotals(QID));
+        model.addAttribute("marginSettings", marginSettingDAO.findByAgency(AID));
+        model.addAttribute("currencies", currencyDAO.findAvailable(AID));
+        model.addAttribute("components", travelComponentDAO.findByAgency(AID));
+        model.addAttribute("priceTierTemplates", quotationService.listTemplates(AID));
+
+        // 每一筆明細各自的級距清單, 給畫面上「這個項目有沒有設定區間價錢」用
+        Map<Integer, List<com.example.UsefulTravel.entity.QuotationLineTier>> tiersByLine = new LinkedHashMap<>();
+        for (QuotationLine line : lines) {
+            tiersByLine.put(line.getQLID(), quotationService.listTiers(line.getQLID()));
+        }
+        model.addAttribute("tiersByLine", tiersByLine);
+
+        // 整團人數級距報價結果 (掛在整張報價單底下, 跟上面 tiersByLine 是不同層級)
+        model.addAttribute("groupTiers", quotationService.listGroupTiers(QID));
+
+        // 畫面能不能編輯 = 報價單本身是 draft (未上鎖) 而且這個角色有「製作/調整報價」的權限 (ADMIN/QUOTER)。
+        // 行程編輯者 (EDITOR) 跟唯讀 (VIEWER) 只能看, 看得到金額但按鈕會被關閉。
+        model.addAttribute("canEdit", quotation.isEditable() && canQuote(session));
+        return null;
+    }
+
+    // POST /quotation/{qid}/settings → 調整團體人數 / 套用的加成規則 (會觸發整張報價單重新計算)
+    @PostMapping("/quotation/{qid}/settings")
+    public String updateSettings(@PathVariable("qid") int QID,
+                                 @RequestParam int groupSize,
+                                 @RequestParam(required = false) Integer marginSettingId,
+                                 @RequestParam(required = false) String expiresAt,
+                                 HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+
+        // 團體人數/加成規則變動會連動重新計算所有明細, 交給 service 統一處理
+        quotationService.updateGroupSizeAndMargin(QID, groupSize, marginSettingId);
+
+        // 有效期限只是單純寫回欄位, 不影響金額計算, 額外處理即可
+        if (expiresAt != null && !expiresAt.isBlank()) {
+            quotationService.setExpiresAt(QID, LocalDate.parse(expiresAt).atTime(23, 59, 59));
+        }
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/lines → 手動新增一筆報價項目
+    @PostMapping("/quotation/{qid}/lines")
+    public String addLine(@PathVariable("qid") int QID,
+                          @RequestParam(required = false) Integer componentId,
+                          @RequestParam String itemName,
+                          @RequestParam(defaultValue = "other") String category,
+                          @RequestParam(defaultValue = "PER_PAX") String costType,
+                          @RequestParam(defaultValue = "TWD") String currencyCode,
+                          @RequestParam BigDecimal unitPrice,
+                          @RequestParam(defaultValue = "1") int quantity,
+                          @RequestParam(required = false, defaultValue = "0") BigDecimal fuelSurcharge,
+                          @RequestParam(required = false, defaultValue = "0") BigDecimal taxAmount,
+                          @RequestParam(required = false, defaultValue = "0") int focRatio,
+                          @RequestParam(required = false, defaultValue = "true") boolean refundable,
+                          @RequestParam(required = false) String note,
+                          @RequestParam(required = false, defaultValue = "edit") String back,
+                          HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return redirectBack(QID, back);
+
+        quotationService.addLine(QID, componentId, itemName, category, costType, currencyCode, unitPrice, quantity,
+                fuelSurcharge, taxAmount, focRatio, refundable, note);
+        return redirectBack(QID, back);
+    }
+
+    // POST /quotation/{qid}/lines/from-component → 從元件庫快速掛一筆 (帶入元件的預設單價/幣別)
+    @PostMapping("/quotation/{qid}/lines/from-component")
+    public String addLineFromComponent(@PathVariable("qid") int QID,
+                                       @RequestParam int componentId,
+                                       @RequestParam(defaultValue = "1") int quantity,
+                                       @RequestParam(required = false, defaultValue = "0") int focRatio,
+                                       @RequestParam(required = false) String note,
+                                       HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+
+        quotationService.addLineFromComponent(QID, componentId, quantity, focRatio, note);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/lines/{qlid}/update → 編輯報價項目
+    @PostMapping("/quotation/{qid}/lines/{qlid}/update")
+    public String updateLine(@PathVariable("qid") int QID,
+                             @PathVariable("qlid") int QLID,
+                             @RequestParam String itemName,
+                             @RequestParam(defaultValue = "other") String category,
+                             @RequestParam(defaultValue = "PER_PAX") String costType,
+                             @RequestParam(defaultValue = "TWD") String currencyCode,
+                             @RequestParam BigDecimal unitPrice,
+                             @RequestParam(defaultValue = "1") int quantity,
+                             @RequestParam(required = false, defaultValue = "0") BigDecimal fuelSurcharge,
+                             @RequestParam(required = false, defaultValue = "0") BigDecimal taxAmount,
+                             @RequestParam(required = false, defaultValue = "0") int focRatio,
+                             @RequestParam(required = false, defaultValue = "true") boolean refundable,
+                             @RequestParam(required = false) String note,
+                             HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+
+        quotationService.updateLine(QLID, itemName, category, costType, currencyCode, unitPrice, quantity,
+                fuelSurcharge, taxAmount, focRatio, refundable, note);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/lines/{qlid}/delete
+    @PostMapping("/quotation/{qid}/lines/{qlid}/delete")
+    public String deleteLine(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
+                             @RequestParam(required = false, defaultValue = "edit") String back,
+                             HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return redirectBack(QID, back);
+        quotationService.deleteLine(QLID);
+        return redirectBack(QID, back);
+    }
+
+    /** back="quick" 導回簡易報價編輯頁, 其他 (預設) 導回正式報價編輯頁。共用同一批寫入端點, 只是回去的地方不同。 */
+    private String redirectBack(int QID, String back) {
+        return "quick".equals(back) ? "redirect:/quotation/" + QID + "/quick-edit" : "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/lock → 上鎖 (凍結金額, 可對外報價)
+    @PostMapping("/quotation/{qid}/lock")
+    public String lock(@PathVariable("qid") int QID, HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.lock(QID);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/reopen → 解鎖回草稿, 繼續調整報價
+    @PostMapping("/quotation/{qid}/reopen")
+    public String reopen(@PathVariable("qid") int QID, HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.reopen(QID);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/confirm → 客戶已確認, 轉為正式報價 (未來可接轉正式訂單流程)
+    @PostMapping("/quotation/{qid}/confirm")
+    public String confirm(@PathVariable("qid") int QID, HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.confirm(QID);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/delete → 刪除這個報價版本 (僅 draft 狀態建議刪除, 已鎖定的建議保留歷史)
+    @PostMapping("/quotation/{qid}/delete")
+    public String delete(@PathVariable("qid") int QID, HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        Quotation quotation = quotationService.findById(QID);
+        int ITID = quotation != null ? quotation.getITID() : 0;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.delete(QID);
+        return "redirect:/itinerary/" + ITID + "/quotations";
+    }
+
+    // ------------------------------------------------------------
+    // 區間價錢 (掛在單一報價項目底下的人數級距)
+    // ------------------------------------------------------------
+
+    // POST /quotation/{qid}/lines/{qlid}/tiers → 新增一條級距 (min~max 對應價錢)
+    @PostMapping("/quotation/{qid}/lines/{qlid}/tiers")
+    public String addTier(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
+                          @RequestParam int minQty,
+                          @RequestParam(required = false) Integer maxQty,
+                          @RequestParam BigDecimal price,
+                          HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.addTier(QLID, minQty, maxQty, price);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/lines/{qlid}/tiers/{qltid}/delete
+    @PostMapping("/quotation/{qid}/lines/{qlid}/tiers/{qltid}/delete")
+    public String deleteTier(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
+                             @PathVariable("qltid") int QLTID, HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.deleteTier(QLTID);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/lines/{qlid}/tiers/save-template → 把這個項目目前的級距存成範本
+    @PostMapping("/quotation/{qid}/lines/{qlid}/tiers/save-template")
+    public ResponseEntity<String> saveTierTemplate(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
+                                                   @RequestParam String templateName, HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        Integer UID = (Integer) session.getAttribute("UID");
+        if (AID == null) return ResponseEntity.status(401).body("尚未登入");
+        if (!canQuote(session)) return ResponseEntity.status(403).body("沒有報價權限");
+
+        try {
+            quotationService.saveLineTiersAsTemplate(QLID, AID, templateName, UID);
+            return ResponseEntity.ok("ok");
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // POST /quotation/{qid}/lines/{qlid}/tiers/apply-template → 套用一組已存的範本 (整組取代原本的級距)
+    @PostMapping("/quotation/{qid}/lines/{qlid}/tiers/apply-template")
+    public String applyTierTemplate(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
+                                    @RequestParam int templateId, HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.applyTemplateToLine(QLID, templateId);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // ------------------------------------------------------------
+    // 整團人數級距報價 (掛在整張報價單底下, 不是掛在單一項目)
+    // ------------------------------------------------------------
+
+    // POST /quotation/{qid}/group-tiers → 新增一個人數級距, 金額不用填, 系統依現有成本自動試算
+    @PostMapping("/quotation/{qid}/group-tiers")
+    public String addGroupTier(@PathVariable("qid") int QID,
+                               @RequestParam int minQty,
+                               @RequestParam(required = false) Integer maxQty,
+                               HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.addGroupTier(QID, minQty, maxQty);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/group-tiers/{qgtid}/delete
+    @PostMapping("/quotation/{qid}/group-tiers/{qgtid}/delete")
+    public String deleteGroupTier(@PathVariable("qid") int QID, @PathVariable("qgtid") int QGTID,
+                                  HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.deleteGroupTier(QGTID);
+        return "redirect:/quotation/" + QID;
+    }
+}

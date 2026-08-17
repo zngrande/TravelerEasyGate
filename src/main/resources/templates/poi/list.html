@@ -258,7 +258,6 @@
                 <th>類型</th>
                 <th>國家 / 城市</th>
                 <th>建議停留時間</th>
-                <th>成本價 (TWD)</th>
                 <th>座標定位</th>
                 <th>操作</th>
             </tr>
@@ -279,7 +278,6 @@
                 </td>
                 <td th:text="${poi.country} + ' / ' + ${poi.city}"></td>
                 <td th:text="${poi.suggestedStayMin != null ? poi.suggestedStayMin + ' 分鐘' : '-'}"></td>
-                <td style="font-weight: 600;" th:text="${poi.costPrice != null ? 'NT$ ' + poi.costPrice : '—'}"></td>
                 <td>
                         <span th:if="${poi.latitude != null}" class="geo-badge located">
                             <i class="fa-solid fa-circle-check"></i> 已定位

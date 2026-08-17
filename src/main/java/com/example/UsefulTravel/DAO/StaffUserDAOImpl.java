@@ -23,10 +23,14 @@ public class StaffUserDAOImpl implements StaffUserDAO {
     @Override
     @Transactional
     public void save(StaffUser staffUser) {
-        if (staffUser.getCreatedAt() == null) {
-            staffUser.setCreatedAt(LocalDateTime.now());
+        if (staffUser.getUID() == 0) {
+            if (staffUser.getCreatedAt() == null) {
+                staffUser.setCreatedAt(LocalDateTime.now());
+            }
+            em.persist(staffUser);
+        } else {
+            em.merge(staffUser);
         }
-        em.persist(staffUser);
     }
 
     @Override
