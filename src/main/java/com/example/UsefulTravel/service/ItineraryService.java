@@ -129,8 +129,8 @@ public class ItineraryService {
             // 資料庫裡這個國家/地區如果完全沒有餐廳/飯店類的候選景點, AI 當然也排不出真正的早/午/晚餐跟住宿。
             // 這種情況不要放著不管 (時間軸看起來像漏排), 也不要硬找不相關的地點湊數, 改成先補一個純文字的
             // 預留項目 (早餐/午餐/晚餐/住宿), 不連結 POI、不查座標、不顯示在地圖上, 讓線控之後自己換成真正的地點。
-            boolean hasRestaurant = candidates.stream().anyMatch(p -> "restaurant".equals(p.getCategory()));
-            boolean hasHotel = candidates.stream().anyMatch(p -> "hotel".equals(p.getCategory()));
+            boolean hasRestaurant = candidates.stream().anyMatch(p -> "餐廳".equals(p.getCategory()));
+            boolean hasHotel = candidates.stream().anyMatch(p -> "飯店".equals(p.getCategory()));
             if (!hasRestaurant || !hasHotel) {
                 for (ItineraryDay day : days) {
                     if (!hasRestaurant) {
@@ -159,8 +159,8 @@ public class ItineraryService {
     private String mapPoiCategoryToItemType(String poiCategory) {
         if (poiCategory == null) return "attraction";
         return switch (poiCategory) {
-            case "restaurant" -> "meal";
-            case "hotel" -> "hotel";
+            case "餐廳" -> "meal";
+            case "飯店" -> "hotel";
             default -> "attraction";
         };
     }
@@ -184,9 +184,9 @@ public class ItineraryService {
             絕對不可以自己生出候選清單沒有的地點或 pid。
 
             規則:
-            - category=attraction 的排每天 2~4 個當作主要行程; category=restaurant 的每天安排 1~3 個 (盡量涵蓋午餐/晚餐);
-              category=hotel 的每天最多安排 1 個 (如果只有一間飯店, 每天都排同一間也沒關係, 代表這幾天都住這裡)。
-            - 同一個 pid 不要在同一天重複出現; 不同天之間, 如果 attraction/restaurant 數量足夠, 盡量不要重複,
+            - category=景點 的排每天 2~4 個當作主要行程; category=餐廳 的每天安排 1~3 個 (盡量涵蓋午餐/晚餐);
+              category=飯店 的每天最多安排 1 個 (如果只有一間飯店, 每天都排同一間也沒關係, 代表這幾天都住這裡)。
+            - 同一個 pid 不要在同一天重複出現; 不同天之間, 如果 景點/餐廳 數量足夠, 盡量不要重複,
               但如果候選數量比行程天數少, 允許合理重複使用, 不要留空某一天。
             - 每個地點只放在最適合的一天就好, 不要漏掉候選清單裡看起來明顯必去的知名景點。
             - 只能輸出一個 JSON 物件, 不要有任何其他文字, 不要用 markdown code fence 包起來, 格式如下:
@@ -205,7 +205,7 @@ public class ItineraryService {
             if (i > 0) userContent.append(",");
             userContent.append("{\"pid\":").append(poi.getPID())
                     .append(",\"name\":\"").append(poi.getName() != null ? poi.getName().replace("\"", "") : "")
-                    .append("\",\"category\":\"").append(poi.getCategory() != null ? poi.getCategory() : "attraction")
+                    .append("\",\"category\":\"").append(poi.getCategory() != null ? poi.getCategory() : "景點")
                     .append("\",\"stay_min\":").append(poi.getSuggestedStayMin() != null ? poi.getSuggestedStayMin() : 60)
                     .append("}");
         }
@@ -477,9 +477,9 @@ public class ItineraryService {
     private String mapItemTypeToPoiCategory(String itemType) {
         if (itemType == null) return null;
         return switch (itemType) {
-            case "attraction" -> "attraction";
-            case "meal" -> "restaurant";
-            case "hotel" -> "hotel";
+            case "attraction" -> "景點";
+            case "meal" -> "餐廳";
+            case "hotel" -> "飯店";
             default -> null;
         };
     }
@@ -682,6 +682,24 @@ public class ItineraryService {
      */
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
                                   String timeSlot, String note, Boolean showOnMap) {
+        updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
+                null, null, null, null, null, null, null);
+    }
+
+    /**
+     * @param itemType         看板上「編輯」時可以直接更換這個項目的類別 (景點/餐廳/住宿/交通...), 傳 null 或空字串代表不更動
+     * @param fromLocation     交通項目專用: 起始點名稱
+     * @param fromAddress      交通項目專用: 起始地址; 有填就直接採用, 沒填但有起始點名稱的話後端會自動查詢帶入
+     * @param toLocation       交通項目專用: 目的地名稱; 有填會順便重新查詢目的地座標, 讓這個項目在地圖上的位置
+     *                         (沿用單一經緯度欄位) 對應到「抵達的目的地」
+     * @param toAddress        交通項目專用: 目的地地址; 有填就直接採用, 沒填但有目的地名稱的話後端會自動查詢帶入
+     * @param transportMethod  交通項目專用: 交通工具 (高鐵/飛機/遊覽車/渡輪/計程車...)
+     * @param commuteDuration  交通項目專用: 通勤時間 (自由文字, 例如「約1小時30分」)
+     */
+    public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
+                                  String timeSlot, String note, Boolean showOnMap,
+                                  String itemType, String fromLocation, String fromAddress,
+                                  String toLocation, String toAddress, String transportMethod, String commuteDuration) {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
@@ -695,6 +713,9 @@ public class ItineraryService {
         }
         if (showOnMap != null) {
             item.setShowOnMap(showOnMap);
+        }
+        if (itemType != null && !itemType.isBlank()) {
+            item.setItemType(itemType);
         }
 
         // 如果這個項目本來就連結公司 POI 資料庫, 停留時間也順便同步回 POI 本身,
@@ -726,8 +747,66 @@ public class ItineraryService {
             }
         }
 
+        // ---- 交通項目專屬欄位 (只有「交通」編輯表單才會傳這些參數進來, 一般景點/餐廳/住宿不會傳, 全部維持 null 不更動) ----
+        String geocodeCountry = null; // 需要自動查地址/座標時才去反查一次行程所在國家, 不需要就不多查
+        if (fromLocation != null) {
+            item.setFromLocation(fromLocation.isBlank() ? null : fromLocation.trim());
+        }
+        if (toLocation != null) {
+            item.setToLocation(toLocation.isBlank() ? null : toLocation.trim());
+        }
+        if (transportMethod != null) {
+            item.setTransportMethod(transportMethod.isBlank() ? null : transportMethod.trim());
+        }
+        if (commuteDuration != null) {
+            item.setCommuteDuration(commuteDuration.isBlank() ? null : commuteDuration.trim());
+        }
+
+        if (fromAddress != null && !fromAddress.isBlank()) {
+            item.setFromAddress(fromAddress.trim());
+        } else if (fromLocation != null && !fromLocation.isBlank()) {
+            // 起始地址沒填, 依起始點名稱自動查詢帶入
+            geocodeCountry = resolveCountryForItem(item);
+            String auto = googleMapsClient.resolveAddressForName(fromLocation.trim(), geocodeCountry);
+            if (auto != null) item.setFromAddress(auto);
+        }
+
+        if (toAddress != null && !toAddress.isBlank()) {
+            item.setToAddress(toAddress.trim());
+        } else if (toLocation != null && !toLocation.isBlank()) {
+            // 目的地地址沒填, 依目的地名稱自動查詢帶入
+            if (geocodeCountry == null) geocodeCountry = resolveCountryForItem(item);
+            String auto = googleMapsClient.resolveAddressForName(toLocation.trim(), geocodeCountry);
+            if (auto != null) item.setToAddress(auto);
+        }
+
+        // 交通項目在地圖上的位置沿用單一經緯度欄位, 代表「抵達的目的地」: 目的地名稱有異動就順便重新查一次座標,
+        // 這樣「顯示在地圖上」這個開關才會真的對應到有意義的位置, 不會空有勾選卻沒有座標可畫。
+        if (toLocation != null && !toLocation.isBlank()) {
+            if (geocodeCountry == null) geocodeCountry = resolveCountryForItem(item);
+            String query = String.join(" ", toLocation.trim(), geocodeCountry != null ? geocodeCountry : "").trim();
+            GoogleMapsClient.GeocodeResult geo = googleMapsClient.findPlace(query, geocodeCountry);
+            if (geo == null) geo = googleMapsClient.geocode(query, geocodeCountry);
+            if (geo != null) {
+                item.setLatitude(BigDecimal.valueOf(geo.latitude));
+                item.setLongitude(BigDecimal.valueOf(geo.longitude));
+            }
+        }
+
         itineraryItemDAO.save(item);
         recalculateRoutes(item.getIDID());
+    }
+
+    // 交通項目自動查詢地址/座標時, 找這個項目所屬行程的國家 (優先用項目自己判斷出的國家, 沒有才反查行程層級的國家),
+    // 限定搜尋範圍避免同名地點查到國外去
+    private String resolveCountryForItem(ItineraryItem item) {
+        if (item.getItemCountry() != null && !item.getItemCountry().isBlank()) return item.getItemCountry();
+        ItineraryDay day = itineraryDayDAO.findById(item.getIDID());
+        if (day != null) {
+            Itinerary itinerary = itineraryDAO.findById(day.getITID());
+            if (itinerary != null) return firstToken(itinerary.getCountry());
+        }
+        return null;
     }
 
     public void removeItem(int IIID, int IDID) {
@@ -910,10 +989,21 @@ public class ItineraryService {
      * 拖曳排序、加項目、刪項目, 剛剛手動選好的走路/開車就會被整天重算蓋掉。
      */
     private void recalculateRoutes(int IDID) {
-        recalculateRoutes(IDID, true);
+        recalculateRoutes(IDID, true, true);
     }
 
     private void recalculateRoutes(int IDID, boolean preserveSegmentOverrides) {
+        recalculateRoutes(IDID, preserveSegmentOverrides, true);
+    }
+
+    /**
+     * @param cascadeToNextDay 這一天的最後一項如果是住宿, 可能會被「下一天」當成預設出發點帶入
+     *                         (見 findCarryOverHotel), 所以算完這一天順便讓下一天也重新算一次路線,
+     *                         不然下一天要等自己也被異動過才會抓到最新的住宿銜接資訊。
+     *                         只會往前推「一天」, 不會整個行程都連鎖重算 (避免一次編輯觸發一長串重算,
+     *                         天數多的行程會變慢), 所以這裡固定傳 false 給遞迴呼叫、避免無限往後連鎖。
+     */
+    private void recalculateRoutes(int IDID, boolean preserveSegmentOverrides, boolean cascadeToNextDay) {
         java.util.Map<String, String> overrides = java.util.Map.of();
         if (preserveSegmentOverrides) {
             overrides = routeSegmentDAO.findByDay(IDID).stream()
@@ -926,10 +1016,65 @@ public class ItineraryService {
 
         routeSegmentDAO.deleteByDay(IDID);
         List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
+
+        // 如果前一天最後一項是住宿, 而且今天不是它, 把它當成「今天的出發地」虛擬接到清單最前面一起算路線,
+        // 這樣今天第一個真正的行程項目才會有「從昨晚住宿出發」的拉車距離/時間可以顯示, 感覺才連貫。
+        // 這個借來的項目本身還是屬於昨天, 不會被存進今天的 itinerary_item, 只是暫時借用它的座標算這一段路線。
+        ItineraryItem carryOverHotel = findCarryOverHotel(IDID);
+        List<ItineraryItem> itemsForRouting = items;
+        if (carryOverHotel != null && !items.isEmpty()) {
+            itemsForRouting = new java.util.ArrayList<>();
+            itemsForRouting.add(carryOverHotel);
+            itemsForRouting.addAll(items);
+        }
+
         ItineraryDay day = itineraryDayDAO.findById(IDID);
         // "auto" 代表不強制整天用同一種方式, 讓 RouteService 針對每一段依實際距離用 AI 判斷推薦
         String transportMode = day != null && day.getTransportMode() != null ? day.getTransportMode() : "auto";
-        routeService.calculateAndSaveSegments(IDID, items, transportMode, overrides);
+        routeService.calculateAndSaveSegments(IDID, itemsForRouting, transportMode, overrides);
+
+        if (cascadeToNextDay && day != null) {
+            itineraryDayDAO.findByItinerary(day.getITID()).stream()
+                    .filter(d -> d.getDayNumber() == day.getDayNumber() + 1)
+                    .findFirst()
+                    .ifPresent(nextDay -> recalculateRoutes(nextDay.getIDID(), true, false));
+        }
+    }
+
+    /**
+     * 找出「前一天最後一項住宿」, 用來當作今天的預設出發點 (見上面 recalculateRoutes 的說明, 以及看板地圖上
+     * 今天第一個點前面多出來的那個床 emoji 標記)。符合以下所有條件才會回傳, 其餘情況一律回傳 null (代表沒有可以帶入的):
+     *   1. 這不是行程的第一天 (day_number > 1), 且真的有找到「前一天」這個 ItineraryDay。
+     *   2. 前一天有排項目, 而且最後一項的類別是「住宿」。
+     *   3. 那個住宿項目有座標 (不然沒辦法算路線、也沒辦法畫在地圖上)。
+     *   4. 今天如果已經自己排了項目, 且第一項剛好就是「同一間」住宿 (同一個 PID, 或名稱完全相同) 的話,
+     *      代表使用者已經手動處理過這個銜接了, 不用再多此一舉虛擬帶入一次。
+     */
+    public ItineraryItem findCarryOverHotel(int IDID) {
+        ItineraryDay day = itineraryDayDAO.findById(IDID);
+        if (day == null || day.getDayNumber() <= 1) return null;
+
+        ItineraryDay prevDay = itineraryDayDAO.findByItinerary(day.getITID()).stream()
+                .filter(d -> d.getDayNumber() == day.getDayNumber() - 1)
+                .findFirst().orElse(null);
+        if (prevDay == null) return null;
+
+        List<ItineraryItem> prevItems = itineraryItemDAO.findByDay(prevDay.getIDID());
+        if (prevItems.isEmpty()) return null;
+
+        ItineraryItem lastOfPrevDay = prevItems.get(prevItems.size() - 1); // findByDay 已經照 sort_order 排好
+        if (!"hotel".equals(lastOfPrevDay.getItemType())) return null;
+        if (lastOfPrevDay.getLatitude() == null || lastOfPrevDay.getLongitude() == null) return null;
+
+        List<ItineraryItem> todayItems = itineraryItemDAO.findByDay(IDID);
+        if (!todayItems.isEmpty()) {
+            ItineraryItem firstToday = todayItems.get(0);
+            boolean samePoi = lastOfPrevDay.getPID() != null && lastOfPrevDay.getPID().equals(firstToday.getPID());
+            boolean sameName = lastOfPrevDay.getCustomName() != null
+                    && lastOfPrevDay.getCustomName().equals(firstToday.getCustomName());
+            if (samePoi || sameName) return null;
+        }
+        return lastOfPrevDay;
     }
 
     /**

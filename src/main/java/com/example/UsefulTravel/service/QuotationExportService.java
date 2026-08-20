@@ -116,7 +116,7 @@ public class QuotationExportService {
     }
 
     private int writeLineTable(Sheet sheet, Styles styles, List<QuotationLine> lines, int r) {
-        String[] headers = {"項目", "類別", "單價", "數量", "淨成本", "同業價", "直售價"};
+        String[] headers = {"項目", "類別", "單價", "數量", "Net", "NNet", "基本報價", "同業價", "直售價"};
         Row headerRow = sheet.createRow(r++);
         for (int c = 0; c < headers.length; c++) setCell(headerRow, c, headers[c], styles.tableHeader);
 
@@ -126,27 +126,34 @@ public class QuotationExportService {
             return r;
         }
 
-        BigDecimal subtotalNet = BigDecimal.ZERO, subtotalTrade = BigDecimal.ZERO, subtotalRetail = BigDecimal.ZERO;
+        BigDecimal subtotalGross = BigDecimal.ZERO, subtotalNet = BigDecimal.ZERO, subtotalBasic = BigDecimal.ZERO,
+                subtotalTrade = BigDecimal.ZERO, subtotalRetail = BigDecimal.ZERO;
         for (QuotationLine line : lines) {
             Row row = sheet.createRow(r++);
             setCell(row, 0, line.getItemName(), styles.normal);
             setCell(row, 1, line.getCategory(), styles.normal);
             setNumericCell(row, 2, line.getUnitPrice(), styles.currency);
             setCell(row, 3, String.valueOf(line.getQuantity()), styles.normal);
-            setNumericCell(row, 4, line.getNetCost(), styles.currency);
-            setNumericCell(row, 5, line.getTradePrice(), styles.currency);
-            setNumericCell(row, 6, line.getRetailPrice(), styles.currency);
+            setNumericCell(row, 4, line.getGrossCost(), styles.currency);
+            setNumericCell(row, 5, line.getNetCost(), styles.currency);
+            setNumericCell(row, 6, line.getBasicPrice(), styles.currency);
+            setNumericCell(row, 7, line.getTradePrice(), styles.currency);
+            setNumericCell(row, 8, line.getRetailPrice(), styles.currency);
 
+            subtotalGross = subtotalGross.add(nz(line.getGrossCost()));
             subtotalNet = subtotalNet.add(nz(line.getNetCost()));
+            subtotalBasic = subtotalBasic.add(nz(line.getBasicPrice()));
             subtotalTrade = subtotalTrade.add(nz(line.getTradePrice()));
             subtotalRetail = subtotalRetail.add(nz(line.getRetailPrice()));
         }
 
         Row subtotalRow = sheet.createRow(r++);
         setCell(subtotalRow, 0, "小計", styles.tableHeader);
-        setNumericCell(subtotalRow, 4, subtotalNet, styles.currencyBold);
-        setNumericCell(subtotalRow, 5, subtotalTrade, styles.currencyBold);
-        setNumericCell(subtotalRow, 6, subtotalRetail, styles.currencyBold);
+        setNumericCell(subtotalRow, 4, subtotalGross, styles.currencyBold);
+        setNumericCell(subtotalRow, 5, subtotalNet, styles.currencyBold);
+        setNumericCell(subtotalRow, 6, subtotalBasic, styles.currencyBold);
+        setNumericCell(subtotalRow, 7, subtotalTrade, styles.currencyBold);
+        setNumericCell(subtotalRow, 8, subtotalRetail, styles.currencyBold);
         return r;
     }
 
@@ -183,7 +190,8 @@ public class QuotationExportService {
 
     private int writeTotals(Sheet sheet, Styles styles, Map<String, BigDecimal> totals, int r) {
         String[][] rows = {
-                {"netCost", "總淨成本"}, {"tradePrice", "總同業價"}, {"retailPrice", "總直售價"},
+                {"grossCost", "Net（總成本）"}, {"netCost", "NNet（總淨成本）"}, {"basicPrice", "基本報價"},
+                {"tradePrice", "總同業價"}, {"retailPrice", "總直售價"},
                 {"rebateAmount", "總退傭"}, {"profitTrade", "利潤（同業）"}, {"profitRetail", "利潤（直售）"}
         };
         for (String[] pair : rows) {

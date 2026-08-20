@@ -36,7 +36,7 @@ public class QuotationGroupTierDAOImpl implements QuotationGroupTierDAO {
     @Override
     public List<QuotationGroupTier> findByQuotation(int QID) {
         return em.createQuery(
-                        "SELECT t FROM QuotationGroupTier t WHERE t.QID = :qid ORDER BY t.sortOrder ASC, t.minQty ASC", QuotationGroupTier.class)
+                "SELECT t FROM QuotationGroupTier t WHERE t.QID = :qid ORDER BY t.sortOrder ASC, t.minQty ASC", QuotationGroupTier.class)
                 .setParameter("qid", QID)
                 .getResultList();
     }

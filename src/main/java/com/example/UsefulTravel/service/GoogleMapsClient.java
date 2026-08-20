@@ -53,9 +53,14 @@ public class GoogleMapsClient {
     public static class GeocodeResult {
         public final double latitude;
         public final double longitude;
+        public final String formattedAddress; // Google 回傳的完整地址文字, 查不到時為 null
         public GeocodeResult(double latitude, double longitude) {
+            this(latitude, longitude, null);
+        }
+        public GeocodeResult(double latitude, double longitude, String formattedAddress) {
             this.latitude = latitude;
             this.longitude = longitude;
+            this.formattedAddress = formattedAddress;
         }
     }
 
@@ -93,13 +98,29 @@ public class GoogleMapsClient {
             JsonNode root = objectMapper.readTree(response.body());
             if (!"OK".equals(root.path("status").asText())) return null;
 
-            JsonNode location = root.path("results").path(0).path("geometry").path("location");
+            JsonNode result = root.path("results").path(0);
+            JsonNode location = result.path("geometry").path("location");
             if (location.isMissingNode()) return null;
 
-            return new GeocodeResult(location.path("lat").asDouble(), location.path("lng").asDouble());
+            String formattedAddress = result.path("formatted_address").asText(null);
+            return new GeocodeResult(location.path("lat").asDouble(), location.path("lng").asDouble(), formattedAddress);
         } catch (Exception e) {
             return null; // 地理編碼失敗不影響主流程, 讓 POI 先留空經緯度就好
         }
+    }
+
+    /**
+     * 只需要地址文字時用這個 (例如「交通」項目的起始/目的地地址沒填, 依名稱自動查詢帶入):
+     * 優先用 Places API (對店名/景點名準確率較高), 查不到再退回一般地址查詢。
+     * 沒設定 API Key、名稱空白、或都查不到結果會回傳 null, 呼叫端要自己保留原本的空白值。
+     */
+    public String resolveAddressForName(String name, String countryName) {
+        if (!isConfigured() || name == null || name.isBlank()) return null;
+        GeocodeResult result = findPlace(name, countryName);
+        if (result == null || result.formattedAddress == null) {
+            result = geocode(name, countryName);
+        }
+        return result != null ? result.formattedAddress : null;
     }
 
     // 常見旅遊目的地國家名 → ISO 3166-1 alpha-2 代碼, 用於限定 Geocoding API 搜尋範圍
@@ -265,15 +286,34 @@ public class GoogleMapsClient {
      *              跟看板上互動地圖的路線一致。任何一段查不到路線就 fallback 成那一段的直線。
      */
     public String buildStaticMapUrl(List<double[]> points, List<String> modes, int width, int height) {
+        return buildStaticMapUrl(points, modes, null, width, height);
+    }
+
+    private static final String HOTEL_MARKER_COLOR = "0d9488"; // 住宿固定用這個顏色, 跟其他點區分 (不變)
+
+    /**
+     * @param itemTypes 每個點對應的項目類型 (attraction/meal/hotel/transport/...), 可傳 null 代表不特別上色
+     *                  (退回全部同一種預設顏色)。一般類型統一用原本的紅色標記; 住宿維持不變, 固定用青色、
+     *                  不編字母代號 (前端互動地圖上住宿是用床的 emoji 表示, 但 Google Static Maps API 的
+     *                  markers 參數只支援單一英數字當標籤, 沒辦法放 emoji, 所以靜態地圖改成「不放字母、用固定顏色」
+     *                  讓住宿仍然一眼可以跟其他點區分開來)。
+     */
+    public String buildStaticMapUrl(List<double[]> points, List<String> modes, List<String> itemTypes, int width, int height) {
         if (!isConfigured() || points.isEmpty()) return null;
 
         StringBuilder url = new StringBuilder("https://maps.googleapis.com/maps/api/staticmap?size=" + width + "x" + height
                 + "&maptype=roadmap");
 
-        // 每個點的標記 (A/B/C...), 每個 markers 參數的值要單獨做 URL 編碼 (裡面的 | 字元不編碼會是不合法網址)
+        // 每個點的標記, 每個 markers 參數的值要單獨做 URL 編碼 (裡面的 | 字元不編碼會是不合法網址)
         for (int i = 0; i < points.size(); i++) {
             double[] p = points.get(i);
-            String markerValue = "label:" + (char) ('A' + Math.min(i, 25)) + "|" + p[0] + "," + p[1];
+            String itemType = (itemTypes != null && itemTypes.size() > i) ? itemTypes.get(i) : null;
+            boolean isHotel = "hotel".equals(itemType);
+            String color = isHotel ? ("0x" + HOTEL_MARKER_COLOR) : "red"; // 一般類型統一用原本的紅色標記
+
+            String markerValue = "color:" + color
+                    + (isHotel ? "" : "|label:" + (char) ('A' + Math.min(i, 25))) // 住宿不編字母代號
+                    + "|" + p[0] + "," + p[1];
             url.append("&markers=").append(URLEncoder.encode(markerValue, StandardCharsets.UTF_8));
         }
 
@@ -338,7 +378,7 @@ public class GoogleMapsClient {
         try {
             String url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
                     + "?input=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
-                    + "&inputtype=textquery&fields=geometry,name"
+                    + "&inputtype=textquery&fields=geometry,name,formatted_address"
                     + "&language=zh-TW&key=" + apiKey;
 
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url))
@@ -349,10 +389,12 @@ public class GoogleMapsClient {
             JsonNode root = objectMapper.readTree(response.body());
             if (!"OK".equals(root.path("status").asText())) return null;
 
-            JsonNode location = root.path("candidates").path(0).path("geometry").path("location");
+            JsonNode candidate = root.path("candidates").path(0);
+            JsonNode location = candidate.path("geometry").path("location");
             if (location.isMissingNode()) return null;
 
-            return new GeocodeResult(location.path("lat").asDouble(), location.path("lng").asDouble());
+            String formattedAddress = candidate.path("formatted_address").asText(null);
+            return new GeocodeResult(location.path("lat").asDouble(), location.path("lng").asDouble(), formattedAddress);
         } catch (Exception e) {
             return null; // 找不到就讓呼叫端 fallback 到 geocode()
         }

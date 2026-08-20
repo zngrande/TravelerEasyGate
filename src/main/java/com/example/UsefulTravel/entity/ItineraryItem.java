@@ -57,6 +57,27 @@ public class ItineraryItem {
     @jakarta.persistence.Column(name = "show_on_map")
     private Boolean showOnMap = true; // 這個項目要不要顯示在地圖上 (可個別關掉, 不影響行程內容本身)
 
+    // ---- 以下為「交通」類型項目 (item_type = transport) 專用的欄位 ----
+    // 一般景點/餐廳/住宿只有單一地點, 但交通是「從A到B」, 所以另外存起始/目的地資訊,
+    // 跟原本的 latitude/longitude (借用來代表「目的地」座標, 方便沿用同一套地圖渲染邏輯) 分開管理。
+    @Column(name = "from_location")
+    private String fromLocation; // 起始點名稱
+
+    @Column(name = "from_address")
+    private String fromAddress; // 起始地址 (沒填的話後端會依起始點名稱自動查詢帶入)
+
+    @Column(name = "to_location")
+    private String toLocation; // 目的地名稱
+
+    @Column(name = "to_address")
+    private String toAddress; // 目的地地址 (沒填的話後端會依目的地名稱自動查詢帶入)
+
+    @Column(name = "transport_method")
+    private String transportMethod; // 交通工具 (例如: 高鐵/飛機/遊覽車/渡輪/計程車...)
+
+    @Column(name = "commute_duration")
+    private String commuteDuration; // 通勤時間 (自由文字, 例如「約1小時30分」)
+
     public ItineraryItem() {}
 
     public ItineraryItem(int IDID, Integer PID, String itemType, String customName, int sortOrder) {
@@ -114,4 +135,22 @@ public class ItineraryItem {
 
     public Boolean getShowOnMap() { return showOnMap; }
     public void setShowOnMap(Boolean showOnMap) { this.showOnMap = showOnMap; }
+
+    public String getFromLocation() { return fromLocation; }
+    public void setFromLocation(String fromLocation) { this.fromLocation = fromLocation; }
+
+    public String getFromAddress() { return fromAddress; }
+    public void setFromAddress(String fromAddress) { this.fromAddress = fromAddress; }
+
+    public String getToLocation() { return toLocation; }
+    public void setToLocation(String toLocation) { this.toLocation = toLocation; }
+
+    public String getToAddress() { return toAddress; }
+    public void setToAddress(String toAddress) { this.toAddress = toAddress; }
+
+    public String getTransportMethod() { return transportMethod; }
+    public void setTransportMethod(String transportMethod) { this.transportMethod = transportMethod; }
+
+    public String getCommuteDuration() { return commuteDuration; }
+    public void setCommuteDuration(String commuteDuration) { this.commuteDuration = commuteDuration; }
 }

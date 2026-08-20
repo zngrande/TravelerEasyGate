@@ -212,10 +212,10 @@ public class RouteService {
         return R * c;
     }
 
-    // AI 依直線距離初步推薦通勤方式 (使用者可手動覆寫)
+    // 依直線距離初步推薦通勤方式 (使用者可在看板上手動覆寫): 1公里以內預設走路, 超過就預設開車。
+    // 前端的交通方式下拉選單只有「走路/開車」兩個選項, 這裡直接對應成兩段式, 不再有中間的「大眾運輸」推薦值,
+    // 避免選單上找不到對應選項、瀏覽器自動落到第一個選項造成跟後端存的值對不起來。
     private String recommendMode(double distanceKm) {
-        if (distanceKm <= 1.2) return "walking";  // 約15分鐘內步行可達
-        if (distanceKm <= 3.0) return "transit";  // 中距離: 建議大眾運輸/計程車
-        return "driving";
+        return distanceKm <= 1.0 ? "walking" : "driving";
     }
 }

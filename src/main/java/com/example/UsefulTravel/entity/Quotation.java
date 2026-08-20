@@ -24,22 +24,39 @@ public class Quotation {
     @Column(name = "MSID")
     private Integer MSID;
 
-    // 加成規則的套用方式: "preset" = 套用 MSID 指到的已存規則 (預設) ; "custom" = 忽略 MSID,
-    // 改用下面三個 custom_*_formula 欄位 —— 這張報價單專屬的公式, 不會存進公司共用的規則庫。
-    @Column(name = "formula_mode")
-    private String formulaMode = "preset";
-
-    @Column(name = "custom_trade_formula", length = 500)
-    private String customTradeFormula;
-
-    @Column(name = "custom_retail_formula", length = 500)
-    private String customRetailFormula;
-
-    @Column(name = "custom_rebate_formula", length = 500)
-    private String customRebateFormula;
-
     @Column(name = "group_size")
     private int groupSize = 1;
+
+    // 完整鏈路 (需求文件最新版):
+    //   Net 總成本 (原始牌價, 單價×數量) → NNet 總淨成本 (扣 FOC/折讓/返利)
+    //     → 基本報價 (NNet + 基本利潤) → 總同業價 (基本報價 + 同業利潤) → 總直售價 (同業價 + 直售利潤)
+    // 每一層利潤都是每張報價單自己獨立設定, 建立新版本時會從同一行程上一版報價單帶入初始值, 之後各自獨立可調
+    // mode = PERCENT (依 % 數算, 乘上一層的金額) 或 AMOUNT (直接自填一個固定金額當作利潤)
+    @Column(name = "basic_markup_mode")
+    private String basicMarkupMode = "PERCENT";
+
+    @Column(name = "basic_markup_value")
+    private java.math.BigDecimal basicMarkupValue = java.math.BigDecimal.ZERO;
+
+    @Column(name = "trade_markup_mode")
+    private String tradeMarkupMode = "PERCENT";
+
+    @Column(name = "trade_markup_value")
+    private java.math.BigDecimal tradeMarkupValue = java.math.BigDecimal.ZERO;
+
+    @Column(name = "retail_markup_mode")
+    private String retailMarkupMode = "PERCENT";
+
+    @Column(name = "retail_markup_value")
+    private java.math.BigDecimal retailMarkupValue = java.math.BigDecimal.ZERO;
+
+    // 退傭: 原本掛在「加成規則」範本上, 現在改成每張報價單自己獨立填, 邏輯跟基本/同業/直售加成放在同一個地方調
+    // mode=PERCENT: 退傭金額 = 同業價 × rebatePct%; mode=AMOUNT: 退傭金額 = rebatePct 這個固定金額 (欄位名稱沿用, 當作數值用)
+    @Column(name = "rebate_mode")
+    private String rebateMode = "PERCENT";
+
+    @Column(name = "rebate_pct")
+    private java.math.BigDecimal rebatePct = java.math.BigDecimal.ZERO;
 
     @Column(name = "status")
     private String status = "draft"; // draft / locked / confirmed / expired
@@ -91,26 +108,41 @@ public class Quotation {
     public Integer getMSID() { return MSID; }
     public void setMSID(Integer MSID) { this.MSID = MSID; }
 
-    public String getFormulaMode() { return formulaMode; }
-    public void setFormulaMode(String formulaMode) { this.formulaMode = formulaMode; }
-
-    public String getCustomTradeFormula() { return customTradeFormula; }
-    public void setCustomTradeFormula(String customTradeFormula) { this.customTradeFormula = customTradeFormula; }
-
-    public String getCustomRetailFormula() { return customRetailFormula; }
-    public void setCustomRetailFormula(String customRetailFormula) { this.customRetailFormula = customRetailFormula; }
-
-    public String getCustomRebateFormula() { return customRebateFormula; }
-    public void setCustomRebateFormula(String customRebateFormula) { this.customRebateFormula = customRebateFormula; }
-
-    // 這張報價單目前是不是「自填公式」模式 —— 給畫面顯示/邏輯判斷用
-    @Transient
-    public boolean isCustomFormulaMode() {
-        return "custom".equals(formulaMode);
-    }
-
     public int getGroupSize() { return groupSize; }
     public void setGroupSize(int groupSize) { this.groupSize = groupSize; }
+
+    public String getBasicMarkupMode() { return basicMarkupMode; }
+    public void setBasicMarkupMode(String basicMarkupMode) { this.basicMarkupMode = basicMarkupMode; }
+
+    public java.math.BigDecimal getBasicMarkupValue() { return basicMarkupValue; }
+    public void setBasicMarkupValue(java.math.BigDecimal basicMarkupValue) { this.basicMarkupValue = basicMarkupValue; }
+
+    public String getTradeMarkupMode() { return tradeMarkupMode; }
+    public void setTradeMarkupMode(String tradeMarkupMode) { this.tradeMarkupMode = tradeMarkupMode; }
+
+    public java.math.BigDecimal getTradeMarkupValue() { return tradeMarkupValue; }
+    public void setTradeMarkupValue(java.math.BigDecimal tradeMarkupValue) { this.tradeMarkupValue = tradeMarkupValue; }
+
+    public String getRetailMarkupMode() { return retailMarkupMode; }
+    public void setRetailMarkupMode(String retailMarkupMode) { this.retailMarkupMode = retailMarkupMode; }
+
+    public java.math.BigDecimal getRetailMarkupValue() { return retailMarkupValue; }
+    public void setRetailMarkupValue(java.math.BigDecimal retailMarkupValue) { this.retailMarkupValue = retailMarkupValue; }
+
+    public String getRebateMode() { return rebateMode; }
+    public void setRebateMode(String rebateMode) { this.rebateMode = rebateMode; }
+
+    public java.math.BigDecimal getRebatePct() { return rebatePct; }
+    public void setRebatePct(java.math.BigDecimal rebatePct) { this.rebatePct = rebatePct; }
+
+    @Transient
+    public boolean isBasicMarkupAmountMode() { return "AMOUNT".equals(basicMarkupMode); }
+
+    @Transient
+    public boolean isTradeMarkupAmountMode() { return "AMOUNT".equals(tradeMarkupMode); }
+
+    @Transient
+    public boolean isRetailMarkupAmountMode() { return "AMOUNT".equals(retailMarkupMode); }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

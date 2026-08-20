@@ -259,7 +259,8 @@ public class ItineraryController {
         return itineraryService.addCustomItem(IDID, itemType, rawName, stayDurationMin, locationHint);
     }
 
-    // POST /itinerary/day/{IDID}/items/{IIID}/edit → 編輯看板上已存在的項目 (名稱/停留時間/時段/備註/地圖顯示/重新定位)
+    // POST /itinerary/day/{IDID}/items/{IIID}/edit → 編輯看板上已存在的項目
+    // (名稱/停留時間/時段/備註/地圖顯示/重新定位/更換類別, 以及交通類別專用的起始點/起始地址/目的地/目的地地址/交通工具/通勤時間)
     @PostMapping("/day/{IDID}/items/{IIID}/edit")
     @ResponseBody
     public void editItem(@PathVariable int IIID,
@@ -268,8 +269,16 @@ public class ItineraryController {
                          @RequestParam(required = false) String locationHint,
                          @RequestParam(required = false) String timeSlot,
                          @RequestParam(required = false) String note,
-                         @RequestParam(required = false) Boolean showOnMap) {
-        itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap);
+                         @RequestParam(required = false) Boolean showOnMap,
+                         @RequestParam(required = false) String itemType,
+                         @RequestParam(required = false) String fromLocation,
+                         @RequestParam(required = false) String fromAddress,
+                         @RequestParam(required = false) String toLocation,
+                         @RequestParam(required = false) String toAddress,
+                         @RequestParam(required = false) String transportMethod,
+                         @RequestParam(required = false) String commuteDuration) {
+        itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
+                itemType, fromLocation, fromAddress, toLocation, toAddress, transportMethod, commuteDuration);
     }
 
     // POST /itinerary/day/{IDID}/auto-arrange → 自動整理這一天 (預設: 餐廳/住宿排到最後面)
@@ -318,6 +327,14 @@ public class ItineraryController {
         return itineraryService.getRoutes(IDID);
     }
 
+    // GET /itinerary/day/{IDID}/carry-over-hotel → 前一天最後一項如果是住宿, 回傳它 (前端拿來當「今天的預設出發點」
+    // 顯示在項目清單最前面 + 地圖上的第一個點), 不符合條件 (第一天/前一天沒排住宿/今天已經自己排了同一間) 就回傳 null
+    @GetMapping("/day/{IDID}/carry-over-hotel")
+    @ResponseBody
+    public ItineraryItem getCarryOverHotel(@PathVariable int IDID) {
+        return itineraryService.findCarryOverHotel(IDID);
+    }
+
     // GET /itinerary/day/{IDID}/map → 取得這一天所有已定位項目的座標, 給看板畫地圖 / 匯出靜態地圖圖片用
     @GetMapping("/day/{IDID}/map")
     @ResponseBody
@@ -327,6 +344,34 @@ public class ItineraryController {
         List<Map<String, Object>> points = new ArrayList<>();
         List<double[]> coords = new ArrayList<>();
         List<String> modes = new ArrayList<>();
+        List<String> itemTypes = new ArrayList<>(); // 給前端/靜態地圖依項目類型上不同顏色、住宿用床的 emoji 標示用
+
+        // 前一天最後一項如果是住宿, 補在地圖第一個點 (見 findCarryOverHotel 說明); 這個點本身還是屬於昨天,
+        // 不算今天的行程項目, 純粹是為了讓地圖 (跟靜態大圖) 從昨晚住的飯店開始畫, 感覺比較連貫。
+        ItineraryItem carryOverHotel = itineraryService.findCarryOverHotel(IDID);
+        if (carryOverHotel != null && !Boolean.FALSE.equals(carryOverHotel.getShowOnMap())
+                && carryOverHotel.getLatitude() != null && carryOverHotel.getLongitude() != null) {
+            double lat = carryOverHotel.getLatitude().doubleValue();
+            double lng = carryOverHotel.getLongitude().doubleValue();
+
+            Map<String, Object> hotelPoint = new HashMap<>();
+            hotelPoint.put("iiid", carryOverHotel.getIIID());
+            hotelPoint.put("lat", lat);
+            hotelPoint.put("lng", lng);
+            hotelPoint.put("name", carryOverHotel.getCustomName());
+            hotelPoint.put("itemType", "hotel");
+            String mode = routes.stream()
+                    .filter(r -> r.getFromItemId() == carryOverHotel.getIIID())
+                    .findFirst()
+                    .map(com.example.UsefulTravel.entity.RouteSegment::getTransportMode)
+                    .orElse("driving");
+            hotelPoint.put("mode", mode);
+
+            points.add(hotelPoint);
+            coords.add(new double[]{lat, lng});
+            modes.add(mode);
+            itemTypes.add("hotel");
+        }
 
         for (ItineraryItem item : items) {
             if (Boolean.FALSE.equals(item.getShowOnMap())) continue; // 這個項目關閉了「顯示在地圖上」
@@ -345,9 +390,11 @@ public class ItineraryController {
             }
 
             Map<String, Object> point = new HashMap<>();
+            point.put("iiid", item.getIIID());
             point.put("lat", lat);
             point.put("lng", lng);
             point.put("name", item.getCustomName());
+            point.put("itemType", item.getItemType());
 
             // 找出「這個點 → 下一個點」這段路段的通勤方式, 讓前端用 DirectionsService 畫路線、靜態地圖大圖時模式一致
             String mode = routes.stream()
@@ -360,12 +407,13 @@ public class ItineraryController {
             points.add(point);
             coords.add(new double[]{lat, lng});
             modes.add(mode);
+            itemTypes.add(item.getItemType());
         }
 
         Map<String, Object> result = new HashMap<>();
         result.put("points", points);
         result.put("configured", googleMapsClient.isConfigured());
-        result.put("staticMapUrl", googleMapsClient.buildStaticMapUrl(coords, modes, 600, 400));
+        result.put("staticMapUrl", googleMapsClient.buildStaticMapUrl(coords, modes, itemTypes, 600, 400));
         return result;
     }
 

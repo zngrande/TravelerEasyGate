@@ -59,14 +59,20 @@ public class QuotationLine {
     private boolean refundable = true;
 
     // ---- 以下皆為計算引擎產出的凍結快照 (台幣) ----
+    @Column(name = "gross_cost")
+    private BigDecimal grossCost = BigDecimal.ZERO;    // Net 總成本: 原始牌價金額 (單價×數量, 完全沒調整過, 還沒扣 FOC)
+
     @Column(name = "net_cost")
-    private BigDecimal netCost = BigDecimal.ZERO;      // 淨成本 (已扣 FOC)
+    private BigDecimal netCost = BigDecimal.ZERO;      // NNet 總淨成本: 扣掉 FOC/折讓/返利後, 真正掏出來的最終進貨成本
+
+    @Column(name = "basic_price")
+    private BigDecimal basicPrice = BigDecimal.ZERO;   // 基本報價: 以 NNet 為基準, 加上預期的基本利潤
 
     @Column(name = "trade_price")
-    private BigDecimal tradePrice = BigDecimal.ZERO;   // 同業價
+    private BigDecimal tradePrice = BigDecimal.ZERO;   // 同業價 = 基本報價 + 同業預留利潤 (賣給同業的批發價)
 
     @Column(name = "retail_price")
-    private BigDecimal retailPrice = BigDecimal.ZERO;  // 直售價
+    private BigDecimal retailPrice = BigDecimal.ZERO;  // 直售價 = 同業價 + 直售附加利潤 (賣給終端消費者)
 
     @Column(name = "rebate_amount")
     private BigDecimal rebateAmount = BigDecimal.ZERO; // 退傭金額
@@ -136,8 +142,14 @@ public class QuotationLine {
     public boolean isRefundable() { return refundable; }
     public void setRefundable(boolean refundable) { this.refundable = refundable; }
 
+    public BigDecimal getGrossCost() { return grossCost; }
+    public void setGrossCost(BigDecimal grossCost) { this.grossCost = grossCost; }
+
     public BigDecimal getNetCost() { return netCost; }
     public void setNetCost(BigDecimal netCost) { this.netCost = netCost; }
+
+    public BigDecimal getBasicPrice() { return basicPrice; }
+    public void setBasicPrice(BigDecimal basicPrice) { this.basicPrice = basicPrice; }
 
     public BigDecimal getTradePrice() { return tradePrice; }
     public void setTradePrice(BigDecimal tradePrice) { this.tradePrice = tradePrice; }

@@ -57,6 +57,12 @@
         .summary-row .value { font-weight: 700; }
         .empty-state { padding: 20px; text-align: center; color: var(--text-gray); font-size: 13px; }
         .readonly-banner { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 16px; }
+
+        /* 局部更新時的過場效果, 避免整塊內容瞬間跳動 */
+        #pageContent { opacity: 1; transition: opacity .16s ease; }
+        #pageContent.is-busy { opacity: .55; pointer-events: none; }
+        #pageContent.is-entering { opacity: 0; }
+        ::view-transition-old(page-content), ::view-transition-new(page-content) { animation-duration: .18s; }
     </style>
 </head>
 <body>
@@ -64,7 +70,7 @@
 <aside th:replace="~{fragments/sidebar :: sidebar(active='itinerary', userName=${session.name})}"></aside>
 
 <main class="main-content">
-<div id="pageContent" th:fragment="pageContent" th:attr="data-fragment-url=@{'/quotation/' + ${quotation.QID} + '/quick-edit/fragment'}">
+<div id="pageContent" th:fragment="pageContent" th:attr="data-fragment-url=@{'/quotation/' + ${quotation.QID} + '/quick-edit/fragment'}" style="view-transition-name: page-content;">
     <div class="page-header">
         <div>
             <div class="page-title">
@@ -165,40 +171,86 @@
 
 <script>
     (function () {
+        let isBusy = false; // 防止操作進行中又觸發下一次送出, 造成畫面互相搶跑
+
         document.addEventListener('submit', async function (e) {
             const form = e.target;
             if (!form.closest('#pageContent')) return;
             if (form.dataset.fullRedirect === 'true') return;
+            if (isBusy) return;
 
             e.preventDefault();
             if (form.dataset.confirm && !confirm(form.dataset.confirm)) return;
 
+            isBusy = true;
+            setPageBusy(true);
+
+            // 立即給按下的按鈕一個「處理中」的視覺回饋, 不用等整段內容換完才有反應
+            const submitBtn = form.querySelector('button[type="submit"]');
+            let restoreBtn = null;
+            if (submitBtn) {
+                const originalHtml = submitBtn.innerHTML;
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 處理中…';
+                restoreBtn = () => { submitBtn.disabled = false; submitBtn.innerHTML = originalHtml; };
+            }
+
             const formData = new FormData(form);
+            let ok = true;
             try {
                 const res = await fetch(form.action, { method: 'POST', body: formData });
                 if (!res.ok) {
+                    ok = false;
                     alert('操作失敗，畫面重新整理後會顯示目前實際狀態，請確認一下。');
                 }
             } catch (err) {
+                ok = false;
                 alert('連線失敗：' + err.message);
             }
+
             await refreshPageContent();
+
+            if (!ok && restoreBtn) restoreBtn();
+
+            isBusy = false;
+            setPageBusy(false);
         });
+
+        function setPageBusy(busy) {
+            const current = document.getElementById('pageContent');
+            if (current) current.classList.toggle('is-busy', busy);
+        }
 
         async function refreshPageContent() {
             const current = document.getElementById('pageContent');
             if (!current) return;
+            const scrollY = window.scrollY; // 換內容時保住捲動位置, 避免畫面跳回頂端
+
+            let html;
             try {
                 const res = await fetch(current.dataset.fragmentUrl);
-                const html = await res.text();
-                const wrapper = document.createElement('div');
-                wrapper.innerHTML = html;
-                const newContent = wrapper.querySelector('#pageContent');
-                if (newContent) {
-                    document.getElementById('pageContent').replaceWith(newContent);
-                }
+                html = await res.text();
             } catch (err) {
                 console.error('重新整理報價內容失敗', err);
+                return;
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = html;
+            const newContent = wrapper.querySelector('#pageContent');
+            if (!newContent) return;
+
+            const swap = () => {
+                newContent.classList.add('is-entering');
+                document.getElementById('pageContent').replaceWith(newContent);
+                window.scrollTo(0, scrollY);
+                requestAnimationFrame(() => requestAnimationFrame(() => newContent.classList.remove('is-entering')));
+            };
+
+            if (document.startViewTransition) {
+                document.startViewTransition(swap);
+            } else {
+                swap();
             }
         }
     })();
