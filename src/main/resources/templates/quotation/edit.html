@@ -138,29 +138,83 @@
 
         <div class="expired-banner" th:if="${quotationError}" th:text="${quotationError}"></div>
 
-        <!-- 團體人數 / 加成規則設定 -->
+        <!-- 團體人數 / 計算公式設定 -->
         <div class="card">
             <div class="card-header"><i class="fa-solid fa-sliders" style="color: var(--primary-blue);"></i> 報價基礎設定</div>
-            <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/settings'}" class="settings-row">
+            <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/settings'}" class="settings-row" id="settingsForm">
                 <div class="form-group">
                     <label class="form-label">團體人數（影響 FOC 折抵計算）</label>
                     <input type="number" name="groupSize" class="form-control" min="1" th:value="${quotation.groupSize}" th:disabled="${!canEdit}" required />
                 </div>
-                <div class="form-group">
-                    <label class="form-label">加成規則</label>
+
+                <div class="form-group" style="flex-basis:100%;order:1;">
+                    <label class="form-label">同業價／直售價／退傭金額的算法</label>
+                    <div style="display:flex;gap:18px;">
+                        <label style="font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                            <input type="radio" name="formulaMode" value="preset" onchange="toggleFormulaMode(this)"
+                                   th:checked="${!quotation.customFormulaMode}" th:disabled="${!canEdit}" /> 選擇已存的公式規則
+                        </label>
+                        <label style="font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                            <input type="radio" name="formulaMode" value="custom" onchange="toggleFormulaMode(this)"
+                                   th:checked="${quotation.customFormulaMode}" th:disabled="${!canEdit}" /> 自填公式（只套用在這張報價單）
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group" id="presetFormulaBlock" style="order:2;" th:style="${quotation.customFormulaMode} ? 'display:none;order:2;' : 'order:2;'">
+                    <label class="form-label">套用的公式規則</label>
                     <select name="marginSettingId" class="form-control" th:disabled="${!canEdit}">
                         <option value="">（不套用）</option>
                         <option th:each="m : ${marginSettings}" th:value="${m.MSID}"
                                 th:selected="${quotation.MSID != null and quotation.MSID == m.MSID}"
-                                th:text="${m.name} + '（同業+' + ${m.tradeMarkupPct} + '% / 直售+' + ${m.retailMarkupPct} + '% / 退傭' + ${m.rebatePct} + '%）'"></option>
+                                th:text="${m.summary}"></option>
                     </select>
+                    <div th:if="${marginSettings.isEmpty()}" style="font-size:12px;color:var(--amber);margin-top:6px;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> 尚未設定任何規則，
+                        <a th:href="@{/margin-setting}" style="color:var(--primary-blue);text-decoration:underline;">先去建立一組</a>
+                    </div>
                 </div>
-                <div class="form-group">
+
+                <div id="customFormulaBlock" style="flex-basis:100%;order:2;display:none;" th:style="${quotation.customFormulaMode} ? 'flex-basis:100%;order:2;display:block;' : 'flex-basis:100%;order:2;display:none;'">
+                    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                        <span style="font-size:12px;color:var(--text-gray);align-self:center;">插入變數（插到最後點過的欄位）：</span>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken('{NET_COST}')">淨成本</button>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken('{GROUP_SIZE}')">團體人數</button>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken('{TRADE_PRICE}')" title="只能用在②③, ①用了會算不出來">同業價</button>
+                        <span style="font-size:12px;color:var(--text-gray);align-self:center;margin-left:6px;">運算子：</span>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken('+')">+</button>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken('-')">-</button>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken('*')">×</button>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken('/')">÷</button>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken('(')">(</button>
+                        <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="insertFormulaToken(')')">)</button>
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label class="form-label">① 同業價公式</label>
+                        <input type="text" id="customTradeInput" name="customTradeFormula" class="form-control" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"
+                               placeholder="例：{NET_COST} * 1.15 + 2000" th:value="${quotation.customTradeFormula}" th:disabled="${!canEdit}"
+                               onfocus="lastFormulaInputId='customTradeInput'" />
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label class="form-label">② 直售價公式（留空＝同淨成本）</label>
+                        <input type="text" id="customRetailInput" name="customRetailFormula" class="form-control" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"
+                               placeholder="例：{TRADE_PRICE} * 1.1" th:value="${quotation.customRetailFormula}" th:disabled="${!canEdit}"
+                               onfocus="lastFormulaInputId='customRetailInput'" />
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label">③ 退傭金額公式（留空＝0）</label>
+                        <input type="text" id="customRebateInput" name="customRebateFormula" class="form-control" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"
+                               placeholder="例：{TRADE_PRICE} * 0.08" th:value="${quotation.customRebateFormula}" th:disabled="${!canEdit}"
+                               onfocus="lastFormulaInputId='customRebateInput'" />
+                    </div>
+                </div>
+
+                <div class="form-group" style="order:3;">
                     <label class="form-label">有效期限（選填）</label>
                     <input type="date" name="expiresAt" class="form-control" th:disabled="${!canEdit}"
                            th:value="${quotation.expiresAt != null} ? ${#temporals.format(quotation.expiresAt, 'yyyy-MM-dd')} : ''" />
                 </div>
-                <button type="submit" class="btn btn-primary" th:disabled="${!canEdit}"><i class="fa-solid fa-rotate"></i> 儲存並重新計算</button>
+                <button type="submit" class="btn btn-primary" style="order:4;" th:disabled="${!canEdit}"><i class="fa-solid fa-rotate"></i> 儲存並重新計算</button>
             </form>
         </div>
 
@@ -472,6 +526,41 @@
 </main>
 
 <script>
+    // ---- 計算公式套用方式 (選公式規則 / 自填公式) ----
+    // 這幾個是全域函式 (不放進下面的 IIFE)，因為 #pageContent 每次 AJAX 局部刷新後整個 DOM 會被換掉，
+    // 但這段 <script> 本身在 pageContent 的 fragment 範圍之外，不會被換掉，所以全域函式可以一直沿用。
+    var lastFormulaInputId = 'customTradeInput';
+
+    function toggleFormulaMode(radio) {
+        var preset = document.getElementById('presetFormulaBlock');
+        var custom = document.getElementById('customFormulaBlock');
+        if (!preset || !custom) return;
+        if (radio.value === 'custom') {
+            preset.style.display = 'none';
+            custom.style.display = 'block';
+        } else {
+            preset.style.display = '';
+            custom.style.display = 'none';
+        }
+    }
+
+    function insertFormulaToken(token) {
+        var el = document.getElementById(lastFormulaInputId);
+        if (!el) return;
+        var start = el.selectionStart != null ? el.selectionStart : el.value.length;
+        var end = el.selectionEnd != null ? el.selectionEnd : el.value.length;
+        var before = el.value.slice(0, start);
+        var after = el.value.slice(end);
+        var insertText = token;
+        // 運算子前後留個空白比較好讀, 變數 {..} 前面留空白、後面不用 (常常後面接的是運算子)
+        var needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
+        if (needsLeadingSpace) insertText = ' ' + insertText;
+        el.value = before + insertText + after;
+        el.focus();
+        var pos = (before + insertText).length;
+        el.setSelectionRange(pos, pos);
+    }
+
     (function () {
         let isBusy = false; // 防止操作進行中又觸發下一次送出, 造成畫面互相搶跑
 

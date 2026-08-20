@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>加成規則管理 - TRAVELER EASY GATE</title>
+    <title>計算公式管理 - TRAVELER EASY GATE</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
             --primary-blue: #2563eb; --primary-purple: #8b5cf6; --bg-gray: #f8fafc;
             --text-dark: #1e293b; --text-gray: #64748b; --border-color: #e2e8f0; --sidebar-width: 200px;
+            --teal: #0f9d8c; --teal-deep: #0b7a6d;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; -webkit-font-smoothing: antialiased; }
@@ -18,31 +19,57 @@
         .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
         .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
         .page-subtitle { font-size: 13.5px; color: var(--text-gray); margin-top: 4px; }
-        .grid-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: flex-start; }
-        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-        .card-header { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-        .table-container { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
-        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
-        th { background: #f8fafc; padding: 14px 16px; font-size: 13px; color: var(--text-gray); font-weight: 500; border-bottom: 1px solid var(--border-color); }
-        td { padding: 14px 16px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+        .card { background: #fff; border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 24px; }
+        .card-header { font-size: 16px; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+        .card-desc { font-size: 13px; color: var(--text-gray); margin-bottom: 16px; }
+
+        .table-container { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13.5px; }
+        th { background: #f8fafc; padding: 12px 14px; font-size: 12.5px; color: var(--text-gray); font-weight: 600; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+        td { padding: 12px 14px; border-bottom: 1px solid var(--border-color); vertical-align: top; }
         tr:last-child td { border-bottom: none; }
         .default-badge { font-size: 11px; font-weight: 700; color: #059669; background: #ecfdf5; padding: 3px 8px; border-radius: 6px; margin-left: 8px; }
+        .legacy-badge { font-size: 11px; font-weight: 700; color: var(--text-gray); background: #f1f5f9; padding: 3px 8px; border-radius: 6px; margin-left: 8px; }
+        .formula-pill { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: #eff6ff; color: #1d4ed8; border: 1px solid #dbeafe; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+        .formula-pill.empty { background: #f8fafc; color: var(--text-gray); border-color: var(--border-color); font-family: inherit; font-style: italic; }
+        .empty-state { padding: 40px 20px; text-align: center; color: var(--text-gray); font-size: 14px; }
+        .alert-error { background: #fef2f2; color: #991b1b; padding: 12px 18px; border-radius: 10px; margin-bottom: 20px; font-size: 13.5px; border: 1px solid #fecaca; display: flex; align-items: center; gap: 8px; }
+        .btn-icon-delete { background: none; border: none; cursor: pointer; color: var(--text-gray); font-size: 14px; padding: 4px 6px; border-radius: 6px; }
+        .btn-icon-delete:hover { color: #dc2626; background: #fef2f2; }
+
+        /* -------- 公式建構器 -------- */
+        .palette { background: linear-gradient(180deg, #fff, #f5f7ff 220%); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px 18px 20px; margin-bottom: 20px; }
+        .palette-label { font-size: 12px; font-weight: 700; color: var(--text-gray); margin: 0 0 10px 2px; }
+        .palette-label:not(:first-child) { margin-top: 14px; }
+        .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(155deg, var(--primary-blue), #1d4ed8); cursor: grab; user-select: none; border: none; box-shadow: 0 2px 6px rgba(37,99,235,.28); }
+        .chip:active { cursor: grabbing; }
+        .chip.op { background: linear-gradient(155deg, var(--teal), var(--teal-deep)); font-size: 15px; padding: 7px 14px; min-width: 36px; justify-content: center; }
+
+        .formula-field { margin-bottom: 16px; }
+        .formula-field:last-child { margin-bottom: 0; }
+        .formula-field-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+        .formula-field-label .name { font-size: 13px; font-weight: 700; color: #334155; }
+        .formula-field-label .optional { font-size: 11.5px; color: var(--text-gray); }
+        .dropzone { min-height: 46px; border: 1.5px dashed var(--border-color); border-radius: 10px; padding: 9px 11px; font-size: 14px; line-height: 1.8; outline: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; background: #fff; }
+        .dropzone:focus { border-color: var(--primary-blue); background: #fbfcff; }
+        .dropzone.drag-over { border-color: var(--teal); background: #f2fbfa; }
+        .dropzone:empty::before { content: attr(data-placeholder); color: #a9adc4; font-weight: 500; font-size: 13px; }
+        .token { display: inline-flex; align-items: center; gap: 5px; background: #eef2ff; color: #3730a3; border: 1px solid #dfe3fb; padding: 3px 5px 3px 9px; border-radius: 7px; font-weight: 700; font-size: 13px; white-space: nowrap; }
+        .token .x { cursor: pointer; color: #9aa0c2; font-weight: 700; font-size: 12px; border-radius: 5px; width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; }
+        .token .x:hover { background: #dde1f4; color: #3730a3; }
+        .formula-preview { margin-top: 6px; font-size: 12.5px; color: var(--text-gray); display: flex; align-items: center; gap: 6px; min-height: 16px; }
+        .formula-preview .result { font-weight: 700; color: var(--teal-deep); }
+        .formula-preview .result.err { color: #dc2626; }
+
         .form-group { margin-bottom: 16px; }
         .form-label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
         .form-control { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; background: #fff; }
         .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
-        .btn-submit { width: 100%; padding: 11px; background: var(--primary-blue); color: #fff; border: none; border-radius: 8px; font-size: 14.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; }
+        .btn-submit { padding: 11px 22px; background: var(--primary-blue); color: #fff; border: none; border-radius: 8px; font-size: 14.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; }
         .btn-submit:hover { background: #1d4ed8; }
         .checkbox-row { display: flex; align-items: center; gap: 8px; }
-        .empty-state { padding: 40px 20px; text-align: center; color: var(--text-gray); font-size: 14px; }
-        .formula-note { font-size: 12.5px; color: var(--text-gray); background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-top: 16px; line-height: 1.7; }
-        .alert-error {
-            background: #fef2f2; color: #991b1b; padding: 12px 18px; border-radius: 10px;
-            margin-bottom: 20px; font-size: 13.5px; border: 1px solid #fecaca;
-            display: flex; align-items: center; gap: 8px;
-        }
-        .btn-icon-delete { background: none; border: none; cursor: pointer; color: var(--text-gray); font-size: 14px; padding: 4px 6px; border-radius: 6px; }
-        .btn-icon-delete:hover { color: #dc2626; background: #fef2f2; }
+        .hint-box { font-size: 12.5px; color: var(--text-gray); background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; margin-top: 18px; line-height: 1.7; }
     </style>
 </head>
 <body>
@@ -52,90 +79,398 @@
 <main class="main-content">
     <div class="page-header">
         <div>
-            <div class="page-title"><i class="fa-solid fa-percent" style="color: var(--primary-blue);"></i> 加成規則管理</div>
-            <div class="page-subtitle">設定同業加成 / 直售加成 / 退傭比例，套用到報價單時會自動算出所有金額</div>
+            <div class="page-title"><i class="fa-solid fa-calculator" style="color: var(--primary-blue);"></i> 計算公式管理</div>
+            <div class="page-subtitle">把「淨成本」「團體人數」等價格變數拖進公式欄位，自己組出同業價／直售價／退傭金額的算法，每一組規則都可以套用不同同業對象</div>
         </div>
     </div>
 
-    <div class="grid-layout">
-        <div class="card">
-            <div class="card-header"><i class="fa-solid fa-list" style="color: var(--primary-blue);"></i> 現有規則</div>
+    <div th:if="${formError}" class="alert-error">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span th:text="${formError}"></span>
+    </div>
 
-            <div th:if="${deleteError}" class="alert-error">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-                <span th:text="${deleteError}"></span>
-            </div>
-
-            <div class="table-container" th:if="${!settings.isEmpty()}">
-                <table>
-                    <thead>
-                    <tr>
-                        <th>名稱</th>
-                        <th>同業加成%</th>
-                        <th>直售加成%</th>
-                        <th>退傭%</th>
-                        <th></th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <tr th:each="m : ${settings}">
-                        <td>
-                            <strong th:text="${m.name}"></strong>
-                            <span class="default-badge" th:if="${m.default}">預設</span>
-                        </td>
-                        <td th:text="${m.tradeMarkupPct} + '%'"></td>
-                        <td th:text="${m.retailMarkupPct} + '%'"></td>
-                        <td th:text="${m.rebatePct} + '%'"></td>
-                        <td>
-                            <form method="post" th:action="@{'/margin-setting/' + ${m.MSID} + '/delete'}"
-                                  onsubmit="return confirm('確定要刪除這組加成規則嗎？');">
-                                <button type="submit" class="btn-icon-delete" title="刪除"><i class="fa-solid fa-trash"></i></button>
-                            </form>
-                        </td>
-                    </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div th:if="${settings.isEmpty()}" class="empty-state">
-                還沒有設定任何加成規則，建立第一組規則後就能套用到報價單上。
-            </div>
-
-            <div class="formula-note">
-                <strong>計算公式：</strong><br/>
-                同業價 = 淨成本 ×（1 + 同業加成%）　｜　直售價 = 淨成本 ×（1 + 直售加成%）<br/>
-                退傭金額 = 同業價 × 退傭%　｜　利潤(直售) = 直售價 − 淨成本　｜　利潤(同業) = 同業價 − 淨成本 − 退傭金額
-            </div>
+    <div class="card">
+        <div class="card-header"><i class="fa-solid fa-list" style="color: var(--primary-blue);"></i> 現有規則</div>
+        <div th:if="${deleteError}" class="alert-error">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span th:text="${deleteError}"></span>
         </div>
 
-        <div class="card">
-            <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 新增規則</div>
-            <form method="post" th:action="@{/margin-setting/new}">
-                <div class="form-group">
-                    <label class="form-label">規則名稱</label>
-                    <input type="text" name="name" class="form-control" placeholder="例：一般團 / 高端客製團" required />
+        <div class="table-container" th:if="${!settings.isEmpty()}">
+            <table>
+                <thead>
+                <tr>
+                    <th>名稱</th>
+                    <th>同業價公式</th>
+                    <th>直售價公式</th>
+                    <th>退傭金額公式</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="m : ${settings}">
+                    <td>
+                        <strong th:text="${m.name}"></strong>
+                        <span class="default-badge" th:if="${m.default}">預設</span>
+                        <span class="legacy-badge" th:if="${!m.formulaMode}" title="這組規則還是舊制百分比算法">舊制%</span>
+                    </td>
+                    <td>
+                        <span class="formula-pill" th:if="${m.tradeFormula != null}" th:text="${m.tradeFormula}"></span>
+                        <span class="formula-pill empty" th:if="${m.tradeFormula == null}" th:text="'同業+' + ${m.tradeMarkupPct} + '%（舊制）'"></span>
+                    </td>
+                    <td>
+                        <span class="formula-pill" th:if="${m.retailFormula != null}" th:text="${m.retailFormula}"></span>
+                        <span class="formula-pill empty" th:if="${m.retailFormula == null}" th:text="'直售+' + ${m.retailMarkupPct} + '%（舊制）'"></span>
+                    </td>
+                    <td>
+                        <span class="formula-pill" th:if="${m.rebateFormula != null}" th:text="${m.rebateFormula}"></span>
+                        <span class="formula-pill empty" th:if="${m.rebateFormula == null}" th:text="'退傭' + ${m.rebatePct} + '%（舊制）'"></span>
+                    </td>
+                    <td>
+                        <form method="post" th:action="@{'/margin-setting/' + ${m.MSID} + '/delete'}"
+                              onsubmit="return confirm('確定要刪除這組計算公式規則嗎？');">
+                            <button type="submit" class="btn-icon-delete" title="刪除"><i class="fa-solid fa-trash"></i></button>
+                        </form>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div th:if="${settings.isEmpty()}" class="empty-state">
+            還沒有設定任何計算公式，往下建立第一組規則後就能套用到報價單上。
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 新增計算公式</div>
+        <div class="card-desc">把上方藍色的價格變數拖曳（或點一下）插入到下面選取中的公式欄位，插入後可以直接在欄位裡打運算子跟數字，例如「× 1.15 + 2000」。</div>
+
+        <div class="palette">
+            <div class="palette-label">價格變數 · 點擊或拖曳插入到目前選取的公式欄位</div>
+            <div class="chip-row" id="varChips"></div>
+            <div class="palette-label">運算子</div>
+            <div class="chip-row" id="opChips"></div>
+        </div>
+
+        <form id="formulaForm" method="post" th:action="@{/margin-setting/new}">
+            <div class="form-group">
+                <label class="form-label">規則名稱</label>
+                <input type="text" name="name" class="form-control" placeholder="例：A 同業（一般團） / B 同業（高端客製團）" required />
+            </div>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">① 同業價公式</span>
+                    <span class="optional">可用變數：淨成本、團體人數</span>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">同業加成%</label>
-                    <input type="number" step="0.01" name="tradeMarkupPct" class="form-control" placeholder="例：15" required />
+                <div class="dropzone" id="zone-trade" contenteditable="true" data-placeholder="例：淨成本 × 1.15 + 2000" data-zone-key="trade" tabindex="0"></div>
+                <div class="formula-preview"><span>試算（淨成本=100,000／20人）＝</span><span class="result" id="preview-trade">尚未輸入</span></div>
+            </div>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">② 直售價公式（選填）</span>
+                    <span class="optional">可用變數：淨成本、團體人數、同業價</span>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">直售加成%</label>
-                    <input type="number" step="0.01" name="retailMarkupPct" class="form-control" placeholder="例：25" required />
+                <div class="dropzone" id="zone-retail" contenteditable="true" data-placeholder="例：同業價 × 1.1" data-zone-key="retail" tabindex="0"></div>
+                <div class="formula-preview"><span>試算＝</span><span class="result" id="preview-retail">尚未輸入</span></div>
+            </div>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">③ 退傭金額公式（選填）</span>
+                    <span class="optional">可用變數：淨成本、團體人數、同業價</span>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">退傭%</label>
-                    <input type="number" step="0.01" name="rebatePct" class="form-control" placeholder="例：8" required />
-                </div>
-                <div class="form-group checkbox-row">
-                    <input type="checkbox" name="isDefault" id="isDefault" value="true" style="width:16px;height:16px;" />
-                    <label for="isDefault" style="font-size:13.5px;">設為預設規則（建立新報價單時自動套用）</label>
-                </div>
-                <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增規則</button>
-            </form>
+                <div class="dropzone" id="zone-rebate" contenteditable="true" data-placeholder="例：同業價 × 0.08" data-zone-key="rebate" tabindex="0"></div>
+                <div class="formula-preview"><span>試算＝</span><span class="result" id="preview-rebate">尚未輸入</span></div>
+            </div>
+
+            <div class="form-group checkbox-row" style="margin-top:18px;">
+                <input type="checkbox" name="isDefault" id="isDefault" value="true" style="width:16px;height:16px;" />
+                <label for="isDefault" style="font-size:13.5px;">設為預設規則（建立新報價單時自動套用）</label>
+            </div>
+
+            <input type="hidden" name="tradeFormula" id="input-trade" />
+            <input type="hidden" name="retailFormula" id="input-retail" />
+            <input type="hidden" name="rebateFormula" id="input-rebate" />
+
+            <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增規則</button>
+        </form>
+
+        <div class="hint-box">
+            <strong>套用方式：</strong> 建好的規則會出現在報價單「報價基礎設定」的公式選單裡，同業價 = ①的結果；直售價 = ②的結果（留空視為 0 加成，直接等於淨成本）；退傭金額 = ③的結果（留空視為 0）。每一家同業都可以建一組自己的規則，報價單也可以切到「自填公式」模式單獨改一次性的算法，不會動到這裡的規則庫。
         </div>
     </div>
 </main>
+
+<script>
+(function () {
+    // ---------- 變數 / 運算子定義 ----------
+    // varId 對應 QuotationService/FormulaEngine 的變數名稱 ({NET_COST} {GROUP_SIZE} {TRADE_PRICE})
+    var VARIABLES = [
+        { id: 'NET_COST', label: '淨成本', allowIn: ['trade', 'retail', 'rebate'] },
+        { id: 'GROUP_SIZE', label: '團體人數', allowIn: ['trade', 'retail', 'rebate'] },
+        { id: 'TRADE_PRICE', label: '同業價', allowIn: ['retail', 'rebate'] } // 由①算出來後才有值, 不能用在①自己
+    ];
+    var OPS = ['+', '−', '×', '÷', '(', ')'];
+    var ZONE_KEYS = ['trade', 'retail', 'rebate'];
+
+    var zones = {};
+    ZONE_KEYS.forEach(function (key) {
+        zones[key] = {
+            el: document.getElementById('zone-' + key),
+            preview: document.getElementById('preview-' + key),
+            input: document.getElementById('input-' + key)
+        };
+    });
+    var lastFocusedZone = 'trade';
+
+    // ---------- 畫面組裝: 變數 chips ----------
+    var varChipsEl = document.getElementById('varChips');
+    VARIABLES.forEach(function (v) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip';
+        chip.textContent = v.label;
+        chip.draggable = true;
+        chip.addEventListener('dragstart', function (e) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'var', id: v.id, label: v.label }));
+        });
+        chip.addEventListener('click', function () { insertVar(v); });
+        varChipsEl.appendChild(chip);
+    });
+
+    var opChipsEl = document.getElementById('opChips');
+    OPS.forEach(function (op) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip op';
+        chip.textContent = op;
+        chip.draggable = true;
+        chip.addEventListener('dragstart', function (e) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'op', value: op }));
+        });
+        chip.addEventListener('click', function () { insertText(op); });
+        opChipsEl.appendChild(chip);
+    });
+
+    // ---------- dropzone 事件 ----------
+    ZONE_KEYS.forEach(function (key) {
+        var zone = zones[key].el;
+        zone.addEventListener('focus', function () { lastFocusedZone = key; });
+        zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
+        zone.addEventListener('drop', function (e) {
+            e.preventDefault();
+            zone.classList.remove('drag-over');
+            lastFocusedZone = key;
+            var data;
+            try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
+            placeCaretFromPoint(zone, e.clientX, e.clientY);
+            if (data.type === 'var') {
+                var v = VARIABLES.find(function (x) { return x.id === data.id; });
+                if (v && v.allowIn.indexOf(key) === -1) { runAll(); return; } // 這個變數這一層不能用, 忽略
+                insertVarToken(zone, data.id, data.label);
+            } else {
+                insertTextAtCaret(zone, data.value);
+            }
+            runAll();
+        });
+        zone.addEventListener('input', runAll);
+        zone.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+    });
+
+    function insertVar(v) {
+        var key = lastFocusedZone;
+        if (v.allowIn.indexOf(key) === -1) {
+            alert('「' + v.label + '」不能用在這一層公式（這個階段還沒有這個值）');
+            return;
+        }
+        var zone = zones[key].el;
+        focusEnd(zone);
+        insertVarToken(zone, v.id, v.label);
+        runAll();
+    }
+
+    function insertText(text) {
+        var zone = zones[lastFocusedZone].el;
+        focusEnd(zone);
+        insertTextAtCaret(zone, text);
+        runAll();
+    }
+
+    function focusEnd(zone) {
+        zone.focus();
+        var range = document.createRange();
+        range.selectNodeContents(zone);
+        range.collapse(false);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function placeCaretFromPoint(zone, x, y) {
+        var range;
+        if (document.caretRangeFromPoint) {
+            range = document.caretRangeFromPoint(x, y);
+        } else if (document.caretPositionFromPoint) {
+            var pos = document.caretPositionFromPoint(x, y);
+            if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); }
+        }
+        if (range && zone.contains(range.startContainer)) {
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } else {
+            focusEnd(zone);
+        }
+    }
+
+    function insertVarToken(zone, varId, label) {
+        var token = document.createElement('span');
+        token.className = 'token';
+        token.contentEditable = 'false';
+        token.dataset.varId = varId;
+        var xSpan = document.createElement('span');
+        xSpan.className = 'x';
+        xSpan.title = '移除';
+        xSpan.textContent = '×';
+        xSpan.addEventListener('click', function () { token.remove(); runAll(); });
+        token.textContent = label;
+        token.appendChild(xSpan);
+        insertNodeAtCaret(zone, token);
+    }
+
+    function insertTextAtCaret(zone, text) {
+        var sel = window.getSelection();
+        if (!sel.rangeCount || !zone.contains(sel.anchorNode)) focusEnd(zone);
+        sel = window.getSelection();
+        var range = sel.getRangeAt(0);
+        range.deleteContents();
+        var node = document.createTextNode(text);
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.setEndAfter(node);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function insertNodeAtCaret(zone, node) {
+        var sel = window.getSelection();
+        if (!sel.rangeCount || !zone.contains(sel.anchorNode)) focusEnd(zone);
+        sel = window.getSelection();
+        var range = sel.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.setEndAfter(node);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    // ---------- 序列化 (dropzone -> {VAR_ID} 字串) + 純前端試算預覽 (跟 FormulaEngine 邏輯對應) ----------
+    function serialize(zone) {
+        var out = '';
+        zone.childNodes.forEach(function (n) {
+            if (n.nodeType === Node.TEXT_NODE) out += n.textContent;
+            else if (n.classList && n.classList.contains('token')) out += '{' + n.dataset.varId + '}';
+        });
+        return out.trim();
+    }
+
+    function evaluate(expr, sampleValues) {
+        var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷()]/g);
+        var stripped = expr.replace(/\s+/g, '');
+        if (!tokens || tokens.join('') !== stripped) {
+            if (expr === '') return { ok: false, empty: true };
+            return { ok: false, error: '格式錯誤' };
+        }
+        var i = 0;
+        function peek() { return tokens[i]; }
+        function next() { return tokens[i++]; }
+        function parseExpr() {
+            var v = parseTerm();
+            while (peek() === '+' || peek() === '-') { var op = next(); var r = parseTerm(); v = op === '+' ? v + r : v - r; }
+            return v;
+        }
+        function parseTerm() {
+            var v = parseFactor();
+            while (peek() === '×' || peek() === '÷') {
+                var op = next(); var r = parseFactor();
+                if (op === '×') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
+            }
+            return v;
+        }
+        function parseFactor() {
+            if (peek() === '(') { next(); var v = parseExpr(); if (peek() !== ')') throw new Error('括號未閉合'); next(); return v; }
+            if (peek() === '-') { next(); return -parseFactor(); }
+            var t = next();
+            if (t === undefined) throw new Error('運算式不完整');
+            if (t.charAt(0) === '{') {
+                var id = t.slice(1, -1);
+                var val = sampleValues[id];
+                if (val === undefined || val === null) throw new Error('這個階段還沒有「' + id + '」的值');
+                return val;
+            }
+            return parseFloat(t);
+        }
+        try {
+            var value = parseExpr();
+            if (i !== tokens.length) return { ok: false, error: '格式錯誤' };
+            return { ok: true, value: value };
+        } catch (err) {
+            return { ok: false, error: err.message || '格式錯誤' };
+        }
+    }
+
+    function fmt(n) { return Math.round(n).toLocaleString('zh-Hant-TW'); }
+
+    // 存進 hidden input (最後送到後端) 一律正規化成 ASCII 的 * / -，跟 FormulaEngine.java 的解析規則對齊；
+    // 畫面上的預覽計算 evaluate() 則直接吃原本的 ×÷− 符號, 兩邊各自處理互不影響。
+    function normalizeForSubmit(expr) {
+        return expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+    }
+
+    function runAll() {
+        var sample = { NET_COST: 100000, GROUP_SIZE: 20 };
+
+        var tradeExpr = serialize(zones.trade.el);
+        zones.trade.input.value = normalizeForSubmit(tradeExpr);
+        var tradeResult = evaluate(tradeExpr.replace(/−/g, '-'), sample);
+        renderPreview('trade', tradeResult, false);
+        if (tradeResult.ok) sample.TRADE_PRICE = tradeResult.value;
+
+        ['retail', 'rebate'].forEach(function (key) {
+            var expr = serialize(zones[key].el);
+            zones[key].input.value = normalizeForSubmit(expr);
+            var result = evaluate(expr.replace(/−/g, '-'), sample);
+            renderPreview(key, result, true);
+        });
+    }
+
+    function renderPreview(key, result, optional) {
+        var el = zones[key].preview;
+        if (result.empty) {
+            el.textContent = optional ? '留空＝0（等於淨成本 / 不退傭）' : '尚未輸入';
+            el.classList.remove('err');
+        } else if (!result.ok) {
+            el.textContent = result.error;
+            el.classList.add('err');
+        } else {
+            el.textContent = 'NT$ ' + fmt(result.value);
+            el.classList.remove('err');
+        }
+    }
+
+    runAll();
+
+    // 保險: 送出表單前再序列化一次, 避免使用者用滑鼠選字之類的方式弄亂了 input 沒同步到
+    document.getElementById('formulaForm').addEventListener('submit', function () {
+        runAll();
+    });
+})();
+</script>
 
 </body>
 </html>

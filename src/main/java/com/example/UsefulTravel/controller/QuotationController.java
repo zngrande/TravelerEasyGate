@@ -243,19 +243,26 @@ public class QuotationController {
         return null;
     }
 
-    // POST /quotation/{qid}/settings → 調整團體人數 / 套用的加成規則 (會觸發整張報價單重新計算)
+    // POST /quotation/{qid}/settings → 調整團體人數 / 套用的計算公式規則 (會觸發整張報價單重新計算)
+    // formulaMode: "preset" (預設, 選一組已存的公式規則) 或 "custom" (自填公式, 只給這張報價單用)
     @PostMapping("/quotation/{qid}/settings")
     public String updateSettings(@PathVariable("qid") int QID,
                                  @RequestParam int groupSize,
                                  @RequestParam(required = false) Integer marginSettingId,
+                                 @RequestParam(required = false, defaultValue = "preset") String formulaMode,
+                                 @RequestParam(required = false) String customTradeFormula,
+                                 @RequestParam(required = false) String customRetailFormula,
+                                 @RequestParam(required = false) String customRebateFormula,
                                  @RequestParam(required = false) String expiresAt,
                                  HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
 
-        // 團體人數/加成規則變動會連動重新計算所有明細, 交給 service 統一處理
-        quotationService.updateGroupSizeAndMargin(QID, groupSize, marginSettingId);
+        // 團體人數/公式規則變動會連動重新計算所有明細, 交給 service 統一處理
+        // (公式格式錯誤時 service 會丟 IllegalStateException, 這次儲存會失敗、不動原本的資料)
+        quotationService.updateGroupSizeAndMargin(QID, groupSize, marginSettingId, formulaMode,
+                customTradeFormula, customRetailFormula, customRebateFormula);
 
         // 有效期限只是單純寫回欄位, 不影響金額計算, 額外處理即可
         if (expiresAt != null && !expiresAt.isBlank()) {

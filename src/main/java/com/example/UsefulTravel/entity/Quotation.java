@@ -24,6 +24,20 @@ public class Quotation {
     @Column(name = "MSID")
     private Integer MSID;
 
+    // 加成規則的套用方式: "preset" = 套用 MSID 指到的已存規則 (預設) ; "custom" = 忽略 MSID,
+    // 改用下面三個 custom_*_formula 欄位 —— 這張報價單專屬的公式, 不會存進公司共用的規則庫。
+    @Column(name = "formula_mode")
+    private String formulaMode = "preset";
+
+    @Column(name = "custom_trade_formula", length = 500)
+    private String customTradeFormula;
+
+    @Column(name = "custom_retail_formula", length = 500)
+    private String customRetailFormula;
+
+    @Column(name = "custom_rebate_formula", length = 500)
+    private String customRebateFormula;
+
     @Column(name = "group_size")
     private int groupSize = 1;
 
@@ -76,6 +90,24 @@ public class Quotation {
 
     public Integer getMSID() { return MSID; }
     public void setMSID(Integer MSID) { this.MSID = MSID; }
+
+    public String getFormulaMode() { return formulaMode; }
+    public void setFormulaMode(String formulaMode) { this.formulaMode = formulaMode; }
+
+    public String getCustomTradeFormula() { return customTradeFormula; }
+    public void setCustomTradeFormula(String customTradeFormula) { this.customTradeFormula = customTradeFormula; }
+
+    public String getCustomRetailFormula() { return customRetailFormula; }
+    public void setCustomRetailFormula(String customRetailFormula) { this.customRetailFormula = customRetailFormula; }
+
+    public String getCustomRebateFormula() { return customRebateFormula; }
+    public void setCustomRebateFormula(String customRebateFormula) { this.customRebateFormula = customRebateFormula; }
+
+    // 這張報價單目前是不是「自填公式」模式 —— 給畫面顯示/邏輯判斷用
+    @Transient
+    public boolean isCustomFormulaMode() {
+        return "custom".equals(formulaMode);
+    }
 
     public int getGroupSize() { return groupSize; }
     public void setGroupSize(int groupSize) { this.groupSize = groupSize; }

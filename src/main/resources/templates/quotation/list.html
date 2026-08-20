@@ -66,7 +66,7 @@
         <div class="header-actions">
             <a th:href="@{'/itinerary/' + ${itinerary.ITID} + '/board'}"><i class="fa-solid fa-arrow-left"></i> 返回排版看板</a>
             <span>|</span>
-            <a th:href="@{/margin-setting}"><i class="fa-solid fa-percent"></i> 管理加成規則</a>
+            <a th:href="@{/margin-setting}"><i class="fa-solid fa-calculator"></i> 管理計算公式</a>
         </div>
     </div>
 
@@ -115,15 +115,15 @@
                            th:value="${itinerary.groupSize} ?: 1" required />
                 </div>
                 <div class="form-group">
-                    <label class="form-label">套用加成規則</label>
+                    <label class="form-label">套用計算公式</label>
                     <select name="marginSettingId" class="form-control">
                         <option value="">（不套用，先手動輸入單價，之後再補）</option>
                         <option th:each="m : ${marginSettings}" th:value="${m.MSID}"
-                                th:text="${m.name} + '（同業+' + ${m.tradeMarkupPct} + '% / 直售+' + ${m.retailMarkupPct} + '% / 退傭' + ${m.rebatePct} + '%）'"
+                                th:text="${m.summary}"
                                 th:selected="${m.default}"></option>
                     </select>
                     <div th:if="${marginSettings.isEmpty()}" style="font-size:12.5px;color:var(--amber);margin-top:6px;">
-                        <i class="fa-solid fa-triangle-exclamation"></i> 尚未設定加成規則，
+                        <i class="fa-solid fa-triangle-exclamation"></i> 尚未設定計算公式，
                         <a th:href="@{/margin-setting}" style="color:var(--primary-blue);text-decoration:underline;">先去建立一組</a>
                     </div>
                 </div>

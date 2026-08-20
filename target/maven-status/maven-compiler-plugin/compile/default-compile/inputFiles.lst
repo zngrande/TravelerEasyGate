@@ -24,6 +24,10 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\CurrencyDA
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\CurrencyDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ExportHistoryDAO.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ExportHistoryDAOImpl.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\FormulaTemplateDAO.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\FormulaTemplateDAOImpl.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\FormulaTemplateLineDAO.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\FormulaTemplateLineDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ImageAssetDAO.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ImageAssetDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ItineraryComponentDAO.java
@@ -67,6 +71,8 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\AiParse
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\AiParsedItem.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\Currency.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ExportHistory.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\FormulaTemplate.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\FormulaTemplateLine.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ImageAsset.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\Itinerary.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ItineraryComponent.java
@@ -91,6 +97,8 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\Anthro
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\AuthService.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\DocumentExtractionService.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\ExportService.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\FormulaEngine.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\FormulaEvaluatorService.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\GoogleMapsClient.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\ImageAssetService.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\service\ImageStorageService.java
