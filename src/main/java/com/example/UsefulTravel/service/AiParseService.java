@@ -147,7 +147,11 @@ public class AiParseService {
                 int sortOrder = 0;
                 for (JsonNode itemNode : dayNode.path("items")) {
                     String name = itemNode.path("name").asText("");
-                    Integer matchedPid = findMatchingPoi(AID, name);
+                    // 比對範圍優先用這個項目自己判斷的國家 (比較精確, 多國行程時才不會跨國誤配),
+                    // 項目自己沒有判斷出國家就退回整份行程共用的國家 (見下方 findMatchingPoi 的模糊比對說明)
+                    String itemScopeCountry = emptyToNull(itemNode.path("item_country").asText(null));
+                    Integer matchedPid = findMatchingPoi(AID, name,
+                            itemScopeCountry != null ? itemScopeCountry : aiImport.getSuggestedCountry());
 
                     AiParsedItem item = new AiParsedItem(
                             day.getAPDID(),
@@ -187,11 +191,75 @@ public class AiParseService {
         return aiImport;
     }
 
-    // 用名稱關鍵字比對公司 POI 資料庫, 找到就自動連結 (簡化版, 之後可換成更精準的比對演算法)
-    private Integer findMatchingPoi(int AID, String name) {
+    // 名稱相似度低於這個門檻就不採用模糊比對結果, 寧可比對不到讓使用者手動連結, 也不要誤配到不相關的地點
+    // (例如「東京鐵塔」不應該被誤判成「晴空塔」)。0.62 是抓「新穗高纜車」vs 資料庫「新穗高高空纜車」這組
+    // 使用者實際回報的案例算出來的相似度 (約 0.71) 抓一個留有餘裕、但不會鬆到隨便兩個名稱都能配對的門檻。
+    private static final double FUZZY_NAME_MATCH_THRESHOLD = 0.62;
+
+    // 用名稱比對公司 POI 資料庫, 找到就自動連結。
+    // 使用者反映: AI 解析出來的地點名稱, 有時候跟公司資料庫裡實際登記的名稱用字不完全一樣, 但明顯是同一個
+    // 地方 (例如 AI 解析出「新穗高纜車」, 但資料庫裡這筆景點登記的全名是「新穗高高空纜車」), 原本只有
+    // LIKE '%關鍵字%' 這種「其中一邊要完整包含另一邊」的比對, 中間多了「高空」兩個字就直接比對不到、
+    // 變成完全沒有自動連結建議, 使用者必須自己一個個手動找。
+    // 修正: LIKE 包含比對抓不到時, 退而求其次改用「名稱相似度」(正規化 Levenshtein 編輯距離, 見下方
+    // nameSimilarity()) 在候選範圍內找相似度最高的一筆, 相似度要超過門檻才採用 (避免誤配到不相關地點)。
+    // 候選範圍優先限縮在「這個項目/整份行程判斷出的國家」內 (country 參數, 呼叫端會依序嘗試 item_country、
+    // 整份 AI 解析紀錄的 suggestedCountry), 沒有任何國家資訊可用時才退回這間旅行社看得到的全部景點
+    // (共用庫+自己的)。限縮範圍除了避免跨國誤配 (兩個國家可能剛好有相似命名的地點), 對大型資料庫來說
+    // 也是必要的效能考量 (模糊比對是逐筆算相似度, 全表掃描在候選很多時會變慢)。
+    private Integer findMatchingPoi(int AID, String name, String country) {
         if (name == null || name.isBlank()) return null;
         List<Poi> matches = poiDAO.searchByKeyword(AID, name, null);
-        return matches.isEmpty() ? null : matches.get(0).getPID();
+        if (!matches.isEmpty()) return matches.get(0).getPID();
+
+        List<Poi> candidates = (country != null && !country.isBlank())
+                ? poiDAO.findByAgencyAndCountry(AID, country, null)
+                : poiDAO.findByAgencyOrShared(AID);
+
+        Poi best = null;
+        double bestScore = 0;
+        for (Poi candidate : candidates) {
+            double score = nameSimilarity(name, candidate.getName());
+            if (candidate.getOriginalName() != null && !candidate.getOriginalName().isBlank()) {
+                score = Math.max(score, nameSimilarity(name, candidate.getOriginalName()));
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = candidate;
+            }
+        }
+        return (best != null && bestScore >= FUZZY_NAME_MATCH_THRESHOLD) ? best.getPID() : null;
+    }
+
+    // 正規化 Levenshtein 相似度, 範圍 0~1 (1 = 完全相同): 1 - (編輯距離 / 兩字串長度中較長的那個)。
+    // 字元層級比對對中文地名特別合適 (不需要斷詞), 「插入/刪除幾個字但骨架相同」這種常見的命名差異
+    // (新穗高纜車 vs 新穗高「高空」纜車) 差距越小分數就越高。
+    private double nameSimilarity(String a, String b) {
+        if (a == null || b == null) return 0;
+        String s1 = a.trim();
+        String s2 = b.trim();
+        if (s1.isEmpty() || s2.isEmpty()) return 0;
+        if (s1.equals(s2)) return 1.0;
+        int distance = levenshteinDistance(s1, s2);
+        int maxLen = Math.max(s1.length(), s2.length());
+        return maxLen == 0 ? 0 : 1.0 - ((double) distance / maxLen);
+    }
+
+    private int levenshteinDistance(String s1, String s2) {
+        int[] prev = new int[s2.length() + 1];
+        int[] curr = new int[s2.length() + 1];
+        for (int j = 0; j <= s2.length(); j++) prev[j] = j;
+        for (int i = 1; i <= s1.length(); i++) {
+            curr[0] = i;
+            for (int j = 1; j <= s2.length(); j++) {
+                int cost = s1.charAt(i - 1) == s2.charAt(j - 1) ? 0 : 1;
+                curr[j] = Math.min(Math.min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+            int[] tmp = prev;
+            prev = curr;
+            curr = tmp;
+        }
+        return prev[s2.length()];
     }
 
     private String emptyToNull(String s) {

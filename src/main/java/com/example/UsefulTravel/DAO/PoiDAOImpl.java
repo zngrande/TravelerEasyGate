@@ -124,6 +124,34 @@ public class PoiDAOImpl implements PoiDAO {
         return query.getResultList();
     }
 
+    // 「建立新行程」頁面「目的地國家」欄位自動完成用。原本這個欄位是純自由文字, 跟後端 findByAgencyAndCountry()
+    // 一樣拿去比對, 但完全不保證使用者打的地名資料庫裡真的有——這正是使用者建立「義大利/羅馬、威尼斯、比薩、
+    // 米蘭」行程時, AI 完全找不到符合景點、只能建立空白行程的根本原因: 打的地名資料庫裡根本沒有這筆資料可以比對。
+    // 改成只列出「公司景點資料庫裡實際存在」的國家 (共用庫 + 自己的), 使用者選出來的國家保證查得到東西
+    // (至少國家層級一定有資料, 不會再發生選了資料庫裡根本沒有的地名這種落空的狀況)。
+    @Override
+    public List<String> findDistinctCountries(Integer AID) {
+        return em.createQuery(
+                        "SELECT DISTINCT p.country FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE +
+                                "AND p.country IS NOT NULL AND p.country <> '' ORDER BY p.country ASC", String.class)
+                .setParameter("aid", AID)
+                .getResultList();
+    }
+
+    // 「地區/城市」欄位自動完成用, 依已選定的「目的地國家」篩選出該國實際存在的城市清單 (呼應「地區依國家判斷」
+    // 的需求; 這裡用 country 精確比對, 因為傳進來的 country 一定是從 findDistinctCountries() 選出來的值,
+    // 不像 findByAgencyAndCountry() 那樣要處理使用者自由輸入的合併字串, 不需要再拆 token)
+    @Override
+    public List<String> findDistinctCitiesByCountry(Integer AID, String country) {
+        if (country == null || country.isBlank()) return List.of();
+        return em.createQuery(
+                        "SELECT DISTINCT p.city FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE +
+                                "AND p.country = :country AND p.city IS NOT NULL AND p.city <> '' ORDER BY p.city ASC", String.class)
+                .setParameter("aid", AID)
+                .setParameter("country", country)
+                .getResultList();
+    }
+
     @Override
     @Transactional
     public void deleteById(int PID) {

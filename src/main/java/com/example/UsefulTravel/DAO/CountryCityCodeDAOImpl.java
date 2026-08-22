@@ -58,4 +58,22 @@ public class CountryCityCodeDAOImpl implements CountryCityCodeDAO {
         }
         return query.setMaxResults(20).getResultList();
     }
+
+    @Override
+    public List<CountryCityCode> findByType(String type) {
+        return em.createQuery(
+                        "SELECT c FROM CountryCityCode c WHERE c.type = :type ORDER BY c.name ASC", CountryCityCode.class)
+                .setParameter("type", type)
+                .getResultList();
+    }
+
+    @Override
+    public List<CountryCityCode> findCitiesByCountryCodes(List<String> countryCodes) {
+        if (countryCodes == null || countryCodes.isEmpty()) return List.of();
+        return em.createQuery(
+                        "SELECT c FROM CountryCityCode c WHERE c.type = 'city' AND c.countryCode IN :codes " +
+                                "ORDER BY c.countryCode ASC, c.name ASC", CountryCityCode.class)
+                .setParameter("codes", countryCodes)
+                .getResultList();
+    }
 }

@@ -1,0 +1,482 @@
+From 00f307e0387181915a9906332d3ac56b721458b1 Mon Sep 17 00:00:00 2001
+From: Claude Session <claude@session.local>
+Date: Sat, 22 Aug 2026 15:52:12 +0000
+Subject: [PATCH] =?UTF-8?q?=E4=BF=AE=E6=AD=A3=E5=BB=BA=E7=AB=8B=E6=96=B0?=
+ =?UTF-8?q?=E8=A1=8C=E7=A8=8B=20Enter=20=E8=AA=A4=E8=A7=B8=E5=BB=BA?=
+ =?UTF-8?q?=E7=AB=8B=E3=80=81=E5=9C=8B=E5=AE=B6/=E5=9C=B0=E5=8D=80?=
+ =?UTF-8?q?=E6=94=B9=E7=94=A8=E8=B3=87=E6=96=99=E5=BA=AB=E5=AF=A6=E9=9A=9B?=
+ =?UTF-8?q?=E8=B3=87=E6=96=99=E8=87=AA=E5=8B=95=E5=AE=8C=E6=88=90=E3=80=81?=
+ =?UTF-8?q?=E5=9C=B0=E5=9C=96=E8=B7=AF=E7=B7=9A=E9=A0=90=E8=A6=BD=E7=A7=BB?=
+ =?UTF-8?q?=E5=9B=9E=E6=99=AF=E9=BB=9E=E8=B3=87=E6=96=99=E5=BA=AB=E6=8C=89?=
+ =?UTF-8?q?=E9=88=95?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- itinerary/new.html: 表單內按 Enter 不再直接送出 (textarea 除外), 避免填欄位時誤觸建立行程
+- 目的地國家/地區改成比照機場欄位的打字選建議做法, 但建議清單改查公司景點資料庫實際存在的國家/城市
+  (新增 GET /poi/countries、/poi/cities?country=), 不再用通用地名參考表, 解決選了資料庫裡根本沒有
+  資料的國家 (例如義大利) 導致 AI 排程找不到任何候選、變成空白行程的問題; 地區依國家篩選 (多國行程時停用)
+- board.html: 「顯示景點資料庫」按鈕從『開啟大圖』彈窗內部移到「地圖路線預覽」列、開啟大圖左邊,
+  直接開啟既有的左側景點資料庫模組, 移除彈窗內重複的清單
+---
+ .../com/example/UsefulTravel/DAO/PoiDAO.java  |   5 +
+ .../example/UsefulTravel/DAO/PoiDAOImpl.java  |  28 +++++
+ .../controller/PoiController.java             |  35 ++++++
+ .../UsefulTravel/service/PoiService.java      |   9 ++
+ .../resources/templates/itinerary/board.html  |  97 +++++----------
+ .../resources/templates/itinerary/new.html    | 114 ++++++++++++++----
+ 6 files changed, 199 insertions(+), 89 deletions(-)
+
+diff --git a/src/main/java/com/example/UsefulTravel/DAO/PoiDAO.java b/src/main/java/com/example/UsefulTravel/DAO/PoiDAO.java
+index cf817a0..f926815 100644
+--- a/src/main/java/com/example/UsefulTravel/DAO/PoiDAO.java
++++ b/src/main/java/com/example/UsefulTravel/DAO/PoiDAO.java
+@@ -11,4 +11,9 @@ public interface PoiDAO {
+     List<Poi> findByAgencyAndCountry(Integer AID, String country, String region);
+     List<Poi> searchByKeyword(Integer AID, String keyword, String category);
+     void deleteById(int PID);
++
++    // 「建立新行程」頁面「目的地國家/地區」欄位自動完成用: 只列出公司景點資料庫「實際存在」的國家/城市
++    // (共用庫 + 自己的), 確保使用者選出來的地名一定查得到景點候選 (見 PoiDAOImpl 實作註解)
++    List<String> findDistinctCountries(Integer AID);
++    List<String> findDistinctCitiesByCountry(Integer AID, String country);
+ }
+diff --git a/src/main/java/com/example/UsefulTravel/DAO/PoiDAOImpl.java b/src/main/java/com/example/UsefulTravel/DAO/PoiDAOImpl.java
+index 717ee10..1345dfe 100644
+--- a/src/main/java/com/example/UsefulTravel/DAO/PoiDAOImpl.java
++++ b/src/main/java/com/example/UsefulTravel/DAO/PoiDAOImpl.java
+@@ -124,6 +124,34 @@ public class PoiDAOImpl implements PoiDAO {
+         return query.getResultList();
+     }
+ 
++    // 「建立新行程」頁面「目的地國家」欄位自動完成用。原本這個欄位是純自由文字, 跟後端 findByAgencyAndCountry()
++    // 一樣拿去比對, 但完全不保證使用者打的地名資料庫裡真的有——這正是使用者建立「義大利/羅馬、威尼斯、比薩、
++    // 米蘭」行程時, AI 完全找不到符合景點、只能建立空白行程的根本原因: 打的地名資料庫裡根本沒有這筆資料可以比對。
++    // 改成只列出「公司景點資料庫裡實際存在」的國家 (共用庫 + 自己的), 使用者選出來的國家保證查得到東西
++    // (至少國家層級一定有資料, 不會再發生選了資料庫裡根本沒有的地名這種落空的狀況)。
++    @Override
++    public List<String> findDistinctCountries(Integer AID) {
++        return em.createQuery(
++                        "SELECT DISTINCT p.country FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE +
++                                "AND p.country IS NOT NULL AND p.country <> '' ORDER BY p.country ASC", String.class)
++                .setParameter("aid", AID)
++                .getResultList();
++    }
++
++    // 「地區/城市」欄位自動完成用, 依已選定的「目的地國家」篩選出該國實際存在的城市清單 (呼應「地區依國家判斷」
++    // 的需求; 這裡用 country 精確比對, 因為傳進來的 country 一定是從 findDistinctCountries() 選出來的值,
++    // 不像 findByAgencyAndCountry() 那樣要處理使用者自由輸入的合併字串, 不需要再拆 token)
++    @Override
++    public List<String> findDistinctCitiesByCountry(Integer AID, String country) {
++        if (country == null || country.isBlank()) return List.of();
++        return em.createQuery(
++                        "SELECT DISTINCT p.city FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE +
++                                "AND p.country = :country AND p.city IS NOT NULL AND p.city <> '' ORDER BY p.city ASC", String.class)
++                .setParameter("aid", AID)
++                .setParameter("country", country)
++                .getResultList();
++    }
++
+     @Override
+     @Transactional
+     public void deleteById(int PID) {
+diff --git a/src/main/java/com/example/UsefulTravel/controller/PoiController.java b/src/main/java/com/example/UsefulTravel/controller/PoiController.java
+index 345f60a..399930f 100644
+--- a/src/main/java/com/example/UsefulTravel/controller/PoiController.java
++++ b/src/main/java/com/example/UsefulTravel/controller/PoiController.java
+@@ -118,6 +118,41 @@ public class PoiController {
+         return ResponseEntity.ok(result);
+     }
+ 
++    // GET /poi/countries?keyword= → 「建立新行程」頁面「目的地國家」欄位自動完成用。
++    // 原本這個欄位是純自由文字, 跟後端 AI 排程篩選候選景點用的是同一套自由文字比對, 但完全不保證使用者
++    // 打的地名資料庫裡真的有 (使用者建立「義大利/羅馬、威尼斯、比薩、米蘭」行程時就是打了一個資料庫裡
++    // 根本沒有資料的國家, AI 排程當然找不到任何候選, 只能建立空白行程)。改成只列出「公司景點資料庫裡
++    // 實際存在」的國家 (共用庫+自己的, 見 PoiService/PoiDAOImpl), 選出來的國家保證查得到景點候選。
++    @GetMapping("/countries")
++    @ResponseBody
++    public ResponseEntity<?> countries(@RequestParam(required = false) String keyword, HttpSession session) {
++        Integer AID = (Integer) session.getAttribute("AID");
++        if (AID == null) return ResponseEntity.status(401).build();
++        String kw = keyword == null ? "" : keyword.trim();
++        List<String> result = poiService.listCountries(AID).stream()
++                .filter(c -> kw.isEmpty() || c.contains(kw))
++                .limit(20)
++                .collect(Collectors.toList());
++        return ResponseEntity.ok(result);
++    }
++
++    // GET /poi/cities?country=日本&keyword= → 「建立新行程」頁面「地區/城市」欄位自動完成用,
++    // 依已選定的「目的地國家」篩選出該國實際存在的城市清單 (「地區依國家判斷」)。
++    @GetMapping("/cities")
++    @ResponseBody
++    public ResponseEntity<?> cities(@RequestParam String country,
++                                    @RequestParam(required = false) String keyword,
++                                    HttpSession session) {
++        Integer AID = (Integer) session.getAttribute("AID");
++        if (AID == null) return ResponseEntity.status(401).build();
++        String kw = keyword == null ? "" : keyword.trim();
++        List<String> result = poiService.listCitiesByCountry(AID, country).stream()
++                .filter(c -> kw.isEmpty() || c.contains(kw))
++                .limit(20)
++                .collect(Collectors.toList());
++        return ResponseEntity.ok(result);
++    }
++
+     // GET /poi/{id}/description → 取得這個景點目前的介紹說明 (給行程編輯畫面的編輯表單用, AJAX)
+     @GetMapping("/{id}/description")
+     @ResponseBody
+diff --git a/src/main/java/com/example/UsefulTravel/service/PoiService.java b/src/main/java/com/example/UsefulTravel/service/PoiService.java
+index 694885a..803b9f8 100644
+--- a/src/main/java/com/example/UsefulTravel/service/PoiService.java
++++ b/src/main/java/com/example/UsefulTravel/service/PoiService.java
+@@ -156,4 +156,13 @@ public class PoiService {
+             poiOverrideDAO.save(new PoiOverride(AID, originalPid, null));
+         }
+     }
++
++    // 給「建立新行程」頁面國家/地區自動完成用: 只回傳公司景點資料庫裡實際存在的國家/城市 (見 PoiDAOImpl 註解)
++    public List<String> listCountries(int AID) {
++        return poiDAO.findDistinctCountries(AID);
++    }
++
++    public List<String> listCitiesByCountry(int AID, String country) {
++        return poiDAO.findDistinctCitiesByCountry(AID, country);
++    }
+ }
+diff --git a/src/main/resources/templates/itinerary/board.html b/src/main/resources/templates/itinerary/board.html
+index 25c396a..87a0c57 100644
+--- a/src/main/resources/templates/itinerary/board.html
++++ b/src/main/resources/templates/itinerary/board.html
+@@ -638,6 +638,24 @@
+         }
+         .map-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+         .map-header a { font-size: 12.5px; color: var(--primary-blue); font-weight: 600; }
++        .map-header-actions { display: flex; align-items: center; gap: 14px; }
++        /* 「顯示景點資料庫」按鈕: 使用者原本要的位置是「地圖路線預覽」這一列、開啟大圖的左邊, 按下去顯示
++           景點資料庫——之前被誤放進「開啟大圖」彈窗裡面 (bigmap-modal-left, 現已移除), 這裡改成直接開啟
++           左側工具列既有的「景點資料庫」模組 (toggleAccordion('Poi')), 不用另外重刻一份清單。 */
++        .btn-show-poi-db {
++            font-size: 12.5px;
++            color: var(--primary-blue);
++            font-weight: 600;
++            background: none;
++            border: none;
++            padding: 0;
++            cursor: pointer;
++            display: flex;
++            align-items: center;
++            gap: 5px;
++            font-family: inherit;
++        }
++        .btn-show-poi-db:hover { text-decoration: underline; }
+         .map-wrap {
+             position: relative;
+             background: #f8fafc;
+@@ -706,7 +724,11 @@
+         .export-modal-actions button.cancel { background: #f1f5f9; color: #475569; }
+         .export-modal-actions button.cancel:hover { background: #e2e8f0; }
+ 
+-        /* 地圖大圖彈窗: 右邊放大圖, 左邊按下去才展開「景點資料庫內容」面板 */
++        /* 地圖大圖彈窗: 放大版靜態地圖圖片本身。原本這裡左側還有一個「顯示景點資料庫內容」面板
++           (.bigmap-modal-left/.bigmap-db-toggle/.bigmap-db-list), 但使用者原本要的是這個按鈕要放在
++           「地圖路線預覽」列、開啟大圖連結的左邊, 不是被塞進這個開啟大圖後才看得到的彈窗裡——已經改成
++           「地圖路線預覽」列自己的「顯示景點資料庫」按鈕 (.btn-show-poi-db, 見上方), 直接開啟左側工具列
++           既有的「景點資料庫」模組, 這個彈窗現在只保留放大地圖圖片。 */
+         .bigmap-modal-overlay {
+             position: fixed;
+             inset: 0;
+@@ -727,37 +749,6 @@
+             overflow: hidden;
+             box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+         }
+-        .bigmap-modal-left {
+-            width: 300px;
+-            flex-shrink: 0;
+-            border-right: 1px solid var(--border-color);
+-            display: flex;
+-            flex-direction: column;
+-            padding: 16px;
+-            overflow: hidden;
+-        }
+-        .bigmap-db-toggle {
+-            width: 100%;
+-            padding: 9px;
+-            background: #ecfdf5;
+-            color: #059669;
+-            border: 1px solid #a7f3d0;
+-            border-radius: 8px;
+-            font-size: 13px;
+-            font-weight: 700;
+-            cursor: pointer;
+-            flex-shrink: 0;
+-        }
+-        .bigmap-db-toggle:hover { background: #d1fae5; }
+-        .bigmap-db-list {
+-            margin-top: 12px;
+-            flex: 1;
+-            min-height: 0;
+-            overflow-y: auto;
+-            display: flex;
+-            flex-direction: column;
+-            gap: 6px;
+-        }
+         .bigmap-modal-right {
+             position: relative;
+             flex: 1;
+@@ -994,7 +985,12 @@
+                         <div class="map-title">
+                             <i class="fa-solid fa-map-location-dot" style="color: var(--primary-blue);"></i> 地圖路線預覽
+                         </div>
+-                        <a id="staticmap-link" href="#" onclick="openBigMapModal(); return false;" style="display:none;">開啟大圖 ↗</a>
++                        <div class="map-header-actions">
++                            <button type="button" class="btn-show-poi-db" onclick="toggleAccordion('Poi')" title="顯示景點資料庫">
++                                <i class="fa-solid fa-database"></i> 顯示景點資料庫
++                            </button>
++                            <a id="staticmap-link" href="#" onclick="openBigMapModal(); return false;" style="display:none;">開啟大圖 ↗</a>
++                        </div>
+                     </div>
+                     <div class="map-wrap" id="mapWrap">
+                         <div class="map-placeholder">
+@@ -2085,7 +2081,8 @@
+     }
+ 
+     // 地圖大圖彈窗: 每次打開都直接向後端重新抓一次最新的地圖資料 (不依賴小地圖那個連結先前有沒有設好 href),
+-    // 右邊放大圖, 左邊按下去才展開「景點資料庫內容」面板
++    // 這裡只放大顯示地圖圖片本身——「顯示景點資料庫」按鈕已經移到「地圖路線預覽」列 (開啟大圖連結左邊),
++    // 直接開啟左側工具列既有的「景點資料庫」模組, 不再是這個彈窗內部的東西 (見 toggleAccordion('Poi'))
+     async function openBigMapModal() {
+         if (!currentDayId) return;
+         try {
+@@ -2095,8 +2092,6 @@
+                 return;
+             }
+             document.getElementById('bigMapImg').src = data.staticMapUrl;
+-            const dbList = document.getElementById('bigMapDbList');
+-            dbList.style.display = 'none';
+             document.getElementById('bigMapModalOverlay').style.display = 'flex';
+         } catch (err) {
+             alert('開啟大圖失敗：' + err.message);
+@@ -2107,27 +2102,6 @@
+         document.getElementById('bigMapModalOverlay').style.display = 'none';
+     }
+ 
+-    // 左側「顯示景點資料庫內容」按鈕: 按下去才載入畫面 (公司景點資料庫清單, 跟左側工具列「景點資料庫」面板同一份資料),
+-    // 方便對照大圖時順便查景點資料, 不用把大圖關掉再切回去看
+-    function toggleBigMapDbPanel() {
+-        const dbList = document.getElementById('bigMapDbList');
+-        const willShow = dbList.style.display === 'none';
+-        dbList.style.display = willShow ? 'flex' : 'none';
+-        if (willShow && !dbList.dataset.loaded) {
+-            dbList.innerHTML = allPoisForMap.length === 0
+-                ? '<p style="font-size:11.5px; color:var(--text-gray); text-align:center; padding:8px 0;">目前沒有可顯示的景點資料</p>'
+-                : allPoisForMap.map(poi => `
+-                    <div class="poi-card">
+-                        <div>
+-                            <div class="name">${poi.name}</div>
+-                            <div class="meta">${poi.category || ''} · ${poi.city || ''}</div>
+-                        </div>
+-                    </div>
+-                `).join('');
+-            dbList.dataset.loaded = '1';
+-        }
+-    }
+-
+     function addToCurrentDay(pid, name, itemType) {
+         if (!currentDayId) { alert('請先選擇一天'); return; }
+         const params = new URLSearchParams({ PID: pid, itemType, customName: name });
+@@ -2542,15 +2516,10 @@
+     </div>
+ </div>
+ 
+-<!-- 地圖大圖彈窗: 左邊按下去才展開景點資料庫內容, 右邊是放大的靜態地圖圖片 -->
++<!-- 地圖大圖彈窗: 放大的靜態地圖圖片。「顯示景點資料庫」按鈕已經移到「地圖路線預覽」列 (開啟大圖左邊),
++     不再放在這個彈窗裡面, 見上方 map-header 與 .btn-show-poi-db 註解 -->
+ <div id="bigMapModalOverlay" class="bigmap-modal-overlay" style="display:none;" onclick="if(event.target===this) closeBigMapModal()">
+     <div class="bigmap-modal">
+-        <div class="bigmap-modal-left">
+-            <button type="button" class="bigmap-db-toggle" onclick="toggleBigMapDbPanel()">
+-                <i class="fa-solid fa-database"></i> 顯示景點資料庫內容
+-            </button>
+-            <div class="bigmap-db-list" id="bigMapDbList" style="display:none;"></div>
+-        </div>
+         <div class="bigmap-modal-right">
+             <button type="button" class="bigmap-close" onclick="closeBigMapModal()"><i class="fa-solid fa-xmark"></i></button>
+             <img id="bigMapImg" src="" alt="行程地圖大圖" />
+diff --git a/src/main/resources/templates/itinerary/new.html b/src/main/resources/templates/itinerary/new.html
+index 1c5d66a..537ad75 100644
+--- a/src/main/resources/templates/itinerary/new.html
++++ b/src/main/resources/templates/itinerary/new.html
+@@ -52,9 +52,16 @@
+         .btn-row { display: flex; gap: 10px; margin-top: 10px; }
+         .ai-plan-hint { font-size: 12px; color: var(--text-gray); margin-top: 8px; line-height: 1.5; }
+ 
+-        /* 國家/城市欄位的自動完成建議清單 (使用者要求: 沿用之前機場欄位那套「打字跳出資料庫內容」的做法,
+-           讓使用者可以參考國家城市通用代碼庫、更快更準確地填寫目的地。純粹是輸入輔助, 選了建議項目
+-           還是只會把地名文字填回欄位 (不會把代碼一起塞進去), 不影響這兩個欄位原本的自由文字比對邏輯。 */
++        /* 國家/城市欄位的自動完成建議清單。原本查的是通用「國家城市代碼」參考表, 資料涵蓋很廣但不保證
++           公司自己的景點資料庫真的有那個國家/城市的資料——這正是使用者建立「義大利/羅馬、威尼斯、比薩、
++           米蘭」行程時, AI 完全找不到符合景點、只能建立空白行程的根本原因。改成比照機場欄位那套「打字
++           跳出建議」的做法, 但建議清單直接查「公司景點資料庫裡實際存在」的國家/城市 (GET /poi/countries、
++           /poi/cities?country=), 選出來的地名保證資料庫裡查得到東西。「地區依國家判斷」: 城市建議清單依
++           「目的地國家」目前內容篩選, 只有剛好填了單一國家時才會查詢/啟用, 跟後端 findByAgencyAndCountry()
++           「地區篩選只在單一國家時套用」的邏輯一致。點擊建議項目會把整個欄位填成那個值 (跟機場欄位選建議
++           的行為一致); 這兩個欄位本身仍是自由文字輸入, 使用者還是可以自己打「羅馬、威尼斯、比薩、米蘭」
++           這種用頓號分隔的多個地名 (後端 splitLocationTokens 沿用既有邏輯拆解), 只是透過建議清單一次只能
++           選一個, 要合併多個地名時用建議清單選第一個、再手動接著打其餘的即可。 */
+         .cc-autocomplete-wrap { position: relative; }
+         .cc-suggest-list {
+             display: none;
+@@ -205,7 +212,7 @@
+                 <div class="form-group">
+                     <label class="form-label">地區 / 城市 (選填)</label>
+                     <div class="cc-autocomplete-wrap">
+-                        <input type="text" name="region" id="regionInput" class="form-control" placeholder="例：東京 (留空代表整個國家)" autocomplete="off" />
++                        <input type="text" name="region" id="regionInput" class="form-control" placeholder="請先選擇/輸入目的地國家" autocomplete="off" disabled />
+                         <div class="cc-suggest-list" id="regionSuggestList"></div>
+                     </div>
+                 </div>
+@@ -327,48 +334,59 @@
+ </main>
+ 
+ <script>
+-    // 國家/城市欄位自動完成: 打字即時打 /reference/country-city/autocomplete 篩選, 選了建議項目只把
+-    // 地名文字 (name) 填回輸入框, 不會把代碼一起塞進去, 才不會影響這兩個欄位原本的自由文字比對邏輯。
+-    // 邏輯沿用 AI 行程解析頁面「出發/抵達機場」欄位那一套自動完成的做法 (見 ai-import/new.html)。
+-    function setupCountryCityAutocomplete(input, list, type) {
++    // 國家/城市欄位自動完成: 打字 (或直接點進欄位) 就查建議清單, 資料來源是「公司景點資料庫裡實際存在」的
++    // 國家/城市 (GET /poi/countries、/poi/cities?country=), 不是通用的地名參考表——確保選出來的地名保證
++    // 資料庫查得到景點候選, 不會再發生像「義大利」這樣選了資料庫裡根本沒有資料的地名, 直到 AI 排程完才
++    // 發現找不到任何候選、變成空白行程的狀況。點擊建議項目時整個欄位直接填成那個值 (跟機場欄位選建議
++    // 的行為一致), 這兩個欄位本身還是自由文字輸入, 使用者一樣可以自己打「羅馬、威尼斯、比薩、米蘭」這種
++    // 用頓號分隔的多個地名 (後端 splitLocationTokens 沿用既有邏輯拆解), 只是點建議清單一次只會選一個。
++    function splitLocationTokensClient(value) {
++        if (!value) return [];
++        return value.split(/[、,，/|\s]+/).map(function (s) { return s.trim(); }).filter(Boolean);
++    }
++
++    // buildUrl(keyword) 回傳這次要打的自動完成 API 網址; 回傳 null/空字串代表現在不查建議 (例如地區欄位
++    // 還沒有選定單一國家時)。onSelect 是點選建議項目後的回呼 (目前只有國家欄位需要, 用來連動更新地區欄位
++    // 的啟用狀態/建議來源)。
++    function setupPoiLocationAutocomplete(input, list, buildUrl, onSelect) {
+         if (!input || !list) return;
+         let debounceTimer = null;
+ 
+         input.addEventListener('input', function () {
+-            const keyword = input.value.trim();
+             clearTimeout(debounceTimer);
+-            if (!keyword) { closeList(); return; }
+-            debounceTimer = setTimeout(() => fetchSuggestions(keyword), 200);
++            debounceTimer = setTimeout(function () { fetchSuggestions(input.value.trim()); }, 200);
++        });
++        // 比照「用選的」體驗: 一點進欄位就先跳出目前可選的清單, 不用先打字, 更接近下拉選單的手感
++        input.addEventListener('focus', function () {
++            if (!input.disabled) fetchSuggestions(input.value.trim());
+         });
+-
+         input.addEventListener('blur', function () {
+             setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+         });
+ 
+         function fetchSuggestions(keyword) {
+-            fetch('/reference/country-city/autocomplete?keyword=' + encodeURIComponent(keyword) + '&type=' + encodeURIComponent(type))
+-                .then(res => res.ok ? res.json() : [])
+-                .then(items => renderList(items))
+-                .catch(() => closeList());
++            const url = buildUrl(keyword);
++            if (!url) { closeList(); return; }
++            fetch(url)
++                .then(function (res) { return res.ok ? res.json() : []; })
++                .then(renderList)
++                .catch(closeList);
+         }
+ 
+         function renderList(items) {
+             if (!items || items.length === 0) { closeList(); return; }
+             list.innerHTML = '';
+-            items.forEach(item => {
++            items.forEach(function (value) {
+                 const row = document.createElement('div');
+                 row.className = 'cc-suggest-item';
+                 const nameSpan = document.createElement('span');
+-                nameSpan.textContent = item.name;
+-                const codeSpan = document.createElement('span');
+-                codeSpan.className = 'cc-suggest-code';
+-                codeSpan.textContent = item.code || '';
++                nameSpan.textContent = value;
+                 row.appendChild(nameSpan);
+-                if (item.code) row.appendChild(codeSpan);
+                 row.addEventListener('mousedown', function (e) {
+                     e.preventDefault();
+-                    input.value = item.name; // 只填地名文字, 不附代碼, 保持跟原本自由文字比對邏輯相容
++                    input.value = value;
+                     closeList();
++                    if (onSelect) onSelect();
+                 });
+                 list.appendChild(row);
+             });
+@@ -473,12 +491,58 @@
+     }
+ 
+     document.addEventListener('DOMContentLoaded', function () {
+-        setupCountryCityAutocomplete(document.getElementById('countryInput'), document.getElementById('countrySuggestList'), 'country');
+-        setupCountryCityAutocomplete(document.getElementById('regionInput'), document.getElementById('regionSuggestList'), 'city');
++        const countryInput = document.getElementById('countryInput');
++        const regionInput = document.getElementById('regionInput');
++
++        // 地區欄位是否啟用/篩選哪個國家的城市, 依「目的地國家」目前內容決定: 空的就停用; 剛好一個國家就
++        // 依那個國家篩選城市清單; 填了兩個以上國家 (多國行程) 時, 後端 findByAgencyAndCountry() 本來就
++        // 不會用地區條件篩選 (只在剛好單一國家時套用, 見 PoiDAOImpl 註解), 這裡也停用地區欄位並說明原因,
++        // 避免使用者誤以為多國行程時填了地區會生效。
++        function onCountryChanged() {
++            const tokens = splitLocationTokensClient(countryInput.value);
++            if (tokens.length === 0) {
++                regionInput.disabled = true;
++                regionInput.placeholder = '請先選擇/輸入目的地國家';
++            } else if (tokens.length === 1) {
++                regionInput.disabled = false;
++                regionInput.placeholder = '例：東京 (留空代表整個國家)';
++            } else {
++                regionInput.disabled = true;
++                regionInput.value = '';
++                regionInput.placeholder = '多國行程不篩選地區，請進入看板後手動加入景點';
++            }
++        }
++
++        setupPoiLocationAutocomplete(countryInput, document.getElementById('countrySuggestList'), function (keyword) {
++            return '/poi/countries?keyword=' + encodeURIComponent(keyword);
++        }, onCountryChanged);
++
++        setupPoiLocationAutocomplete(regionInput, document.getElementById('regionSuggestList'), function (keyword) {
++            const tokens = splitLocationTokensClient(countryInput.value);
++            if (tokens.length !== 1) return null; // 沒有剛好一個國家就不查城市建議, 呼應 onCountryChanged 的停用邏輯
++            return '/poi/cities?country=' + encodeURIComponent(tokens[0]) + '&keyword=' + encodeURIComponent(keyword);
++        });
++
++        countryInput.addEventListener('input', onCountryChanged);
++        onCountryChanged(); // 初始狀態: 國家還沒填, 地區欄位先停用
+ 
+         document.querySelectorAll('.leg-airport-input').forEach(function (input) {
+             setupAirportAutocomplete(input);
+         });
++
++        // 這個表單欄位很多 (國家/地區/日期/去程回程機場時間/說明...), 使用者反映在文字輸入框按 Enter
++        // 會直接觸發表單第一個 submit 按鈕 (「建立行程並進入看板」)——填完一格習慣按 Enter 想跳下一格,
++        // 結果整個行程就直接建立下去了。改成: 在這個表單裡按 Enter 一律不送出 (行程說明的 <textarea>
++        // 除外, 裡面按 Enter 應該要能正常換行), 一定要真的按下「建立行程並進入看板」或「AI 安排行程」
++        // 其中一個按鈕才會送出。
++        const formEl = document.querySelector('form');
++        if (formEl) {
++            formEl.addEventListener('keydown', function (e) {
++                if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
++                    e.preventDefault();
++                }
++            });
++        }
+     });
+ </script>
+ 
+-- 
+2.43.0
+

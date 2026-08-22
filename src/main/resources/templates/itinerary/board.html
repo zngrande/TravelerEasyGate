@@ -638,6 +638,24 @@
         }
         .map-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
         .map-header a { font-size: 12.5px; color: var(--primary-blue); font-weight: 600; }
+        .map-header-actions { display: flex; align-items: center; gap: 14px; }
+        /* 「顯示景點資料庫」按鈕: 使用者原本要的位置是「地圖路線預覽」這一列、開啟大圖的左邊, 按下去顯示
+           景點資料庫——之前被誤放進「開啟大圖」彈窗裡面 (bigmap-modal-left, 現已移除), 這裡改成直接開啟
+           左側工具列既有的「景點資料庫」模組 (toggleAccordion('Poi')), 不用另外重刻一份清單。 */
+        .btn-show-poi-db {
+            font-size: 12.5px;
+            color: var(--primary-blue);
+            font-weight: 600;
+            background: none;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-family: inherit;
+        }
+        .btn-show-poi-db:hover { text-decoration: underline; }
         .map-wrap {
             position: relative;
             background: #f8fafc;
@@ -706,7 +724,11 @@
         .export-modal-actions button.cancel { background: #f1f5f9; color: #475569; }
         .export-modal-actions button.cancel:hover { background: #e2e8f0; }
 
-        /* 地圖大圖彈窗: 右邊放大圖, 左邊按下去才展開「景點資料庫內容」面板 */
+        /* 地圖大圖彈窗: 放大版靜態地圖圖片本身。原本這裡左側還有一個「顯示景點資料庫內容」面板
+           (.bigmap-modal-left/.bigmap-db-toggle/.bigmap-db-list), 但使用者原本要的是這個按鈕要放在
+           「地圖路線預覽」列、開啟大圖連結的左邊, 不是被塞進這個開啟大圖後才看得到的彈窗裡——已經改成
+           「地圖路線預覽」列自己的「顯示景點資料庫」按鈕 (.btn-show-poi-db, 見上方), 直接開啟左側工具列
+           既有的「景點資料庫」模組, 這個彈窗現在只保留放大地圖圖片。 */
         .bigmap-modal-overlay {
             position: fixed;
             inset: 0;
@@ -726,37 +748,6 @@
             display: flex;
             overflow: hidden;
             box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-        }
-        .bigmap-modal-left {
-            width: 300px;
-            flex-shrink: 0;
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            padding: 16px;
-            overflow: hidden;
-        }
-        .bigmap-db-toggle {
-            width: 100%;
-            padding: 9px;
-            background: #ecfdf5;
-            color: #059669;
-            border: 1px solid #a7f3d0;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            flex-shrink: 0;
-        }
-        .bigmap-db-toggle:hover { background: #d1fae5; }
-        .bigmap-db-list {
-            margin-top: 12px;
-            flex: 1;
-            min-height: 0;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
         }
         .bigmap-modal-right {
             position: relative;
@@ -994,7 +985,12 @@
                         <div class="map-title">
                             <i class="fa-solid fa-map-location-dot" style="color: var(--primary-blue);"></i> 地圖路線預覽
                         </div>
-                        <a id="staticmap-link" href="#" onclick="openBigMapModal(); return false;" style="display:none;">開啟大圖 ↗</a>
+                        <div class="map-header-actions">
+                            <button type="button" class="btn-show-poi-db" onclick="toggleAccordion('Poi')" title="顯示景點資料庫">
+                                <i class="fa-solid fa-database"></i> 顯示景點資料庫
+                            </button>
+                            <a id="staticmap-link" href="#" onclick="openBigMapModal(); return false;" style="display:none;">開啟大圖 ↗</a>
+                        </div>
                     </div>
                     <div class="map-wrap" id="mapWrap">
                         <div class="map-placeholder">
@@ -2085,7 +2081,8 @@
     }
 
     // 地圖大圖彈窗: 每次打開都直接向後端重新抓一次最新的地圖資料 (不依賴小地圖那個連結先前有沒有設好 href),
-    // 右邊放大圖, 左邊按下去才展開「景點資料庫內容」面板
+    // 這裡只放大顯示地圖圖片本身——「顯示景點資料庫」按鈕已經移到「地圖路線預覽」列 (開啟大圖連結左邊),
+    // 直接開啟左側工具列既有的「景點資料庫」模組, 不再是這個彈窗內部的東西 (見 toggleAccordion('Poi'))
     async function openBigMapModal() {
         if (!currentDayId) return;
         try {
@@ -2095,8 +2092,6 @@
                 return;
             }
             document.getElementById('bigMapImg').src = data.staticMapUrl;
-            const dbList = document.getElementById('bigMapDbList');
-            dbList.style.display = 'none';
             document.getElementById('bigMapModalOverlay').style.display = 'flex';
         } catch (err) {
             alert('開啟大圖失敗：' + err.message);
@@ -2105,27 +2100,6 @@
 
     function closeBigMapModal() {
         document.getElementById('bigMapModalOverlay').style.display = 'none';
-    }
-
-    // 左側「顯示景點資料庫內容」按鈕: 按下去才載入畫面 (公司景點資料庫清單, 跟左側工具列「景點資料庫」面板同一份資料),
-    // 方便對照大圖時順便查景點資料, 不用把大圖關掉再切回去看
-    function toggleBigMapDbPanel() {
-        const dbList = document.getElementById('bigMapDbList');
-        const willShow = dbList.style.display === 'none';
-        dbList.style.display = willShow ? 'flex' : 'none';
-        if (willShow && !dbList.dataset.loaded) {
-            dbList.innerHTML = allPoisForMap.length === 0
-                ? '<p style="font-size:11.5px; color:var(--text-gray); text-align:center; padding:8px 0;">目前沒有可顯示的景點資料</p>'
-                : allPoisForMap.map(poi => `
-                    <div class="poi-card">
-                        <div>
-                            <div class="name">${poi.name}</div>
-                            <div class="meta">${poi.category || ''} · ${poi.city || ''}</div>
-                        </div>
-                    </div>
-                `).join('');
-            dbList.dataset.loaded = '1';
-        }
     }
 
     function addToCurrentDay(pid, name, itemType) {
@@ -2542,15 +2516,10 @@
     </div>
 </div>
 
-<!-- 地圖大圖彈窗: 左邊按下去才展開景點資料庫內容, 右邊是放大的靜態地圖圖片 -->
+<!-- 地圖大圖彈窗: 放大的靜態地圖圖片。「顯示景點資料庫」按鈕已經移到「地圖路線預覽」列 (開啟大圖左邊),
+     不再放在這個彈窗裡面, 見上方 map-header 與 .btn-show-poi-db 註解 -->
 <div id="bigMapModalOverlay" class="bigmap-modal-overlay" style="display:none;" onclick="if(event.target===this) closeBigMapModal()">
     <div class="bigmap-modal">
-        <div class="bigmap-modal-left">
-            <button type="button" class="bigmap-db-toggle" onclick="toggleBigMapDbPanel()">
-                <i class="fa-solid fa-database"></i> 顯示景點資料庫內容
-            </button>
-            <div class="bigmap-db-list" id="bigMapDbList" style="display:none;"></div>
-        </div>
         <div class="bigmap-modal-right">
             <button type="button" class="bigmap-close" onclick="closeBigMapModal()"><i class="fa-solid fa-xmark"></i></button>
             <img id="bigMapImg" src="" alt="行程地圖大圖" />

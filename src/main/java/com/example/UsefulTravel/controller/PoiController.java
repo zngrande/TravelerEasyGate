@@ -118,6 +118,41 @@ public class PoiController {
         return ResponseEntity.ok(result);
     }
 
+    // GET /poi/countries?keyword= → 「建立新行程」頁面「目的地國家」欄位自動完成用。
+    // 原本這個欄位是純自由文字, 跟後端 AI 排程篩選候選景點用的是同一套自由文字比對, 但完全不保證使用者
+    // 打的地名資料庫裡真的有 (使用者建立「義大利/羅馬、威尼斯、比薩、米蘭」行程時就是打了一個資料庫裡
+    // 根本沒有資料的國家, AI 排程當然找不到任何候選, 只能建立空白行程)。改成只列出「公司景點資料庫裡
+    // 實際存在」的國家 (共用庫+自己的, 見 PoiService/PoiDAOImpl), 選出來的國家保證查得到景點候選。
+    @GetMapping("/countries")
+    @ResponseBody
+    public ResponseEntity<?> countries(@RequestParam(required = false) String keyword, HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return ResponseEntity.status(401).build();
+        String kw = keyword == null ? "" : keyword.trim();
+        List<String> result = poiService.listCountries(AID).stream()
+                .filter(c -> kw.isEmpty() || c.contains(kw))
+                .limit(20)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }
+
+    // GET /poi/cities?country=日本&keyword= → 「建立新行程」頁面「地區/城市」欄位自動完成用,
+    // 依已選定的「目的地國家」篩選出該國實際存在的城市清單 (「地區依國家判斷」)。
+    @GetMapping("/cities")
+    @ResponseBody
+    public ResponseEntity<?> cities(@RequestParam String country,
+                                    @RequestParam(required = false) String keyword,
+                                    HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return ResponseEntity.status(401).build();
+        String kw = keyword == null ? "" : keyword.trim();
+        List<String> result = poiService.listCitiesByCountry(AID, country).stream()
+                .filter(c -> kw.isEmpty() || c.contains(kw))
+                .limit(20)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
+    }
+
     // GET /poi/{id}/description → 取得這個景點目前的介紹說明 (給行程編輯畫面的編輯表單用, AJAX)
     @GetMapping("/{id}/description")
     @ResponseBody

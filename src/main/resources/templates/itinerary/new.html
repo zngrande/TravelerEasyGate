@@ -52,9 +52,9 @@
         .btn-row { display: flex; gap: 10px; margin-top: 10px; }
         .ai-plan-hint { font-size: 12px; color: var(--text-gray); margin-top: 8px; line-height: 1.5; }
 
-        /* 國家/城市欄位的自動完成建議清單 (使用者要求: 沿用之前機場欄位那套「打字跳出資料庫內容」的做法,
-           讓使用者可以參考國家城市通用代碼庫、更快更準確地填寫目的地。純粹是輸入輔助, 選了建議項目
-           還是只會把地名文字填回欄位 (不會把代碼一起塞進去), 不影響這兩個欄位原本的自由文字比對邏輯。 */
+        /* 機場欄位 (去程/回程航段) 的自動完成建議清單, 打字跳出建議、點擊填入「常用名稱（原文代碼）」。
+           「目的地國家」「地區/城市」這兩個欄位原本也共用這套樣式 (單選, 打字選建議), 這次改成下面的
+           .ms-* 多選 (checkbox + 標籤) 樣式, 不再使用這裡。 */
         .cc-autocomplete-wrap { position: relative; }
         .cc-suggest-list {
             display: none;
@@ -90,8 +90,114 @@
             white-space: nowrap;
         }
 
+        /* 「目的地國家」「地區/城市」多選元件 (checkbox + 標籤/chip)。使用者要求這兩個欄位都要能一次
+           選多個 (多國/多城市行程), 選項來源是 country_city_code 這張使用者自己維護的「國家城市通用
+           代碼」參考表 (不是自由文字, 也不是 Patch 17 那版直接查景點資料庫實際有的國家/城市——那個做法
+           保證選了就查得到東西, 但代價是選項只能是「資料庫已經有的」, 沒辦法讓使用者選一個目前還沒有
+           資料、但之後要補的目的地)。改成從 country_city_code 這張使用者可以自己增修的清單挑選, 同時
+           即時比對公司景點資料庫 (沿用 Patch 17 新增的 GET /poi/countries、/poi/cities?country=), 對
+           「清單裡有、但景點資料庫還沒有相對應資料」的國家/城市加上 ⚠ 警示標記 (呼應使用者這次要求的
+           「檢視有沒有沒在資料庫的城市」)——選這些警示項目還是可以照選, 只是選了之後 AI 安排行程很可能
+           排不出東西, 使用者會在選的當下就先看到、自己決定要不要繼續, 不用等 AI 排完才發現。
+           地區 (城市) 的可選清單依「目前已選的國家」動態決定 (只列出這些國家底下的城市, 依國家分組顯示),
+           國家清單有變動時 (使用者加選/移除某個國家) 現有的城市選擇會清空重選, 避免留著不屬於目前選定
+           國家的城市造成混淆。 */
+        .ms-wrap {
+            position: relative;
+            width: 100%;
+            min-height: 44px;
+            padding: 6px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: #fff;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            cursor: text;
+        }
+        .ms-wrap:focus-within { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .ms-wrap.ms-disabled { background: #f8fafc; cursor: not-allowed; }
+        .ms-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .ms-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #eff6ff;
+            color: var(--primary-blue);
+            font-size: 12.5px;
+            font-weight: 600;
+            padding: 4px 6px 4px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .ms-chip-remove {
+            border: none;
+            background: rgba(37, 99, 235, 0.12);
+            color: var(--primary-blue);
+            width: 16px;
+            height: 16px;
+            line-height: 1;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            padding: 0;
+        }
+        .ms-chip-remove:hover { background: rgba(37, 99, 235, 0.25); }
+        .ms-search-input {
+            flex: 1;
+            min-width: 120px;
+            border: none;
+            outline: none;
+            font-size: 14px;
+            font-family: inherit;
+            padding: 4px 2px;
+            background: transparent;
+        }
+        .ms-search-input:disabled { background: transparent; cursor: not-allowed; }
+        .ms-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-height: 260px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .ms-dropdown.open { display: block; }
+        .ms-group-label {
+            padding: 6px 12px 4px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-gray);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        .ms-option {
+            padding: 7px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .ms-option:hover { background: #eff6ff; }
+        .ms-option input[type="checkbox"] { pointer-events: none; }
+        .ms-option span:first-of-type { flex: 1; }
+        .ms-option.warn span:first-of-type { color: #b45309; }
+        .ms-warn-badge { font-size: 12px; cursor: help; }
+        .ms-empty { padding: 10px 12px; font-size: 12.5px; color: var(--text-gray); }
+
         /* 行程重點資訊: 去程/回程班機 (機場+時間) + 行程說明, 選填。
-           機場欄位沿用跟目的地國家/城市一樣的自動完成做法, 打字會跳出景點資料庫裡「機場」分類的建議清單。 */
+           機場欄位打字會跳出景點資料庫裡「機場」分類的建議清單 (跟上面 .ms-* 多選元件是兩套不同做法,
+           機場一次只會有一個, 維持原本的單選自動完成即可)。 */
         .context-card {
             background: #f8fafc;
             border: 1px solid var(--border-color);
@@ -196,18 +302,22 @@
             </div>
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">目的地國家</label>
-                    <div class="cc-autocomplete-wrap">
-                        <input type="text" name="country" id="countryInput" class="form-control" placeholder="例：日本" autocomplete="off" required />
-                        <div class="cc-suggest-list" id="countrySuggestList"></div>
+                    <label class="form-label">目的地國家 (可複選)</label>
+                    <div class="ms-wrap" id="countryMsWrap">
+                        <div class="ms-chips" id="countryChips"></div>
+                        <input type="text" id="countrySearchInput" class="ms-search-input" placeholder="輸入或點選以搜尋國家..." autocomplete="off" />
+                        <div class="ms-dropdown" id="countryDropdown"></div>
                     </div>
+                    <input type="hidden" name="country" id="countryHidden" />
                 </div>
                 <div class="form-group">
-                    <label class="form-label">地區 / 城市 (選填)</label>
-                    <div class="cc-autocomplete-wrap">
-                        <input type="text" name="region" id="regionInput" class="form-control" placeholder="例：東京 (留空代表整個國家)" autocomplete="off" />
-                        <div class="cc-suggest-list" id="regionSuggestList"></div>
+                    <label class="form-label">地區 / 城市 (可複選，選填)</label>
+                    <div class="ms-wrap ms-disabled" id="regionMsWrap">
+                        <div class="ms-chips" id="regionChips"></div>
+                        <input type="text" id="regionSearchInput" class="ms-search-input" placeholder="請先選擇目的地國家" autocomplete="off" disabled />
+                        <div class="ms-dropdown" id="regionDropdown"></div>
                     </div>
+                    <input type="hidden" name="region" id="regionHidden" />
                 </div>
             </div>
             <div class="form-row">
@@ -327,58 +437,150 @@
 </main>
 
 <script>
-    // 國家/城市欄位自動完成: 打字即時打 /reference/country-city/autocomplete 篩選, 選了建議項目只把
-    // 地名文字 (name) 填回輸入框, 不會把代碼一起塞進去, 才不會影響這兩個欄位原本的自由文字比對邏輯。
-    // 邏輯沿用 AI 行程解析頁面「出發/抵達機場」欄位那一套自動完成的做法 (見 ai-import/new.html)。
-    function setupCountryCityAutocomplete(input, list, type) {
-        if (!input || !list) return;
-        let debounceTimer = null;
+    // 「目的地國家」「地區/城市」多選元件 (checkbox + 標籤/chip), 選項來源是 country_city_code 參考表,
+    // 同時即時比對公司景點資料庫 (GET /poi/countries、/poi/cities?country=, Patch 17 新增) 標示「清單裡
+    // 有、但景點資料庫還沒有相對應資料」的項目 (⚠ 警示), 詳細設計理由見上方 .ms-wrap CSS 註解。
+    //
+    // createMultiSelect() 是共用元件, 國家/地區欄位各自建立一份實例:
+    //   wrap/chipsEl/inputEl/dropdownEl/hiddenEl: 對應的 5 個 DOM 節點
+    //   fetchOptions(keyword) -> Promise<[{value, label, group?, warn?, warnTitle?}]>: 依目前打的關鍵字
+    //     算出這次要顯示的選項清單 (國家欄位固定回傳全部國家過濾關鍵字; 地區欄位依「目前已選的國家」動態
+    //     決定, 見下面 regionMs 的 fetchOptions)
+    //   onChange(selectedItems): 選項異動後的回呼 (目前只有國家欄位用, 連動更新地區欄位的啟用狀態/清空)
+    // hidden input 的值是選取項目的「顯示名稱」用「、」接起來 (跟後端 splitLocationTokens 的拆解格式相容,
+    // ItineraryController 收到的 country/region 字串格式因此完全沒變, 後端不需要跟著改)。
+    function createMultiSelect(wrap, chipsEl, inputEl, dropdownEl, hiddenEl, fetchOptions, onChange) {
+        let selected = []; // [{value, label}]
+        let currentOptions = [];
 
-        input.addEventListener('input', function () {
-            const keyword = input.value.trim();
-            clearTimeout(debounceTimer);
-            if (!keyword) { closeList(); return; }
-            debounceTimer = setTimeout(() => fetchSuggestions(keyword), 200);
-        });
-
-        input.addEventListener('blur', function () {
-            setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
-        });
-
-        function fetchSuggestions(keyword) {
-            fetch('/reference/country-city/autocomplete?keyword=' + encodeURIComponent(keyword) + '&type=' + encodeURIComponent(type))
-                .then(res => res.ok ? res.json() : [])
-                .then(items => renderList(items))
-                .catch(() => closeList());
+        function renderChips() {
+            chipsEl.innerHTML = '';
+            selected.forEach(function (item) {
+                const chip = document.createElement('span');
+                chip.className = 'ms-chip';
+                const label = document.createElement('span');
+                label.textContent = item.label;
+                chip.appendChild(label);
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'ms-chip-remove';
+                removeBtn.innerHTML = '&times;';
+                removeBtn.title = '移除';
+                removeBtn.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeItem(item.value);
+                });
+                chip.appendChild(removeBtn);
+                chipsEl.appendChild(chip);
+            });
         }
 
-        function renderList(items) {
-            if (!items || items.length === 0) { closeList(); return; }
-            list.innerHTML = '';
-            items.forEach(item => {
+        function updateHidden() {
+            hiddenEl.value = selected.map(function (s) { return s.label; }).join('、');
+        }
+
+        function removeItem(value) {
+            selected = selected.filter(function (s) { return s.value !== value; });
+            renderChips();
+            updateHidden();
+            if (onChange) onChange(selected);
+        }
+
+        function addItem(item) {
+            if (!selected.some(function (s) { return s.value === item.value; })) {
+                selected.push({ value: item.value, label: item.label });
+                renderChips();
+                updateHidden();
+                if (onChange) onChange(selected);
+            }
+            inputEl.value = '';
+            refreshDropdown();
+        }
+
+        function renderDropdown() {
+            dropdownEl.innerHTML = '';
+            if (!currentOptions || currentOptions.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'ms-empty';
+                empty.textContent = '沒有可選的項目';
+                dropdownEl.appendChild(empty);
+                dropdownEl.classList.add('open');
+                return;
+            }
+            let lastGroup = null;
+            currentOptions.forEach(function (opt) {
+                if (opt.group && opt.group !== lastGroup) {
+                    const groupEl = document.createElement('div');
+                    groupEl.className = 'ms-group-label';
+                    groupEl.textContent = opt.group;
+                    dropdownEl.appendChild(groupEl);
+                    lastGroup = opt.group;
+                }
+                const isChecked = selected.some(function (s) { return s.value === opt.value; });
                 const row = document.createElement('div');
-                row.className = 'cc-suggest-item';
-                const nameSpan = document.createElement('span');
-                nameSpan.textContent = item.name;
-                const codeSpan = document.createElement('span');
-                codeSpan.className = 'cc-suggest-code';
-                codeSpan.textContent = item.code || '';
-                row.appendChild(nameSpan);
-                if (item.code) row.appendChild(codeSpan);
+                row.className = 'ms-option' + (opt.warn ? ' warn' : '');
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = isChecked;
+                row.appendChild(checkbox);
+
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = opt.label;
+                row.appendChild(labelSpan);
+
+                if (opt.warn) {
+                    const warnBadge = document.createElement('span');
+                    warnBadge.className = 'ms-warn-badge';
+                    warnBadge.textContent = '⚠';
+                    warnBadge.title = opt.warnTitle || '目前景點資料庫還沒有這筆資料';
+                    row.appendChild(warnBadge);
+                }
+
                 row.addEventListener('mousedown', function (e) {
                     e.preventDefault();
-                    input.value = item.name; // 只填地名文字, 不附代碼, 保持跟原本自由文字比對邏輯相容
-                    closeList();
+                    if (isChecked) removeItem(opt.value); else addItem(opt);
                 });
-                list.appendChild(row);
+                dropdownEl.appendChild(row);
             });
-            list.classList.add('open');
+            dropdownEl.classList.add('open');
         }
 
-        function closeList() {
-            list.classList.remove('open');
-            list.innerHTML = '';
+        function closeDropdown() {
+            dropdownEl.classList.remove('open');
         }
+
+        function refreshDropdown() {
+            if (inputEl.disabled) return;
+            Promise.resolve(fetchOptions(inputEl.value.trim())).then(function (options) {
+                currentOptions = options || [];
+                renderDropdown();
+            });
+        }
+
+        let debounceTimer = null;
+        inputEl.addEventListener('input', function () {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(refreshDropdown, 150);
+        });
+        inputEl.addEventListener('focus', refreshDropdown);
+        inputEl.addEventListener('blur', function () {
+            setTimeout(closeDropdown, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+        wrap.addEventListener('mousedown', function (e) {
+            if (e.target === inputEl) return;
+            if (!inputEl.disabled) inputEl.focus();
+        });
+
+        return {
+            getSelected: function () { return selected; },
+            setSelected: function (items) {
+                selected = items;
+                renderChips();
+                updateHidden();
+            }
+        };
     }
 
     // 機場欄位自動完成: 打字即時打 /poi/autocomplete?category=機場 篩選 (跟 AI 行程解析頁「出發/抵達機場」
@@ -473,12 +675,149 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        setupCountryCityAutocomplete(document.getElementById('countryInput'), document.getElementById('countrySuggestList'), 'country');
-        setupCountryCityAutocomplete(document.getElementById('regionInput'), document.getElementById('regionSuggestList'), 'city');
+        // 即時比對「景點資料庫實際有的國家/城市」(Patch 17 新增的 GET /poi/countries、/poi/cities?country=),
+        // 用來在下面的多選清單裡標示 country_city_code 有登記、但景點資料庫還沒有相對應資料的項目。
+        // 用 Promise 快取, 同一個國家/整個國家清單同一頁只查一次。
+        let poiCountriesPromise = null;
+        function loadPoiCountries() {
+            if (!poiCountriesPromise) {
+                poiCountriesPromise = fetch('/poi/countries')
+                    .then(function (r) { return r.ok ? r.json() : []; })
+                    .catch(function () { return []; });
+            }
+            return poiCountriesPromise;
+        }
+        const poiCitiesCache = {};
+        function loadPoiCities(countryName) {
+            if (!poiCitiesCache[countryName]) {
+                poiCitiesCache[countryName] = fetch('/poi/cities?country=' + encodeURIComponent(countryName))
+                    .then(function (r) { return r.ok ? r.json() : []; })
+                    .catch(function () { return []; });
+            }
+            return poiCitiesCache[countryName];
+        }
+
+        // country_city_code 參考表的國家清單, 資料量小 (十幾筆), 一次抓回來之後打字篩選都在前端做
+        let ccCountriesPromise = null;
+        function loadCcCountries() {
+            if (!ccCountriesPromise) {
+                ccCountriesPromise = fetch('/reference/country-city/countries')
+                    .then(function (r) { return r.ok ? r.json() : []; })
+                    .catch(function () { return []; });
+            }
+            return ccCountriesPromise;
+        }
+
+        const countryMs = createMultiSelect(
+            document.getElementById('countryMsWrap'),
+            document.getElementById('countryChips'),
+            document.getElementById('countrySearchInput'),
+            document.getElementById('countryDropdown'),
+            document.getElementById('countryHidden'),
+            function (keyword) {
+                return Promise.all([loadCcCountries(), loadPoiCountries()]).then(function (results) {
+                    const ccCountries = results[0], poiCountrySet = new Set(results[1]);
+                    return ccCountries
+                        .filter(function (c) { return !keyword || c.name.indexOf(keyword) !== -1; })
+                        .map(function (c) {
+                            const hasPoi = poiCountrySet.has(c.name);
+                            return {
+                                value: c.code,
+                                label: c.name,
+                                warn: !hasPoi,
+                                warnTitle: hasPoi ? '' : '景點資料庫目前還沒有「' + c.name + '」的資料，選這個國家「AI 安排行程」很可能排不出東西'
+                            };
+                        });
+                });
+            },
+            function (selectedCountries) { onCountryChanged(selectedCountries); }
+        );
+
+        const regionMs = createMultiSelect(
+            document.getElementById('regionMsWrap'),
+            document.getElementById('regionChips'),
+            document.getElementById('regionSearchInput'),
+            document.getElementById('regionDropdown'),
+            document.getElementById('regionHidden'),
+            function (keyword) {
+                const countries = countryMs.getSelected(); // [{value: code, label: name}]
+                if (countries.length !== 1) return Promise.resolve([]); // 沒有剛好選一個國家就不列城市, 呼應 onCountryChanged 的停用邏輯
+                const countryName = countries[0].label;
+                const countryCode = countries[0].value;
+                return Promise.all([
+                    fetch('/reference/country-city/cities?countryCodes=' + encodeURIComponent(countryCode))
+                        .then(function (r) { return r.ok ? r.json() : []; }),
+                    loadPoiCities(countryName)
+                ]).then(function (results) {
+                    const ccCities = results[0], poiCitySet = new Set(results[1]);
+                    return ccCities
+                        .filter(function (c) { return !keyword || c.name.indexOf(keyword) !== -1; })
+                        .map(function (c) {
+                            const hasPoi = poiCitySet.has(c.name);
+                            return {
+                                value: c.code,
+                                label: c.name,
+                                warn: !hasPoi,
+                                warnTitle: hasPoi ? '' : '景點資料庫在「' + countryName + '」目前還沒有「' + c.name + '」的資料'
+                            };
+                        });
+                });
+            }
+        );
+
+        // 地區欄位是否啟用/依哪個國家篩選城市, 依「目的地國家」目前選了幾個決定: 一個都沒選就停用;
+        // 剛好選一個就啟用並依那個國家列出城市清單; 選了兩個以上 (多國行程) 時, 後端
+        // findByAgencyAndCountry() 本來就不會用地區條件篩選 (只在剛好單一國家時套用, 見 PoiDAOImpl 註解),
+        // 這裡也停用地區欄位並清空已選的城市、說明原因, 避免使用者誤以為多國行程時選了地區會生效。
+        function onCountryChanged(selectedCountries) {
+            const regionWrap = document.getElementById('regionMsWrap');
+            const regionInput = document.getElementById('regionSearchInput');
+            regionMs.setSelected([]); // 國家異動一律清空已選城市, 避免留著不屬於新選定國家的城市造成混淆
+            if (selectedCountries.length === 0) {
+                regionInput.disabled = true;
+                regionInput.placeholder = '請先選擇目的地國家';
+                regionWrap.classList.add('ms-disabled');
+            } else if (selectedCountries.length === 1) {
+                regionInput.disabled = false;
+                regionInput.placeholder = '例：東京 (可複選，留空代表整個國家)';
+                regionWrap.classList.remove('ms-disabled');
+            } else {
+                regionInput.disabled = true;
+                regionInput.placeholder = '多國行程不篩選地區，請進入看板後手動加入景點';
+                regionWrap.classList.add('ms-disabled');
+            }
+        }
+        onCountryChanged([]); // 初始狀態: 國家還沒選, 地區欄位先停用
 
         document.querySelectorAll('.leg-airport-input').forEach(function (input) {
             setupAirportAutocomplete(input);
         });
+
+        const formEl = document.querySelector('form');
+        if (formEl) {
+            // 這個表單欄位很多 (國家/地區/日期/去程回程機場時間/說明...), 使用者反映在文字輸入框按 Enter
+            // 會直接觸發表單第一個 submit 按鈕 (「建立行程並進入看板」)——填完一格習慣按 Enter 想跳下一格,
+            // 結果整個行程就直接建立下去了。改成: 在這個表單裡按 Enter 一律不送出 (行程說明的 <textarea>
+            // 除外, 裡面按 Enter 應該要能正常換行), 一定要真的按下「建立行程並進入看板」或「AI 安排行程」
+            // 其中一個按鈕才會送出。
+            formEl.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                }
+            });
+
+            // 「目的地國家」改成用 hidden input 存值 (多選, 見上面 createMultiSelect), HTML5 的 required
+            // 屬性對 type=hidden 的欄位不會生效 (瀏覽器表單驗證本來就不管隱藏欄位), 所以這裡手動檢查,
+            // 一個國家都沒選就擋下送出並提示。
+            formEl.addEventListener('submit', function (e) {
+                const countryHidden = document.getElementById('countryHidden');
+                if (!countryHidden.value.trim()) {
+                    e.preventDefault();
+                    alert('請至少選擇一個目的地國家');
+                    document.getElementById('countrySearchInput').focus();
+                }
+            });
+        }
     });
 </script>
 

@@ -156,4 +156,13 @@ public class PoiService {
             poiOverrideDAO.save(new PoiOverride(AID, originalPid, null));
         }
     }
+
+    // 給「建立新行程」頁面國家/地區自動完成用: 只回傳公司景點資料庫裡實際存在的國家/城市 (見 PoiDAOImpl 註解)
+    public List<String> listCountries(int AID) {
+        return poiDAO.findDistinctCountries(AID);
+    }
+
+    public List<String> listCitiesByCountry(int AID, String country) {
+        return poiDAO.findDistinctCitiesByCountry(AID, country);
+    }
 }
