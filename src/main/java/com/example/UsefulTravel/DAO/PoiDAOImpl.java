@@ -101,7 +101,7 @@ public class PoiDAOImpl implements PoiDAO {
         StringBuilder jpql = new StringBuilder(
                 "SELECT p FROM Poi p WHERE (p.AID IS NULL OR p.AID = :aid) ");
         if (keyword != null && !keyword.isBlank()) {
-            jpql.append("AND (p.name LIKE :kw OR p.city LIKE :kw OR p.country LIKE :kw) ");
+            jpql.append("AND (p.name LIKE :kw OR p.originalName LIKE :kw OR p.city LIKE :kw OR p.country LIKE :kw) ");
         }
         if (category != null && !category.isBlank()) {
             jpql.append("AND p.category = :category ");

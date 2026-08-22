@@ -12,6 +12,7 @@ com\example\UsefulTravel\entity\AgencyExportTemplate.class
 com\example\UsefulTravel\DAO\TravelComponentDAO.class
 com\example\UsefulTravel\DAO\ItineraryDayDAO.class
 com\example\UsefulTravel\DAO\TravelComponentDAOImpl.class
+com\example\UsefulTravel\DAO\CountryCityCodeDAO.class
 com\example\UsefulTravel\service\ItineraryService.class
 com\example\UsefulTravel\entity\ItineraryItem.class
 com\example\UsefulTravel\DAO\RouteSegmentDAOImpl.class
@@ -80,6 +81,7 @@ com\example\UsefulTravel\service\ExportService$ExportOptions.class
 com\example\UsefulTravel\service\ExportService$StylePalette.class
 com\example\UsefulTravel\DAO\ItineraryItemOptionDAO.class
 com\example\UsefulTravel\DAO\AgencyDAOImpl.class
+com\example\UsefulTravel\controller\ReferenceCodeController.class
 com\example\UsefulTravel\entity\PriceTierTemplateRow.class
 com\example\UsefulTravel\DAO\ImageAssetDAO.class
 com\example\UsefulTravel\controller\TravelComponentController.class
@@ -105,6 +107,8 @@ com\example\UsefulTravel\DAO\ItineraryDAO.class
 com\example\UsefulTravel\entity\PriceTierTemplate.class
 com\example\UsefulTravel\controller\AiImportController.class
 com\example\UsefulTravel\DAO\ItineraryComponentDAO.class
+com\example\UsefulTravel\entity\CountryCityCode.class
+com\example\UsefulTravel\DAO\CountryCityCodeDAOImpl.class
 com\example\UsefulTravel\service\PermissionService.class
 com\example\UsefulTravel\controller\StaffUserController.class
 com\example\UsefulTravel\DAO\RouteSegmentDAO.class

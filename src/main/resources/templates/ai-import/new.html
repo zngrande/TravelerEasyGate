@@ -140,6 +140,98 @@
             line-height: 1.5;
         }
 
+        /* 行程重點資訊 (出發/抵達機場+時間、行程說明) - 選填, 讓 AI 解析更準確 */
+        .context-card {
+            background: #faf5ff;
+            border: 1px solid #f3e8ff;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+        }
+        .context-hint {
+            font-size: 12.5px;
+            color: var(--text-gray);
+            margin-bottom: 14px;
+        }
+        .leg-row {
+            display: grid;
+            grid-template-columns: 1fr 170px 1fr 170px 32px;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 10px;
+        }
+        .leg-field label {
+            display: block;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        .airport-autocomplete-wrap { position: relative; }
+        .suggest-list {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .suggest-list.open { display: block; }
+        .suggest-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .suggest-item:hover { background: #faf5ff; }
+        .suggest-item .suggest-code {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--primary-purple);
+            background: #f3e8ff;
+            padding: 1px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        .btn-remove-leg {
+            width: 32px;
+            height: 34px;
+            border: 1px solid var(--border-color);
+            background: #fff;
+            color: #94a3b8;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+        .btn-remove-leg:hover { border-color: #f87171; color: #ef4444; background: #fef2f2; }
+        .btn-add-leg {
+            background: none;
+            border: 1px dashed #c4b5fd;
+            color: var(--primary-purple);
+            font-size: 12.5px;
+            font-weight: 600;
+            padding: 8px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .btn-add-leg:hover { background: #f3e8ff; }
+        .context-desc textarea.form-control { height: 80px; }
+
         /* 檔案上傳區塊：改成橫式一排 (圖示 + 文字 + 選擇按鈕), 比原本方形大區塊省高度,
            寬度變寬後放橫式反而更好用、也呼應把空白處延伸利用的需求 */
         .upload-box {
@@ -217,6 +309,55 @@
             <span th:text="${uploadError}">解析失敗</span>
         </div>
 
+        <!-- 行程重點資訊 (選填) - 出發/抵達機場+時間 (可用「+新增航段」加轉機)、行程說明。
+             這裡的欄位不屬於下面任何一個 <form>, 送出時會由 JS 在 submit 當下組成一段文字, 動態塞進
+             使用者實際按下送出的那個表單 (上傳檔案 或 貼上文字) 一起送出, 兩種送出方式都適用同一份資料。 -->
+        <div class="context-card">
+            <div class="section-label"><i class="fa-solid fa-plane-departure"></i> 行程重點資訊（選填，提供給 AI 讓解析更準確）</div>
+            <div class="context-hint">
+                填寫出發/抵達機場與時間、或用文字描述行程重點（例如天數、去程回程時間），AI 解析時會優先參考這裡的內容。全部欄位皆為選填。
+            </div>
+
+            <div id="legsContainer">
+                <div class="leg-row" data-leg-row>
+                    <div class="leg-field">
+                        <label>出發機場</label>
+                        <div class="airport-autocomplete-wrap">
+                            <input type="text" class="form-control leg-dep-airport" placeholder="例：東京成田機場" autocomplete="off" />
+                            <div class="suggest-list"></div>
+                        </div>
+                    </div>
+                    <div class="leg-field">
+                        <label>出發時間</label>
+                        <input type="datetime-local" class="form-control leg-dep-time" />
+                    </div>
+                    <div class="leg-field">
+                        <label>抵達機場</label>
+                        <div class="airport-autocomplete-wrap">
+                            <input type="text" class="form-control leg-arr-airport" placeholder="例：桃園國際機場" autocomplete="off" />
+                            <div class="suggest-list"></div>
+                        </div>
+                    </div>
+                    <div class="leg-field">
+                        <label>抵達時間</label>
+                        <input type="datetime-local" class="form-control leg-arr-time" />
+                    </div>
+                    <button type="button" class="btn-remove-leg" onclick="removeLeg(this)" title="移除這個航段">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <button type="button" class="btn-add-leg" onclick="addLeg()">
+                <i class="fa-solid fa-plus"></i> 新增航段（例如轉機）
+            </button>
+
+            <div class="form-group context-desc" style="margin-bottom:0;">
+                <label class="form-label">行程說明</label>
+                <textarea id="tripDescription" class="form-control" placeholder="例：五天四夜，第一天到東京，第二天去河口湖，第三天箱根泡湯..."></textarea>
+            </div>
+        </div>
+
         <!-- 上傳 PDF / Word (走 POST /ai-import/upload) -->
         <form id="uploadForm" method="post" th:action="@{/ai-import/upload}" enctype="multipart/form-data" onsubmit="showLoading('loadingHintFile', this)">
             <div class="section-label"><i class="fa-solid fa-file-arrow-up"></i> 上傳 PDF / Word</div>
@@ -261,8 +402,11 @@ Day3：瑞穗牧場→花蓮機場送機 (含早餐)
     </div>
 </main>
 
-<script>
+<script th:inline="javascript">
+    const POI_AUTOCOMPLETE_URL = /*[[@{/poi/autocomplete}]]*/ '/poi/autocomplete';
+
     function showLoading(id, form) {
+        injectContextFields(form);
         document.getElementById(id).style.display = 'block';
         const btn = form.querySelector('button[type="submit"]');
         if (btn) {
@@ -270,6 +414,108 @@ Day3：瑞穗牧場→花蓮機場送機 (含早餐)
             btn.style.pointerEvents = 'none';
         }
     }
+
+    // 送出前, 把「行程重點資訊」區塊目前的值組成隱藏欄位動態塞進實際要送出的那個表單
+    // (這區塊本身不屬於任何 <form>, 兩個表單 - 上傳檔案 / 貼上文字 - 都共用同一份資料)
+    function injectContextFields(form) {
+        form.querySelectorAll('[data-injected-context]').forEach(el => el.remove());
+
+        document.querySelectorAll('#legsContainer .leg-row').forEach(row => {
+            appendHidden(form, 'depAirport', row.querySelector('.leg-dep-airport').value);
+            appendHidden(form, 'depTime', row.querySelector('.leg-dep-time').value);
+            appendHidden(form, 'arrAirport', row.querySelector('.leg-arr-airport').value);
+            appendHidden(form, 'arrTime', row.querySelector('.leg-arr-time').value);
+        });
+        appendHidden(form, 'tripDescription', document.getElementById('tripDescription').value);
+    }
+
+    function appendHidden(form, name, value) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value || '';
+        input.setAttribute('data-injected-context', '1');
+        form.appendChild(input);
+    }
+
+    // 新增一個航段 (複製目前第一個航段列的 DOM 結構, 清空欄位值, 掛上自動完成)
+    function addLeg() {
+        const container = document.getElementById('legsContainer');
+        const template = container.querySelector('.leg-row');
+        const clone = template.cloneNode(true);
+        clone.querySelectorAll('input').forEach(input => input.value = '');
+        clone.querySelectorAll('.suggest-list').forEach(list => { list.innerHTML = ''; list.classList.remove('open'); });
+        container.appendChild(clone);
+        setupAirportAutocomplete(clone.querySelector('.leg-dep-airport'));
+        setupAirportAutocomplete(clone.querySelector('.leg-arr-airport'));
+    }
+
+    // 移除一個航段列 (全部欄位都是選填, 允許移除到剩 0 段)
+    function removeLeg(btn) {
+        const row = btn.closest('.leg-row');
+        if (row) row.remove();
+    }
+
+    // 機場輸入框自動完成: 打字即時打 /poi/autocomplete?category=airport 篩選, 選擇後把「常用名稱 (代碼)」填回輸入框
+    function setupAirportAutocomplete(input) {
+        if (!input || input.dataset.autocompleteBound === '1') return;
+        input.dataset.autocompleteBound = '1';
+
+        const list = input.closest('.airport-autocomplete-wrap').querySelector('.suggest-list');
+        let debounceTimer = null;
+
+        input.addEventListener('input', function () {
+            const keyword = input.value.trim();
+            clearTimeout(debounceTimer);
+            if (!keyword) { closeList(); return; }
+            debounceTimer = setTimeout(() => fetchSuggestions(keyword), 200);
+        });
+
+        input.addEventListener('blur', function () {
+            setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+
+        function fetchSuggestions(keyword) {
+            fetch(POI_AUTOCOMPLETE_URL + '?keyword=' + encodeURIComponent(keyword) + '&category=airport')
+                .then(res => res.ok ? res.json() : [])
+                .then(items => renderList(items))
+                .catch(() => closeList());
+        }
+
+        function renderList(items) {
+            if (!items || items.length === 0) { closeList(); return; }
+            list.innerHTML = '';
+            items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'suggest-item';
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = item.name;
+                const codeSpan = document.createElement('span');
+                codeSpan.className = 'suggest-code';
+                codeSpan.textContent = item.originalName || '';
+                row.appendChild(nameSpan);
+                if (item.originalName) row.appendChild(codeSpan);
+                row.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    input.value = item.originalName ? (item.name + '（' + item.originalName + '）') : item.name;
+                    closeList();
+                });
+                list.appendChild(row);
+            });
+            list.classList.add('open');
+        }
+
+        function closeList() {
+            list.classList.remove('open');
+            list.innerHTML = '';
+        }
+    }
+
+    // 頁面載入時, 幫預設的第一個航段列掛上自動完成
+    document.addEventListener('DOMContentLoaded', function () {
+        setupAirportAutocomplete(document.querySelector('.leg-dep-airport'));
+        setupAirportAutocomplete(document.querySelector('.leg-arr-airport'));
+    });
 </script>
 
 </body>

@@ -358,7 +358,18 @@
                                 <option value="restaurant" th:selected="${poi?.category == 'restaurant'}">餐廳</option>
                                 <option value="hotel" th:selected="${poi?.category == 'hotel'}">飯店 / 住宿</option>
                                 <option value="rest_stop" th:selected="${poi?.category == 'rest_stop'}">休息站</option>
+                                <option value="airport" th:selected="${poi?.category == 'airport'}">機場</option>
+                                <option value="transport" th:selected="${poi?.category == 'transport'}">交通</option>
+                                <option value="shopping" th:selected="${poi?.category == 'shopping'}">購物</option>
                             </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">原文地名 <span style="font-weight:400; color: var(--text-gray);">(選填)</span></label>
+                        <input type="text" name="originalName" class="form-control" th:value="${poi?.originalName}" placeholder="例：新穂高ロープウェイ / Shinhotaka Ropeway" />
+                        <div class="hint-text" style="color: var(--text-gray);">
+                            <i class="fa-solid fa-circle-info"></i> 填入景點的日文/英文等原始名稱，AI 解析行程時命名不同也能比對到同一個地點，搜尋時也會一併比對這個欄位。
                         </div>
                     </div>
 

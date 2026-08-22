@@ -8,6 +8,7 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\Iti
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\MarginSettingController.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\PoiController.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\QuotationController.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\ReferenceCodeController.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\StaffUserController.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\controller\TravelComponentController.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AgencyDAO.java
@@ -20,6 +21,8 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiParsedDa
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiParsedDayDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiParsedItemDAO.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\AiParsedItemDAOImpl.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\CountryCityCodeDAO.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\CountryCityCodeDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\CurrencyDAO.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\CurrencyDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\ExportHistoryDAO.java
@@ -65,6 +68,7 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\AgencyE
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\AiImport.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\AiParsedDay.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\AiParsedItem.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\CountryCityCode.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\Currency.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ExportHistory.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\ImageAsset.java

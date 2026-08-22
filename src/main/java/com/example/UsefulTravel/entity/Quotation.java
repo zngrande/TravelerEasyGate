@@ -58,6 +58,23 @@ public class Quotation {
     @Column(name = "rebate_pct")
     private java.math.BigDecimal rebatePct = java.math.BigDecimal.ZERO;
 
+    // 公式建構器 (跟 margin-setting/計算公式管理同一套 FormulaEngine): 每一層都可選填一條算式,
+    // 例如 "{NET_COST} * 1.15 + 2000"。留空 (null) 就沿用上面同一層的舊制 mode/value 算法當 fallback,
+    // 兩邊不衝突, QuotationService.recalculateQuotationPricing() 逐層判斷。
+    // 欄位本身沿用 migration_formula_pricing.sql 當時就建立好、但一直沒接上畫面/邏輯的 custom_*_formula
+    // (只多補了 custom_basic_formula, 這一層是後來才拆出來的, 舊 migration 還沒有)。
+    @Column(name = "custom_basic_formula", length = 500)
+    private String customBasicFormula;
+
+    @Column(name = "custom_trade_formula", length = 500)
+    private String customTradeFormula;
+
+    @Column(name = "custom_retail_formula", length = 500)
+    private String customRetailFormula;
+
+    @Column(name = "custom_rebate_formula", length = 500)
+    private String customRebateFormula;
+
     @Column(name = "status")
     private String status = "draft"; // draft / locked / confirmed / expired
 
@@ -134,6 +151,18 @@ public class Quotation {
 
     public java.math.BigDecimal getRebatePct() { return rebatePct; }
     public void setRebatePct(java.math.BigDecimal rebatePct) { this.rebatePct = rebatePct; }
+
+    public String getCustomBasicFormula() { return customBasicFormula; }
+    public void setCustomBasicFormula(String customBasicFormula) { this.customBasicFormula = customBasicFormula; }
+
+    public String getCustomTradeFormula() { return customTradeFormula; }
+    public void setCustomTradeFormula(String customTradeFormula) { this.customTradeFormula = customTradeFormula; }
+
+    public String getCustomRetailFormula() { return customRetailFormula; }
+    public void setCustomRetailFormula(String customRetailFormula) { this.customRetailFormula = customRetailFormula; }
+
+    public String getCustomRebateFormula() { return customRebateFormula; }
+    public void setCustomRebateFormula(String customRebateFormula) { this.customRebateFormula = customRebateFormula; }
 
     @Transient
     public boolean isBasicMarkupAmountMode() { return "AMOUNT".equals(basicMarkupMode); }

@@ -129,8 +129,8 @@ public class ItineraryService {
             // 資料庫裡這個國家/地區如果完全沒有餐廳/飯店類的候選景點, AI 當然也排不出真正的早/午/晚餐跟住宿。
             // 這種情況不要放著不管 (時間軸看起來像漏排), 也不要硬找不相關的地點湊數, 改成先補一個純文字的
             // 預留項目 (早餐/午餐/晚餐/住宿), 不連結 POI、不查座標、不顯示在地圖上, 讓線控之後自己換成真正的地點。
-            boolean hasRestaurant = candidates.stream().anyMatch(p -> "餐廳".equals(p.getCategory()));
-            boolean hasHotel = candidates.stream().anyMatch(p -> "飯店".equals(p.getCategory()));
+            boolean hasRestaurant = candidates.stream().anyMatch(p -> "restaurant".equals(p.getCategory()));
+            boolean hasHotel = candidates.stream().anyMatch(p -> "hotel".equals(p.getCategory()));
             if (!hasRestaurant || !hasHotel) {
                 for (ItineraryDay day : days) {
                     if (!hasRestaurant) {
@@ -154,13 +154,13 @@ public class ItineraryService {
         return itinerary;
     }
 
-    // 把資料庫裡的 POI 分類 (attraction/restaurant/hotel/rest_stop) 轉成行程項目的分類 (attraction/meal/hotel/...),
-    // 跟前端地圖上「點灰色建議標記直接加入行程」用的判斷邏輯一致
+    // 把資料庫裡的 POI 分類 (attraction/restaurant/hotel/rest_stop/airport/transport/shopping) 轉成
+    // 行程項目的分類 (attraction/meal/hotel/...), 跟前端地圖上「點灰色建議標記直接加入行程」用的判斷邏輯一致
     private String mapPoiCategoryToItemType(String poiCategory) {
         if (poiCategory == null) return "attraction";
         return switch (poiCategory) {
-            case "餐廳" -> "meal";
-            case "飯店" -> "hotel";
+            case "restaurant" -> "meal";
+            case "hotel" -> "hotel";
             default -> "attraction";
         };
     }
@@ -205,7 +205,7 @@ public class ItineraryService {
             if (i > 0) userContent.append(",");
             userContent.append("{\"pid\":").append(poi.getPID())
                     .append(",\"name\":\"").append(poi.getName() != null ? poi.getName().replace("\"", "") : "")
-                    .append("\",\"category\":\"").append(poi.getCategory() != null ? poi.getCategory() : "景點")
+                    .append("\",\"category\":\"").append(poi.getCategory() != null ? poi.getCategory() : "attraction")
                     .append("\",\"stay_min\":").append(poi.getSuggestedStayMin() != null ? poi.getSuggestedStayMin() : 60)
                     .append("}");
         }
@@ -474,12 +474,14 @@ public class ItineraryService {
     }
 
     // AI/手動輸入的 item_type 對應到 POI 資料庫的 category (transport/highlight 不是實體地點, 不能加入)
+    // 這裡要用跟 poi/new.html、PoiController、AiParseService 一致的英文 category 值 (attraction/
+    // restaurant/hotel), 不能用中文, 不然新建立的 POI 會跟畫面上的類型篩選/自動完成對不上
     private String mapItemTypeToPoiCategory(String itemType) {
         if (itemType == null) return null;
         return switch (itemType) {
-            case "attraction" -> "景點";
-            case "meal" -> "餐廳";
-            case "hotel" -> "飯店";
+            case "attraction" -> "attraction";
+            case "meal" -> "restaurant";
+            case "hotel" -> "hotel";
             default -> null;
         };
     }

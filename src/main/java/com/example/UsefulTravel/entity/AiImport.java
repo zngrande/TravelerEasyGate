@@ -24,6 +24,9 @@ public class AiImport {
     @Column(name = "raw_content", columnDefinition = "MEDIUMTEXT")
     private String rawContent;
 
+    @Column(name = "extra_context", columnDefinition = "TEXT")
+    private String extraContext; // 使用者填的「行程重點資訊」(出發/抵達機場+時間、行程說明), 格式化文字, AI 解析時當額外參考、review 頁面顯示回去給使用者看
+
     @Column(name = "status")
     private String status = "pending"; // pending / parsed / confirmed / failed
 
@@ -71,6 +74,9 @@ public class AiImport {
 
     public String getRawContent() { return rawContent; }
     public void setRawContent(String rawContent) { this.rawContent = rawContent; }
+
+    public String getExtraContext() { return extraContext; }
+    public void setExtraContext(String extraContext) { this.extraContext = extraContext; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

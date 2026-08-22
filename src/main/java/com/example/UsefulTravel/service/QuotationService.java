@@ -311,14 +311,18 @@ public class QuotationService {
     }
 
     /**
-     * 調整這張報價單的基本報價/同業/直售加成設定 (模式 + 數值) 跟退傭 (模式 + 數值)。
+     * 調整這張報價單的基本報價/同業/直售加成設定 (模式 + 數值) 跟退傭 (模式 + 數值),
+     * 以及公式建構器的四層算式 (基本/同業/直售/退傭, 對應 quotation.custom_*_formula)。
      * 每張報價單獨立設定, 不依賴加成規則範本。mode 只接受 "PERCENT" 或 "AMOUNT", 其他值一律視為 PERCENT。
      * 每一組 mode/value 都是可選的 (null = 這次不改這一層)。
+     * 公式參數是空字串代表「清空這一層的公式, 改回沿用上面的舊制 mode/value 當 fallback」; null 代表這次不動這一層的公式。
      */
     public void updateMarkupSettings(int QID, String basicMarkupMode, BigDecimal basicMarkupValue,
                                       String tradeMarkupMode, BigDecimal tradeMarkupValue,
                                       String retailMarkupMode, BigDecimal retailMarkupValue,
-                                      String rebateMode, BigDecimal rebatePct) {
+                                      String rebateMode, BigDecimal rebatePct,
+                                      String basicFormula, String tradeFormula,
+                                      String retailFormula, String rebateFormula) {
         Quotation quotation = quotationDAO.findById(QID);
         if (quotation == null) return;
         if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
@@ -339,6 +343,11 @@ public class QuotationService {
             quotation.setRebateMode("AMOUNT".equals(rebateMode) ? "AMOUNT" : "PERCENT");
             quotation.setRebatePct(rebatePct);
         }
+        if (basicFormula != null) quotation.setCustomBasicFormula(basicFormula.isBlank() ? null : basicFormula.trim());
+        if (tradeFormula != null) quotation.setCustomTradeFormula(tradeFormula.isBlank() ? null : tradeFormula.trim());
+        if (retailFormula != null) quotation.setCustomRetailFormula(retailFormula.isBlank() ? null : retailFormula.trim());
+        if (rebateFormula != null) quotation.setCustomRebateFormula(rebateFormula.isBlank() ? null : rebateFormula.trim());
+
         quotationDAO.save(quotation);
         recalculateAll(QID);
     }
@@ -639,19 +648,36 @@ public class QuotationService {
         List<QuotationLine> lines = quotationLineDAO.findByQuotation(quotation.getQID());
         if (lines.isEmpty()) return;
 
-        BigDecimal netCostTotal = BigDecimal.ZERO;
-        for (QuotationLine line : lines) {
-            netCostTotal = netCostTotal.add(nz(line.getNetCost()));
-        }
+        // 用 stream 算總和 (而不是用一個會被重複賦值的迴圈變數), 這樣 netCostTotal 才會是
+        // effectively final, 下面公式建構器的 lambda (() -> applyMarkup(netCostTotal, ...)) 才能直接捕捉它
+        BigDecimal netCostTotal = lines.stream()
+                .map(line -> nz(line.getNetCost()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal basicPriceTotal = applyMarkup(netCostTotal, quotation.getBasicMarkupMode(), quotation.getBasicMarkupValue());
-        BigDecimal tradePriceTotal = applyMarkup(basicPriceTotal, quotation.getTradeMarkupMode(), quotation.getTradeMarkupValue());
-        BigDecimal retailPriceTotal = applyMarkup(tradePriceTotal, quotation.getRetailMarkupMode(), quotation.getRetailMarkupValue());
+        // 公式建構器變數鏈: NET_COST/GROUP_SIZE 一開始就有, 每算完一層就把結果補進去給下一層公式引用
+        // (跟畫面上 quotation/edit.html 的公式建構器 dropzone 給的變數一一對應)。
+        Map<String, BigDecimal> formulaVars = new java.util.HashMap<>();
+        formulaVars.put("NET_COST", netCostTotal);
+        formulaVars.put("GROUP_SIZE", BigDecimal.valueOf(quotation.getGroupSize()));
 
-        // 退傭金額: mode=PERCENT 時是「同業價 × 退傭%」; mode=AMOUNT 時直接是填的那個固定金額 (不是「加」在同業價上, 是退傭本身)
-        BigDecimal rebateAmountTotal = "AMOUNT".equals(quotation.getRebateMode())
-                ? nz(quotation.getRebatePct())
-                : tradePriceTotal.multiply(pct(quotation.getRebatePct())).setScale(SCALE, RoundingMode.HALF_UP);
+        BigDecimal basicPriceTotal = evaluateLayer(quotation.getCustomBasicFormula(), formulaVars,
+                () -> applyMarkup(netCostTotal, quotation.getBasicMarkupMode(), quotation.getBasicMarkupValue()));
+        formulaVars.put("BASIC_PRICE", basicPriceTotal);
+
+        BigDecimal tradePriceTotal = evaluateLayer(quotation.getCustomTradeFormula(), formulaVars,
+                () -> applyMarkup(basicPriceTotal, quotation.getTradeMarkupMode(), quotation.getTradeMarkupValue()));
+        formulaVars.put("TRADE_PRICE", tradePriceTotal);
+
+        BigDecimal retailPriceTotal = evaluateLayer(quotation.getCustomRetailFormula(), formulaVars,
+                () -> applyMarkup(tradePriceTotal, quotation.getRetailMarkupMode(), quotation.getRetailMarkupValue()));
+        formulaVars.put("RETAIL_PRICE", retailPriceTotal);
+
+        // 退傭金額: 有填④公式就直接算; 沒填的話 fallback 回舊制 —— mode=PERCENT 時是「同業價 × 退傭%」,
+        // mode=AMOUNT 時直接是填的那個固定金額 (不是「加」在同業價上, 是退傭本身)
+        BigDecimal rebateAmountTotal = evaluateLayer(quotation.getCustomRebateFormula(), formulaVars,
+                () -> "AMOUNT".equals(quotation.getRebateMode())
+                        ? nz(quotation.getRebatePct())
+                        : tradePriceTotal.multiply(pct(quotation.getRebatePct())).setScale(SCALE, RoundingMode.HALF_UP));
 
         BigDecimal basicProfitTotal = basicPriceTotal.subtract(netCostTotal);     // 基本利潤 (NNet → 基本報價)
         BigDecimal companyProfitTotal = tradePriceTotal.subtract(netCostTotal);   // NNet → 同業價 的累積價差
@@ -691,6 +717,16 @@ public class QuotationService {
 
             quotationLineDAO.save(line);
         }
+    }
+
+    /**
+     * 公式建構器單一層的算法: 這一層的公式欄位有填就用 FormulaEngine 算 (算不出來就直接丟例外讓外層知道,
+     * 不要悄悄退回舊制, 避免使用者以為公式生效了其實沒有 —— 存檔前 QuotationController 已經先驗證過格式,
+     * 正常情況不會在這裡才炸開); 公式欄位是空的才 fallback 呼叫 legacyCalc 算舊制 %/自填金額。
+     */
+    private BigDecimal evaluateLayer(String formula, Map<String, BigDecimal> vars, java.util.function.Supplier<BigDecimal> legacyCalc) {
+        if (formula == null || formula.isBlank()) return legacyCalc.get();
+        return FormulaEngine.evaluate(formula, vars).setScale(SCALE, RoundingMode.HALF_UP);
     }
 
     /** base 加上一筆利潤: mode=PERCENT 時利潤=base×value%; mode=AMOUNT 時利潤=value 這個固定金額。 */

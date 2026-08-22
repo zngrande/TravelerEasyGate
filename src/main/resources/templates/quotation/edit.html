@@ -11,6 +11,7 @@
             --primary-blue: #2563eb; --primary-purple: #8b5cf6; --bg-gray: #f8fafc;
             --text-dark: #1e293b; --text-gray: #64748b; --border-color: #e2e8f0;
             --sidebar-width: 200px; --green: #059669; --amber: #d97706; --red: #dc2626;
+            --teal: #0f9d8c; --teal-deep: #0b7a6d;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; -webkit-font-smoothing: antialiased; }
@@ -46,16 +47,30 @@
         .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
         .form-control:disabled { background: #f1f5f9; color: var(--text-gray); }
 
-        /* 加成設定: 4 組欄位平均撐滿整個卡片寬度 */
-        .markup-row { display: flex; gap: 14px; align-items: flex-end; width: 100%; }
-        .markup-row .form-group { flex: 1; min-width: 0; }
-        .markup-row .form-label { font-size: 11px; margin-bottom: 4px; white-space: nowrap; }
-        .markup-row .form-control { min-width: 0; padding: 7px 8px; font-size: 12.5px; border-radius: 6px; width: 100%; }
-        .markup-row .field-pair { display: flex; gap: 6px; align-items: center; }
-        .markup-row .field-pair select.form-control { flex: 0 0 64px; }
-        .markup-row .field-pair input.form-control { flex: 1; min-width: 0; }
-        .markup-row .field-pair span { font-size: 12.5px; color: var(--text-gray); flex-shrink: 0; }
-        .markup-row button[type="submit"] { padding: 7px 16px; font-size: 12.5px; white-space: nowrap; flex-shrink: 0; }
+        /* 加成設定: 改成跟「計算公式管理」(margin-setting) 同一套公式建構器 -------- */
+        .palette { background: linear-gradient(180deg, #fff, #f5f7ff 220%); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px 18px 20px; margin-bottom: 20px; }
+        .palette-label { font-size: 12px; font-weight: 700; color: var(--text-gray); margin: 0 0 10px 2px; }
+        .palette-label:not(:first-child) { margin-top: 14px; }
+        .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(155deg, var(--primary-blue), #1d4ed8); cursor: grab; user-select: none; border: none; box-shadow: 0 2px 6px rgba(37,99,235,.28); }
+        .chip:active { cursor: grabbing; }
+        .chip.op { background: linear-gradient(155deg, var(--teal), var(--teal-deep)); font-size: 15px; padding: 7px 14px; min-width: 36px; justify-content: center; }
+
+        .formula-field { margin-bottom: 16px; }
+        .formula-field:last-child { margin-bottom: 0; }
+        .formula-field-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+        .formula-field-label .name { font-size: 13px; font-weight: 700; color: #334155; white-space: nowrap; }
+        .formula-field-label .optional { font-size: 11.5px; color: var(--text-gray); }
+        .dropzone { min-height: 46px; border: 1.5px dashed var(--border-color); border-radius: 10px; padding: 9px 11px; font-size: 14px; line-height: 1.8; outline: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; background: #fff; }
+        .dropzone:focus { border-color: var(--primary-blue); background: #fbfcff; }
+        .dropzone.drag-over { border-color: var(--teal); background: #f2fbfa; }
+        .dropzone:empty::before { content: attr(data-placeholder); color: #a9adc4; font-weight: 500; font-size: 13px; }
+        .token { display: inline-flex; align-items: center; gap: 5px; background: #eef2ff; color: #3730a3; border: 1px solid #dfe3fb; padding: 3px 5px 3px 9px; border-radius: 7px; font-weight: 700; font-size: 13px; white-space: nowrap; }
+        .token .x { cursor: pointer; color: #9aa0c2; font-weight: 700; font-size: 12px; border-radius: 5px; width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; }
+        .token .x:hover { background: #dde1f4; color: #3730a3; }
+        .formula-preview { margin-top: 6px; font-size: 12.5px; color: var(--text-gray); display: flex; align-items: center; gap: 6px; min-height: 16px; }
+        .formula-preview .result { font-weight: 700; color: var(--teal-deep); }
+        .formula-preview .result.err { color: #dc2626; }
 
         .summary-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 24px; overflow-x: auto; }
         .summary-box { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 6px; text-align: center; min-width: 0; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -175,60 +190,71 @@
 
     <!-- 基本報價／同業／直售加成 + 退傭: 5 層疊加式——
          NNet → 基本報價(+基本利潤) → 同業價(+同業利潤) → 直售價(+直售利潤)，每一層都疊在上一層上面，不是各自獨立從 NNet 算。
-         四組欄位 (基本/同業/直售/退傭) 都可以選依比例或自填金額, 一排平均撐滿卡片寬度。
+         改成跟「計算公式管理」(margin-setting/list.html) 同一套公式建構器: 把上面藍色的價格變數 chip 拖曳（或點一下）
+         插入到目前選取的公式欄位, 直接組運算式。四層 (基本/同業/直售/退傭) 任一層留空就自動 fallback 回這張報價單原本
+         儲存的舊制%／自填金額設定 (值還在, 沒被砍掉, 後端 QuotationService 逐層判斷)。
          總覽的「總同業價／總直售價」旁邊有切換鈕可以看利潤, 純顯示切換, 不影響這裡的設定。
          這張報價單自己獨立設定, 不依賴加成規則範本; 新建報價單時會自動帶入同一個行程上一版的數字。 -->
     <div class="card">
         <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 基本報價／同業／直售加成與退傭設定</div>
         <div class="item-note" style="margin-bottom:12px;">
-            NNet（總淨成本）先加上「基本利潤比例」變成基本報價，基本報價再加上「同業利潤比例」變成同業價，同業價再加上「直售利潤比例」變成直售價——一層疊一層往上加。退傭一樣可以選依比例或自填金額。這張報價單自己獨立設定，不依賴加成規則範本——建立新版本時會自動帶入上一版的數字。
+            NNet（總淨成本）先套用「①基本報價公式」變成基本報價，基本報價再套用「②同業價公式」變成同業價，同業價再套用「③直售價公式」變成直售價——一層疊一層往上加。「④退傭金額公式」一樣可以引用前面已經算出來的價格。這張報價單自己獨立設定，不依賴加成規則範本——建立新版本時會自動帶入上一版的數字；任一層公式留空就沿用下面括號內顯示的舊制設定。
         </div>
-        <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/markup'}" class="markup-row">
-            <div class="form-group">
-                <label class="form-label">基本利潤比例</label>
-                <div class="field-pair">
-                    <select name="basicMarkupMode" class="form-control" th:disabled="${!canEdit}" onchange="updateSuffix(this)">
-                        <option value="PERCENT" th:selected="${quotation.basicMarkupMode == 'PERCENT'}">%數</option>
-                        <option value="AMOUNT" th:selected="${quotation.basicMarkupMode == 'AMOUNT'}">自填</option>
-                    </select>
-                    <input type="number" step="1" min="0" max="100" name="basicMarkupValue" class="form-control" th:value="${quotation.basicMarkupValue}" th:disabled="${!canEdit}" required />
-                    <span class="pct-suffix-label" th:style="${quotation.basicMarkupMode == 'PERCENT'} ? '' : 'display:none'">%</span>
+
+        <div class="palette">
+            <div class="palette-label">價格變數 · 點擊或拖曳插入到目前選取的公式欄位</div>
+            <div class="chip-row" id="qVarChips"></div>
+            <div class="palette-label">運算子</div>
+            <div class="chip-row" id="qOpChips"></div>
+        </div>
+
+        <!-- data-full-redirect: 這顆表單刻意讓瀏覽器正常換頁 (不走頁面其他表單共用的 AJAX 局部刷新),
+             因為公式建構器的 dropzone/chip 是用 addEventListener 在頁面載入時綁一次事件, AJAX 換內容不會重新執行這段
+             script、綁定會失效; 走一般整頁重新整理最單純, 也才能讓公式格式錯誤時的錯誤訊息 (flash 訊息) 正常顯示。 -->
+        <form id="markupFormulaForm" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/markup'}" data-full-redirect="true">
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">① 基本報價公式</span>
+                    <span class="optional">可用變數：NNet、團體人數・留空＝套用舊制「基本利潤比例」<span th:text="${quotation.basicMarkupValue}"></span><span th:text="${quotation.isBasicMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
                 </div>
+                <div class="dropzone" id="qzone-basic" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：NNet × 1.15 + 2000" data-zone-key="basic" tabindex="0"></div>
+                <div class="formula-preview"><span>試算（NNet=100,000／20人）＝</span><span class="result" id="qpreview-basic">尚未輸入</span></div>
             </div>
-            <div class="form-group">
-                <label class="form-label">同業利潤比例</label>
-                <div class="field-pair">
-                    <select name="tradeMarkupMode" class="form-control" th:disabled="${!canEdit}" onchange="updateSuffix(this)">
-                        <option value="PERCENT" th:selected="${quotation.tradeMarkupMode == 'PERCENT'}">%數</option>
-                        <option value="AMOUNT" th:selected="${quotation.tradeMarkupMode == 'AMOUNT'}">自填</option>
-                    </select>
-                    <input type="number" step="1" min="0" max="100" name="tradeMarkupValue" class="form-control" th:value="${quotation.tradeMarkupValue}" th:disabled="${!canEdit}" required />
-                    <span class="pct-suffix-label" th:style="${quotation.tradeMarkupMode == 'PERCENT'} ? '' : 'display:none'">%</span>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">② 同業價公式</span>
+                    <span class="optional">可用變數：NNet、團體人數、基本報價・留空＝套用舊制「同業利潤比例」<span th:text="${quotation.tradeMarkupValue}"></span><span th:text="${quotation.isTradeMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
                 </div>
+                <div class="dropzone" id="qzone-trade" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：基本報價 × 1.1" data-zone-key="trade" tabindex="0"></div>
+                <div class="formula-preview"><span>試算＝</span><span class="result" id="qpreview-trade">尚未輸入</span></div>
             </div>
-            <div class="form-group">
-                <label class="form-label">直售利潤比例</label>
-                <div class="field-pair">
-                    <select name="retailMarkupMode" class="form-control" th:disabled="${!canEdit}" onchange="updateSuffix(this)">
-                        <option value="PERCENT" th:selected="${quotation.retailMarkupMode == 'PERCENT'}">%數</option>
-                        <option value="AMOUNT" th:selected="${quotation.retailMarkupMode == 'AMOUNT'}">自填</option>
-                    </select>
-                    <input type="number" step="1" min="0" max="100" name="retailMarkupValue" class="form-control" th:value="${quotation.retailMarkupValue}" th:disabled="${!canEdit}" required />
-                    <span class="pct-suffix-label" th:style="${quotation.retailMarkupMode == 'PERCENT'} ? '' : 'display:none'">%</span>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">③ 直售價公式</span>
+                    <span class="optional">可用變數：NNet、團體人數、基本報價、同業價・留空＝套用舊制「直售利潤比例」<span th:text="${quotation.retailMarkupValue}"></span><span th:text="${quotation.isRetailMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
                 </div>
+                <div class="dropzone" id="qzone-retail" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：同業價 × 1.1" data-zone-key="retail" tabindex="0"></div>
+                <div class="formula-preview"><span>試算＝</span><span class="result" id="qpreview-retail">尚未輸入</span></div>
             </div>
-            <div class="form-group">
-                <label class="form-label">退傭比例</label>
-                <div class="field-pair">
-                    <select name="rebateMode" class="form-control" th:disabled="${!canEdit}" onchange="updateSuffix(this)">
-                        <option value="PERCENT" th:selected="${quotation.rebateMode == 'PERCENT'}">%數</option>
-                        <option value="AMOUNT" th:selected="${quotation.rebateMode == 'AMOUNT'}">自填</option>
-                    </select>
-                    <input type="number" step="1" min="0" max="100" name="rebatePct" class="form-control" th:value="${quotation.rebatePct}" th:disabled="${!canEdit}" required />
-                    <span class="pct-suffix-label" th:style="${quotation.rebateMode == 'PERCENT'} ? '' : 'display:none'">%</span>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">④ 退傭金額公式</span>
+                    <span class="optional">可用變數：NNet、團體人數、基本報價、同業價、直售價・留空＝套用舊制退傭<span th:text="${quotation.rebatePct}"></span><span th:text="${quotation.rebateMode == 'AMOUNT'} ? '（自填金額）' : '%'"></span></span>
                 </div>
+                <div class="dropzone" id="qzone-rebate" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：同業價 × 0.08" data-zone-key="rebate" tabindex="0"></div>
+                <div class="formula-preview"><span>試算＝</span><span class="result" id="qpreview-rebate">尚未輸入</span></div>
             </div>
-            <button type="submit" class="btn btn-primary" th:disabled="${!canEdit}"><i class="fa-solid fa-rotate"></i> 儲存並重新計算</button>
+
+            <input type="hidden" name="basicFormula" id="qinput-basic" />
+            <input type="hidden" name="tradeFormula" id="qinput-trade" />
+            <input type="hidden" name="retailFormula" id="qinput-retail" />
+            <input type="hidden" name="rebateFormula" id="qinput-rebate" />
+
+            <button type="submit" class="btn btn-primary" th:disabled="${!canEdit}" style="margin-top:14px;"><i class="fa-solid fa-rotate"></i> 儲存並重新計算</button>
         </form>
     </div>
 
@@ -486,20 +512,318 @@
 </div>
 </main>
 
-<script>
+<script th:inline="javascript">
     // 總同業價／總直售價方塊: 按鈕切換顯示「總額」或「利潤」, 純顯示切換, 不送出任何表單
     function toggleView(btn) {
         const box = btn.closest('.summary-box');
         if (box) box.classList.toggle('showing-profit');
     }
 
-    // 加成設定: 選「%數」才顯示後面的 % 符號, 選「自填」就不顯示 (自填是金額, 不是比例)
-    function updateSuffix(select) {
-        const pair = select.closest('.field-pair');
-        if (!pair) return;
-        const suffix = pair.querySelector('.pct-suffix-label');
-        if (suffix) suffix.style.display = select.value === 'PERCENT' ? '' : 'none';
-    }
+    // ---------- 基本報價／同業／直售加成與退傭設定: 公式建構器 (跟 margin-setting/list.html 同一套邏輯) ----------
+    (function () {
+        // 這張報價單目前已經存的公式 (沒填過就是 null), 用來還原畫面上的 dropzone 內容
+        var STORED_FORMULAS = {
+            basic:  /*[[${quotation.customBasicFormula}]]*/ null,
+            trade:  /*[[${quotation.customTradeFormula}]]*/ null,
+            retail: /*[[${quotation.customRetailFormula}]]*/ null,
+            rebate: /*[[${quotation.customRebateFormula}]]*/ null
+        };
+
+        // varId 對應 QuotationService/FormulaEngine 的變數名稱 ({NET_COST} {GROUP_SIZE} {BASIC_PRICE} {TRADE_PRICE} {RETAIL_PRICE})
+        var VARIABLES = [
+            { id: 'NET_COST', label: 'NNet（總淨成本）', allowIn: ['basic', 'trade', 'retail', 'rebate'] },
+            { id: 'GROUP_SIZE', label: '團體人數', allowIn: ['basic', 'trade', 'retail', 'rebate'] },
+            { id: 'BASIC_PRICE', label: '基本報價', allowIn: ['trade', 'retail', 'rebate'] },
+            { id: 'TRADE_PRICE', label: '同業價', allowIn: ['retail', 'rebate'] },
+            { id: 'RETAIL_PRICE', label: '直售價', allowIn: ['rebate'] }
+        ];
+        var OPS = ['+', '−', '×', '÷', '(', ')'];
+        var ZONE_KEYS = ['basic', 'trade', 'retail', 'rebate'];
+
+        var zones = {};
+        ZONE_KEYS.forEach(function (key) {
+            zones[key] = {
+                el: document.getElementById('qzone-' + key),
+                preview: document.getElementById('qpreview-' + key),
+                input: document.getElementById('qinput-' + key)
+            };
+        });
+        if (!zones.basic.el) return; // 這個表單不在畫面上 (理論上不會發生), 不用往下跑
+        var lastFocusedZone = 'basic';
+
+        // ---------- 畫面組裝: 變數 chips ----------
+        var varChipsEl = document.getElementById('qVarChips');
+        VARIABLES.forEach(function (v) {
+            var chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'chip';
+            chip.textContent = v.label;
+            chip.draggable = true;
+            chip.addEventListener('dragstart', function (e) {
+                e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'var', id: v.id, label: v.label }));
+            });
+            chip.addEventListener('click', function () { insertVar(v); });
+            varChipsEl.appendChild(chip);
+        });
+
+        var opChipsEl = document.getElementById('qOpChips');
+        OPS.forEach(function (op) {
+            var chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'chip op';
+            chip.textContent = op;
+            chip.draggable = true;
+            chip.addEventListener('dragstart', function (e) {
+                e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'op', value: op }));
+            });
+            chip.addEventListener('click', function () { insertText(op); });
+            opChipsEl.appendChild(chip);
+        });
+
+        // ---------- dropzone 事件 ----------
+        ZONE_KEYS.forEach(function (key) {
+            var zone = zones[key].el;
+            zone.addEventListener('focus', function () { lastFocusedZone = key; });
+            zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-over'); });
+            zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
+            zone.addEventListener('drop', function (e) {
+                e.preventDefault();
+                zone.classList.remove('drag-over');
+                lastFocusedZone = key;
+                var data;
+                try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
+                placeCaretFromPoint(zone, e.clientX, e.clientY);
+                if (data.type === 'var') {
+                    var v = VARIABLES.find(function (x) { return x.id === data.id; });
+                    if (v && v.allowIn.indexOf(key) === -1) { runAll(); return; } // 這個變數這一層不能用, 忽略
+                    insertVarToken(zone, data.id, data.label);
+                } else {
+                    insertTextAtCaret(zone, data.value);
+                }
+                runAll();
+            });
+            zone.addEventListener('input', runAll);
+            zone.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+        });
+
+        function insertVar(v) {
+            var key = lastFocusedZone;
+            if (v.allowIn.indexOf(key) === -1) {
+                alert('「' + v.label + '」不能用在這一層公式（這個階段還沒有這個值）');
+                return;
+            }
+            var zone = zones[key].el;
+            focusEnd(zone);
+            insertVarToken(zone, v.id, v.label);
+            runAll();
+        }
+
+        function insertText(text) {
+            var zone = zones[lastFocusedZone].el;
+            focusEnd(zone);
+            insertTextAtCaret(zone, text);
+            runAll();
+        }
+
+        function focusEnd(zone) {
+            zone.focus();
+            var range = document.createRange();
+            range.selectNodeContents(zone);
+            range.collapse(false);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
+        function placeCaretFromPoint(zone, x, y) {
+            var range;
+            if (document.caretRangeFromPoint) {
+                range = document.caretRangeFromPoint(x, y);
+            } else if (document.caretPositionFromPoint) {
+                var pos = document.caretPositionFromPoint(x, y);
+                if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); }
+            }
+            if (range && zone.contains(range.startContainer)) {
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } else {
+                focusEnd(zone);
+            }
+        }
+
+        function insertVarToken(zone, varId, label) {
+            var token = document.createElement('span');
+            token.className = 'token';
+            token.contentEditable = 'false';
+            token.dataset.varId = varId;
+            var xSpan = document.createElement('span');
+            xSpan.className = 'x';
+            xSpan.title = '移除';
+            xSpan.textContent = '×';
+            xSpan.addEventListener('click', function () { token.remove(); runAll(); });
+            token.textContent = label;
+            token.appendChild(xSpan);
+            insertNodeAtCaret(zone, token);
+        }
+
+        function insertTextAtCaret(zone, text) {
+            var sel = window.getSelection();
+            if (!sel.rangeCount || !zone.contains(sel.anchorNode)) focusEnd(zone);
+            sel = window.getSelection();
+            var range = sel.getRangeAt(0);
+            range.deleteContents();
+            var node = document.createTextNode(text);
+            range.insertNode(node);
+            range.setStartAfter(node);
+            range.setEndAfter(node);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
+        function insertNodeAtCaret(zone, node) {
+            var sel = window.getSelection();
+            if (!sel.rangeCount || !zone.contains(sel.anchorNode)) focusEnd(zone);
+            sel = window.getSelection();
+            var range = sel.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(node);
+            range.setStartAfter(node);
+            range.setEndAfter(node);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
+        // ---------- 還原已存的公式字串 -> dropzone 內容 (跟 serialize() 相反的操作), 頁面載入時跑一次 ----------
+        function renderStored(key, expr) {
+            if (!expr) return;
+            var zone = zones[key].el;
+            zone.innerHTML = '';
+            var re = /\{[^}]+\}|[^{}]+/g;
+            var m;
+            while ((m = re.exec(expr)) !== null) {
+                var part = m[0];
+                if (part.charAt(0) === '{') {
+                    var id = part.slice(1, -1);
+                    var v = VARIABLES.find(function (x) { return x.id === id; });
+                    insertVarToken(zone, id, v ? v.label : id);
+                } else {
+                    zone.appendChild(document.createTextNode(part));
+                }
+            }
+        }
+
+        // ---------- 序列化 (dropzone -> {VAR_ID} 字串) + 純前端試算預覽 (跟 FormulaEngine 邏輯對應) ----------
+        function serialize(zone) {
+            var out = '';
+            zone.childNodes.forEach(function (n) {
+                if (n.nodeType === Node.TEXT_NODE) out += n.textContent;
+                else if (n.classList && n.classList.contains('token')) out += '{' + n.dataset.varId + '}';
+            });
+            return out.trim();
+        }
+
+        function evaluate(expr, sampleValues) {
+            var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷()]/g);
+            var stripped = expr.replace(/\s+/g, '');
+            if (!tokens || tokens.join('') !== stripped) {
+                if (expr === '') return { ok: false, empty: true };
+                return { ok: false, error: '格式錯誤' };
+            }
+            var i = 0;
+            function peek() { return tokens[i]; }
+            function next() { return tokens[i++]; }
+            function parseExpr() {
+                var v = parseTerm();
+                while (peek() === '+' || peek() === '-') { var op = next(); var r = parseTerm(); v = op === '+' ? v + r : v - r; }
+                return v;
+            }
+            function parseTerm() {
+                var v = parseFactor();
+                while (peek() === '×' || peek() === '÷') {
+                    var op = next(); var r = parseFactor();
+                    if (op === '×') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
+                }
+                return v;
+            }
+            function parseFactor() {
+                if (peek() === '(') { next(); var v = parseExpr(); if (peek() !== ')') throw new Error('括號未閉合'); next(); return v; }
+                if (peek() === '-') { next(); return -parseFactor(); }
+                var t = next();
+                if (t === undefined) throw new Error('運算式不完整');
+                if (t.charAt(0) === '{') {
+                    var id = t.slice(1, -1);
+                    var val = sampleValues[id];
+                    if (val === undefined || val === null) throw new Error('這個階段還沒有「' + id + '」的值');
+                    return val;
+                }
+                return parseFloat(t);
+            }
+            try {
+                var value = parseExpr();
+                if (i !== tokens.length) return { ok: false, error: '格式錯誤' };
+                return { ok: true, value: value };
+            } catch (err) {
+                return { ok: false, error: err.message || '格式錯誤' };
+            }
+        }
+
+        function fmt(n) { return Math.round(n).toLocaleString('zh-Hant-TW'); }
+
+        // 存進 hidden input (最後送到後端) 一律正規化成 ASCII 的 * / -，跟 FormulaEngine.java 的解析規則對齊；
+        // 畫面上的預覽計算 evaluate() 則直接吃原本的 ×÷− 符號, 兩邊各自處理互不影響。
+        function normalizeForSubmit(expr) {
+            return expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+        }
+
+        function runAll() {
+            var sample = { NET_COST: 100000, GROUP_SIZE: 20 };
+
+            var basicExpr = serialize(zones.basic.el);
+            zones.basic.input.value = normalizeForSubmit(basicExpr);
+            var basicResult = evaluate(basicExpr.replace(/−/g, '-'), sample);
+            renderPreview('basic', basicResult, true);
+            sample.BASIC_PRICE = basicResult.ok ? basicResult.value : sample.NET_COST; // 沒填/算不出來就當作沿用舊制的基本報價繼續往下試算
+
+            var tradeExpr = serialize(zones.trade.el);
+            zones.trade.input.value = normalizeForSubmit(tradeExpr);
+            var tradeResult = evaluate(tradeExpr.replace(/−/g, '-'), sample);
+            renderPreview('trade', tradeResult, true);
+            sample.TRADE_PRICE = tradeResult.ok ? tradeResult.value : sample.BASIC_PRICE;
+
+            var retailExpr = serialize(zones.retail.el);
+            zones.retail.input.value = normalizeForSubmit(retailExpr);
+            var retailResult = evaluate(retailExpr.replace(/−/g, '-'), sample);
+            renderPreview('retail', retailResult, true);
+            sample.RETAIL_PRICE = retailResult.ok ? retailResult.value : sample.TRADE_PRICE;
+
+            var rebateExpr = serialize(zones.rebate.el);
+            zones.rebate.input.value = normalizeForSubmit(rebateExpr);
+            var rebateResult = evaluate(rebateExpr.replace(/−/g, '-'), sample);
+            renderPreview('rebate', rebateResult, true);
+        }
+
+        function renderPreview(key, result, optional) {
+            var el = zones[key].preview;
+            if (result.empty) {
+                el.textContent = optional ? '留空＝套用上面括號內的舊制設定' : '尚未輸入';
+                el.classList.remove('err');
+            } else if (!result.ok) {
+                el.textContent = result.error;
+                el.classList.add('err');
+            } else {
+                el.textContent = 'NT$ ' + fmt(result.value);
+                el.classList.remove('err');
+            }
+        }
+
+        ZONE_KEYS.forEach(function (key) { renderStored(key, STORED_FORMULAS[key]); });
+        runAll();
+
+        // 保險: 送出表單前再序列化一次, 避免使用者用滑鼠選字之類的方式弄亂了 input 沒同步到
+        var formulaForm = document.getElementById('markupFormulaForm');
+        if (formulaForm) formulaForm.addEventListener('submit', function () { runAll(); });
+    })();
 
     (function () {
         let isBusy = false; // 防止操作進行中又觸發下一次送出, 造成畫面互相搶跑

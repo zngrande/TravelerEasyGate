@@ -155,6 +155,9 @@
         .tag-category.restaurant { background: #fff7ed; color: #ea580c; }
         .tag-category.hotel { background: #f0fdfa; color: #0d9488; }
         .tag-category.rest_stop { background: #faf5ff; color: var(--primary-purple); }
+        .tag-category.airport { background: #ecfeff; color: #0891b2; }
+        .tag-category.transport { background: #f0f9ff; color: #0369a1; }
+        .tag-category.shopping { background: #fdf2f8; color: #db2777; }
 
         /* 定位狀態標籤 */
         .geo-badge {
@@ -235,13 +238,16 @@
     <!-- 關鍵字與類型搜尋列 -->
     <div class="search-card">
         <form class="search-form" method="get" th:action="@{/poi}">
-            <input type="text" name="keyword" class="search-input" placeholder="搜尋景點名稱、國家或城市..." th:value="${keyword}" />
+            <input type="text" name="keyword" class="search-input" placeholder="搜尋景點名稱、原文地名、國家或城市..." th:value="${keyword}" />
             <select name="category" class="search-select">
                 <option value="">全部類型</option>
                 <option value="attraction" th:selected="${category == 'attraction'}">景點</option>
                 <option value="restaurant" th:selected="${category == 'restaurant'}">餐廳</option>
                 <option value="hotel" th:selected="${category == 'hotel'}">飯店</option>
                 <option value="rest_stop" th:selected="${category == 'rest_stop'}">休息站</option>
+                <option value="airport" th:selected="${category == 'airport'}">機場</option>
+                <option value="transport" th:selected="${category == 'transport'}">交通</option>
+                <option value="shopping" th:selected="${category == 'shopping'}">購物</option>
             </select>
             <button type="submit" class="btn-search">
                 <i class="fa-solid fa-magnifying-glass"></i> 搜尋
@@ -266,6 +272,8 @@
             <tr th:each="poi : ${pois}">
                 <td>
                     <strong th:text="${poi.name}" style="color: var(--text-dark); font-size:14.5px;"></strong>
+                    <div th:if="${poi.originalName != null and !poi.originalName.isBlank()}"
+                         th:text="${poi.originalName}" style="color: var(--text-gray); font-size:12px; margin-top:2px;"></div>
                 </td>
                 <td>
                     <span class="tag-category" th:classappend="${poi.category}" th:switch="${poi.category}">
@@ -273,6 +281,9 @@
                         <th:block th:case="'restaurant'">餐廳</th:block>
                         <th:block th:case="'hotel'">飯店</th:block>
                         <th:block th:case="'rest_stop'">休息站</th:block>
+                        <th:block th:case="'airport'">機場</th:block>
+                        <th:block th:case="'transport'">交通</th:block>
+                        <th:block th:case="'shopping'">購物</th:block>
                         <th:block th:case="*" th:text="${poi.category}"></th:block>
                     </span>
                 </td>

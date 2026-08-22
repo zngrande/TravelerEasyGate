@@ -71,6 +71,9 @@ public class AiParseService {
         - stay_minutes 依常識估算: 大型景點/博物館約90~180分鐘, 一般景點約60~90分鐘,
           用餐約60~90分鐘, 如果原文有明確提到停留時間就用原文的。
         - 如果原文資訊不完整，盡力用你判斷合理的方式填, 不要留空必填欄位。
+        - 如果使用者訊息最前面有一段用「【行程重點資訊】」包起來的文字, 那是使用者自己填寫的出發/抵達機場、
+          時間、行程說明等重點資訊, 準確度比後面的原始文字高, 天數判斷、日期相關的 note、行程國家/地區
+          都要優先參考這段內容, 如果跟後面原始文字衝突以這段為準。
         - 絕對不要輸出 JSON 以外的任何文字或說明。
         """;
 
@@ -93,25 +96,36 @@ public class AiParseService {
      * 送出文字給 Claude 解析, 存成暫存資料, 回傳 AiImport 讓 controller 導去 review 頁面
      */
     public AiImport parseText(int AID, int UID, String rawText) {
-        return parseText(AID, UID, rawText, "text", "default");
+        return parseText(AID, UID, rawText, "text", "default", null);
     }
 
     /**
      * @param sourceType 記錄這份資料原始來源: text / pdf / docx (方便之後在列表分辨)
      */
     public AiImport parseText(int AID, int UID, String rawText, String sourceType) {
-        return parseText(AID, UID, rawText, sourceType, "default");
+        return parseText(AID, UID, rawText, sourceType, "default", null);
     }
 
     /**
      * @param userStyle 使用者手動指定的風格 (wenqing/luxury/corporate/default)
      */
     public AiImport parseText(int AID, int UID, String rawText, String sourceType, String userStyle) {
+        return parseText(AID, UID, rawText, sourceType, userStyle, null);
+    }
+
+    /**
+     * @param extraContext 使用者填的「行程重點資訊」(出發/抵達機場+時間、行程說明) 格式化文字, 選填。
+     *                      會存進 ai_import.extra_context (review 頁面顯示用), 也會當額外 context
+     *                      一併送給 AI 解析, 提高天數/日期判斷的準確度。
+     */
+    public AiImport parseText(int AID, int UID, String rawText, String sourceType, String userStyle, String extraContext) {
         AiImport aiImport = new AiImport(AID, UID, sourceType, rawText);
+        aiImport.setExtraContext(emptyToNull(extraContext));
         aiImportDAO.save(aiImport); // 先存一筆 pending, 拿到 IPID
 
         try {
-            String jsonText = anthropicClient.complete(SYSTEM_PROMPT, rawText, 16000);
+            String userContent = buildUserContent(rawText, aiImport.getExtraContext());
+            String jsonText = anthropicClient.complete(SYSTEM_PROMPT, userContent, 16000);
             JsonNode root = objectMapper.readTree(stripCodeFence(jsonText));
 
             aiImport.setTemplateStyle(normalizeStyle(userStyle));
@@ -182,6 +196,13 @@ public class AiParseService {
 
     private String emptyToNull(String s) {
         return (s == null || s.isBlank() || "null".equalsIgnoreCase(s)) ? null : s;
+    }
+
+    // 把使用者填的「行程重點資訊」包成一個明顯的區塊放在原始文字前面, 讓 AI 知道這段優先度較高
+    // (SYSTEM_PROMPT 裡有明確說明【行程重點資訊】這個標記的意義)
+    private String buildUserContent(String rawText, String extraContext) {
+        if (extraContext == null || extraContext.isBlank()) return rawText;
+        return "【行程重點資訊】\n" + extraContext.trim() + "\n\n【原始行程文字】\n" + rawText;
     }
 
     // 保險起見, AI 有時可能回傳不在預期範圍內的值, 一律 fallback 成 default

@@ -11,15 +11,18 @@ import com.example.UsefulTravel.entity.QuotationLine;
 import com.example.UsefulTravel.service.ItineraryService;
 import com.example.UsefulTravel.service.PermissionService;
 import com.example.UsefulTravel.service.QuotationService;
+import com.example.UsefulTravel.service.FormulaEngine;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -421,9 +424,12 @@ public class QuotationController {
         return "redirect:/quotation/" + QID;
     }
 
-    // POST /quotation/{qid}/markup → 調整基本報價/同業/直售加成跟退傭的模式(%數/自填金額)跟數值
+    // POST /quotation/{qid}/markup → 調整基本報價/同業/直售加成跟退傭的模式(%數/自填金額)跟數值,
+    // 以及公式建構器的四層算式 (畫面上的「基本報價／同業／直售加成與退傭設定」卡片, 跟 margin-setting 同一套 FormulaEngine)
     // (5層疊加式: 基本報價=NNet+此設定, 同業價=基本報價+此設定, 直售價=同業價+此設定; 退傭=同業價×退傭% 或自填金額)
     // 每組參數都是選填, 沒帶到的那一層維持原值不變, 交給 service 判斷。
+    // 公式欄位存檔前先用樣本數字驗證格式跟變數合法性 (跟 MarginSettingController#create 同一套規則), 錯的話擋下來不存,
+    // 用 flash 訊息帶回錯誤原因 (這顆表單畫面上有標記 data-full-redirect, 是整頁換頁而不是 AJAX 局部刷新, flash 訊息才顯示得出來)。
     @PostMapping("/quotation/{qid}/markup")
     public String updateMarkup(@PathVariable("qid") int QID,
                                 @RequestParam(required = false) String basicMarkupMode,
@@ -434,11 +440,36 @@ public class QuotationController {
                                 @RequestParam(required = false) java.math.BigDecimal retailMarkupValue,
                                 @RequestParam(required = false) String rebateMode,
                                 @RequestParam(required = false) java.math.BigDecimal rebatePct,
-                                HttpSession session) {
+                                @RequestParam(required = false) String basicFormula,
+                                @RequestParam(required = false) String tradeFormula,
+                                @RequestParam(required = false) String retailFormula,
+                                @RequestParam(required = false) String rebateFormula,
+                                HttpSession session, RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
+
+        try {
+            Map<String, BigDecimal> sample = new HashMap<>();
+            sample.put("NET_COST", BigDecimal.valueOf(100000));
+            sample.put("GROUP_SIZE", BigDecimal.valueOf(20));
+            BigDecimal sampleBasic = (basicFormula != null && !basicFormula.isBlank())
+                    ? FormulaEngine.evaluate(basicFormula, sample) : sample.get("NET_COST");
+            sample.put("BASIC_PRICE", sampleBasic);
+            BigDecimal sampleTrade = (tradeFormula != null && !tradeFormula.isBlank())
+                    ? FormulaEngine.evaluate(tradeFormula, sample) : sampleBasic;
+            sample.put("TRADE_PRICE", sampleTrade);
+            BigDecimal sampleRetail = (retailFormula != null && !retailFormula.isBlank())
+                    ? FormulaEngine.evaluate(retailFormula, sample) : sampleTrade;
+            sample.put("RETAIL_PRICE", sampleRetail);
+            if (rebateFormula != null && !rebateFormula.isBlank()) FormulaEngine.validate(rebateFormula, sample);
+        } catch (FormulaEngine.FormulaException e) {
+            redirectAttributes.addFlashAttribute("quotationError", "公式有誤：" + e.getMessage());
+            return "redirect:/quotation/" + QID;
+        }
+
         quotationService.updateMarkupSettings(QID, basicMarkupMode, basicMarkupValue,
-                tradeMarkupMode, tradeMarkupValue, retailMarkupMode, retailMarkupValue, rebateMode, rebatePct);
+                tradeMarkupMode, tradeMarkupValue, retailMarkupMode, retailMarkupValue, rebateMode, rebatePct,
+                basicFormula, tradeFormula, retailFormula, rebateFormula);
         return "redirect:/quotation/" + QID;
     }
 

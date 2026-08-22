@@ -105,6 +105,40 @@
         }
         .btn-confirm:hover { opacity: 0.95; }
 
+        /* 國家/城市代碼自動完成下拉建議 */
+        .cc-suggest-list {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .cc-suggest-list.open { display: block; }
+        .cc-suggest-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .cc-suggest-item:hover { background: #faf5ff; }
+        .cc-suggest-item .cc-code {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--primary-purple);
+            background: #f3e8ff;
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
+
         /* 每日卡片列表 */
         .day-grid {
             display: flex;
@@ -225,15 +259,33 @@
             <p style="font-size: 13.5px; color: var(--text-gray); margin-bottom: 12px;">
                 確認下面拆解出來的內容沒問題後，行程名稱與國家已由 AI 自動判斷，您可以直接修改，確認後點擊按鈕轉成正式行程。
             </p>
+
+            <!-- 建立時填寫的「行程重點資訊」(出發/抵達機場+時間、行程說明), 唯讀顯示讓使用者確認 AI 有沒有參考到 -->
+            <div th:if="${aiImport.extraContext != null and !aiImport.extraContext.isBlank()}"
+                 style="background:#faf5ff; border:1px solid #f3e8ff; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:12.5px; color:#334155; white-space:pre-line; line-height:1.6;">
+                <div style="font-weight:700; color:var(--primary-purple); margin-bottom:4px;">
+                    <i class="fa-solid fa-plane-departure"></i> 建立時填寫的行程重點資訊
+                </div>
+                <span th:text="${aiImport.extraContext}"></span>
+            </div>
+
             <form method="post" th:action="@{'/ai-import/' + ${aiImport.IPID} + '/confirm'}">
                 <label>行程名稱</label>
                 <input type="text" name="title" th:value="${aiImport.suggestedTitle}" placeholder="例：花蓮經典三日遊" required />
 
                 <label>國家</label>
-                <input type="text" name="country" th:value="${aiImport.suggestedCountry}" placeholder="例：台灣" required />
+                <div class="cc-autocomplete-wrap" style="position:relative;">
+                    <input type="text" name="country" id="countryInput" th:value="${aiImport.suggestedCountry}"
+                           placeholder="例：台灣" required autocomplete="off" />
+                    <div id="countrySuggest" class="cc-suggest-list"></div>
+                </div>
 
                 <label>地區 / 城市（選填）</label>
-                <input type="text" name="region" th:value="${aiImport.suggestedRegion}" placeholder="例：花蓮" />
+                <div class="cc-autocomplete-wrap" style="position:relative;">
+                    <input type="text" name="region" id="regionInput" th:value="${aiImport.suggestedRegion}"
+                           placeholder="例：花蓮" autocomplete="off" />
+                    <div id="regionSuggest" class="cc-suggest-list"></div>
+                </div>
 
                 <button type="submit" class="btn-confirm">
                     <i class="fa-solid fa-circle-check"></i> 確認無誤，轉成正式行程
@@ -338,11 +390,75 @@
     </div>
 </main>
 
-<script>
+<script th:inline="javascript">
     function toggleEdit(apiid) {
         const form = document.getElementById('edit-form-' + apiid);
         form.style.display = (form.style.display === 'none') ? 'block' : 'none';
     }
+
+    // 國家/城市通用代碼自動完成 (打字即時篩選, 選擇後把「名稱」填回輸入框; type=country 給國家輸入框,
+    // type=city 給地區/城市輸入框, 純輔助填寫用, 不強制一定要選清單裡的值)
+    (function () {
+        const AUTOCOMPLETE_URL = /*[[@{/reference/country-city/autocomplete}]]*/ '/reference/country-city/autocomplete';
+
+        function setupAutocomplete(inputId, listId, type) {
+            const input = document.getElementById(inputId);
+            const list = document.getElementById(listId);
+            if (!input || !list) return;
+
+            let debounceTimer = null;
+
+            input.addEventListener('input', function () {
+                const keyword = input.value.trim();
+                clearTimeout(debounceTimer);
+                if (!keyword) { closeList(); return; }
+                debounceTimer = setTimeout(() => fetchSuggestions(keyword), 200);
+            });
+
+            input.addEventListener('blur', function () {
+                // 延遲關閉, 讓 mousedown 選取事件能先觸發
+                setTimeout(closeList, 150);
+            });
+
+            function fetchSuggestions(keyword) {
+                fetch(AUTOCOMPLETE_URL + '?keyword=' + encodeURIComponent(keyword) + '&type=' + type)
+                    .then(res => res.ok ? res.json() : [])
+                    .then(items => renderList(items))
+                    .catch(() => closeList());
+            }
+
+            function renderList(items) {
+                if (!items || items.length === 0) { closeList(); return; }
+                list.innerHTML = '';
+                items.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = 'cc-suggest-item';
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = item.name;
+                    const codeSpan = document.createElement('span');
+                    codeSpan.className = 'cc-code';
+                    codeSpan.textContent = item.code;
+                    row.appendChild(nameSpan);
+                    row.appendChild(codeSpan);
+                    row.addEventListener('mousedown', function (e) {
+                        e.preventDefault();
+                        input.value = item.name;
+                        closeList();
+                    });
+                    list.appendChild(row);
+                });
+                list.classList.add('open');
+            }
+
+            function closeList() {
+                list.classList.remove('open');
+                list.innerHTML = '';
+            }
+        }
+
+        setupAutocomplete('countryInput', 'countrySuggest', 'country');
+        setupAutocomplete('regionInput', 'regionSuggest', 'city');
+    })();
 </script>
 </body>
 </html>

@@ -22,6 +22,9 @@ public class Poi {
     @Column(name = "name")
     private String name;
 
+    @Column(name = "original_name", length = 500)
+    private String originalName; // 原文地名 (例: 日文/英文原始拼寫), 讓 AI 解析出來的不同命名方式也能搜尋比對到同一個地點
+
     @Column(name = "country")
     private String country;
 
@@ -86,6 +89,9 @@ public class Poi {
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+
+    public String getOriginalName() { return originalName; }
+    public void setOriginalName(String originalName) { this.originalName = originalName; }
 
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }

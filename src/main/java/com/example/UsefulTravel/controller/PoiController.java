@@ -12,6 +12,9 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Controller
 @RequestMapping("/poi")
@@ -53,6 +56,7 @@ public class PoiController {
     @PostMapping("/new")
     public String create(@RequestParam String category,
                           @RequestParam String name,
+                          @RequestParam(required = false) String originalName,
                           @RequestParam(required = false) String country,
                           @RequestParam(required = false) String city,
                           @RequestParam(required = false) String address,
@@ -68,6 +72,7 @@ public class PoiController {
         if (AID == null) return "redirect:/login";
 
         Poi poi = new Poi(AID, category, name, country, city, address, latitude, longitude);
+        poi.setOriginalName(originalName);
         if (suggestedStayMin != null) poi.setSuggestedStayMin(suggestedStayMin);
         poi.setDescription(description);
         poi.setAgencyPrice(agencyPrice);
@@ -89,6 +94,28 @@ public class PoiController {
 
         poiService.save(poi);
         return "redirect:/poi";
+    }
+
+    // GET /poi/autocomplete?keyword=成田&category=airport → 給輸入框打字即時篩選用 (JSON)
+    // category 可選 (例如只找機場), 不給就整個 POI 資料庫一起比對
+    @GetMapping("/autocomplete")
+    @ResponseBody
+    public ResponseEntity<?> autocomplete(@RequestParam(required = false) String keyword,
+                                          @RequestParam(required = false) String category,
+                                          HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return ResponseEntity.status(401).build();
+
+        List<Poi> matches = poiService.search(AID, keyword, category);
+        List<Map<String, Object>> result = matches.stream()
+                .limit(20)
+                .map(p -> Map.<String, Object>of(
+                        "pid", p.getPID(),
+                        "name", p.getName() != null ? p.getName() : "",
+                        "originalName", p.getOriginalName() != null ? p.getOriginalName() : "",
+                        "category", p.getCategory() != null ? p.getCategory() : ""))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(result);
     }
 
     // GET /poi/{id}/description → 取得這個景點目前的介紹說明 (給行程編輯畫面的編輯表單用, AJAX)
@@ -134,6 +161,7 @@ public class PoiController {
     public String edit(@PathVariable("id") int PID,
                         @RequestParam String category,
                         @RequestParam String name,
+                        @RequestParam(required = false) String originalName,
                         @RequestParam(required = false) String country,
                         @RequestParam(required = false) String city,
                         @RequestParam(required = false) String address,
@@ -152,6 +180,7 @@ public class PoiController {
 
         poi.setCategory(category);
         poi.setName(name);
+        poi.setOriginalName(originalName);
         poi.setCountry(country);
         poi.setCity(city);
         poi.setAddress(address);
