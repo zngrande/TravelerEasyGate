@@ -31,10 +31,13 @@ public class ImageAssetController {
     }
 
     // GET /images/by-poi/{PID} → 這個景點目前綁定的圖片清單 (給行程項目編輯表單顯示縮圖用)
+    // 只回傳自己旅行社上傳的圖片 (即使是共用庫景點, 別間旅行社上傳的照片不會混進來)
     @GetMapping("/by-poi/{PID}")
     @ResponseBody
-    public List<ImageAsset> listByPoi(@PathVariable int PID) {
-        return imageAssetService.listForPoi(PID);
+    public ResponseEntity<List<ImageAsset>> listByPoi(@PathVariable int PID, HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(imageAssetService.listForPoi(PID, AID));
     }
 
     // GET /images → 圖片資源庫列表 (可篩選只看未綁定 POI 的)
@@ -131,16 +134,18 @@ public class ImageAssetController {
     @PostMapping("/{id}/link-poi")
     public String linkPoi(@PathVariable("id") int IAID, @RequestParam(required = false) Integer poiId,
                           HttpSession session) {
-        if (session.getAttribute("AID") == null) return "redirect:/login";
-        imageAssetService.linkToPoi(IAID, poiId);
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+        imageAssetService.linkToPoi(AID, IAID, poiId);
         return "redirect:/images";
     }
 
     // POST /images/{id}/delete → 刪除圖片
     @PostMapping("/{id}/delete")
     public String delete(@PathVariable("id") int IAID, HttpSession session) {
-        if (session.getAttribute("AID") == null) return "redirect:/login";
-        imageAssetService.delete(IAID);
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+        imageAssetService.delete(AID, IAID);
         return "redirect:/images";
     }
 }

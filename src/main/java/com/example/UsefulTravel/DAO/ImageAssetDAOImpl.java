@@ -45,11 +45,14 @@ public class ImageAssetDAOImpl implements ImageAssetDAO {
                 .getResultList();
     }
 
+    // 同一個 PID (尤其是共用庫景點) 可能被多間旅行社各自上傳圖片, 一定要用 AID 篩選,
+    // 不然會把別間旅行社上傳、綁在同一個共用景點上的照片也顯示出來 (跨租戶資料外洩)。
     @Override
-    public List<ImageAsset> findByPoi(int PID) {
+    public List<ImageAsset> findByPoi(int PID, int AID) {
         return em.createQuery(
-                "SELECT i FROM ImageAsset i WHERE i.matchedPid = :pid ORDER BY i.createdAt DESC", ImageAsset.class)
+                "SELECT i FROM ImageAsset i WHERE i.matchedPid = :pid AND i.AID = :aid ORDER BY i.createdAt DESC", ImageAsset.class)
                 .setParameter("pid", PID)
+                .setParameter("aid", AID)
                 .getResultList();
     }
 

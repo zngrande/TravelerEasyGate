@@ -96,7 +96,7 @@ public class PoiController {
         return "redirect:/poi";
     }
 
-    // GET /poi/autocomplete?keyword=成田&category=airport → 給輸入框打字即時篩選用 (JSON)
+    // GET /poi/autocomplete?keyword=成田&category=機場 → 給輸入框打字即時篩選用 (JSON)
     // category 可選 (例如只找機場), 不給就整個 POI 資料庫一起比對
     @GetMapping("/autocomplete")
     @ResponseBody
@@ -129,15 +129,19 @@ public class PoiController {
     }
 
     // POST /poi/{id}/description → 在行程編輯畫面修改景點介紹說明後, 同步存回 POI 資料庫 (只更新這一個欄位, AJAX)
+    // iiid 選填: 從哪個行程項目觸發的, 如果這筆景點是共用庫的, 存檔會建立公司專屬複本, 順便把這個項目
+    // 的連結改指向新複本 (見 PoiService.updateDescription 的說明)
     @PostMapping("/{id}/description")
     @ResponseBody
     public ResponseEntity<?> updateDescription(@PathVariable("id") int PID,
                                                 @RequestParam String description,
+                                                @RequestParam(required = false) Integer iiid,
                                                 HttpSession session) {
-        if (session.getAttribute("AID") == null) return ResponseEntity.status(401).build();
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return ResponseEntity.status(401).build();
         try {
-            poiService.updateDescription(PID, description);
-            return ResponseEntity.ok().build();
+            Poi saved = poiService.updateDescription(AID, PID, description, iiid);
+            return ResponseEntity.ok(java.util.Map.of("pid", saved.getPID()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -146,17 +150,23 @@ public class PoiController {
     // GET /poi/{id}/edit → 編輯景點表單
     @GetMapping("/{id}/edit")
     public String editForm(@PathVariable("id") int PID, HttpSession session, Model model) {
-        if (session.getAttribute("AID") == null) return "redirect:/login";
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
 
         Poi poi = poiService.findById(PID);
         if (poi == null) return "redirect:/poi";
+        // 別間旅行社自建的景點 (AID 不是 null 也不是自己) 不能編輯; 共用庫 (AID == null) 大家都能編輯 (存檔時會走複製流程)
+        if (poi.getAID() != null && !poi.getAID().equals(AID)) return "redirect:/poi";
 
         model.addAttribute("poi", poi);
-        model.addAttribute("images", imageAssetService.listForPoi(PID));
+        model.addAttribute("images", imageAssetService.listForPoi(PID, AID));
+        model.addAttribute("isSharedPoi", poi.getAID() == null);
         return "poi/edit";
     }
 
     // POST /poi/{id}/edit → 儲存編輯 (經緯度留空會自動重新地理編碼)
+    // 編輯共用庫 (AID IS NULL) 的景點時: 不會直接改到共用庫本身 (會影響其他旅行社), 而是複製一份
+    // 變成這間旅行社自己專屬的景點, 之後這間旅行社看到的都是自己的複本, 共用庫原始那筆對它來說會被隱藏。
     @PostMapping("/{id}/edit")
     public String edit(@PathVariable("id") int PID,
                         @RequestParam String category,
@@ -173,27 +183,18 @@ public class PoiController {
                         @RequestParam(required = false) String supplierContact,
                         @RequestParam(required = false) String supplierNotes,
                         HttpSession session) {
-        if (session.getAttribute("AID") == null) return "redirect:/login";
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
 
-        Poi poi = poiService.findById(PID);
-        if (poi == null) return "redirect:/poi";
+        Poi original = poiService.findById(PID);
+        if (original == null) return "redirect:/poi";
+        if (original.getAID() != null && !original.getAID().equals(AID)) return "redirect:/poi";
 
-        poi.setCategory(category);
-        poi.setName(name);
-        poi.setOriginalName(originalName);
-        poi.setCountry(country);
-        poi.setCity(city);
-        poi.setAddress(address);
-        poi.setSuggestedStayMin(suggestedStayMin);
-        poi.setDescription(description);
-        poi.setAgencyPrice(agencyPrice);
-        poi.setSupplierContact(supplierContact);
-        poi.setSupplierNotes(supplierNotes);
+        boolean isShared = original.getAID() == null;
 
-        if (latitude != null && longitude != null) {
-            poi.setLatitude(latitude);
-            poi.setLongitude(longitude);
-        } else {
+        BigDecimal finalLatitude = latitude;
+        BigDecimal finalLongitude = longitude;
+        if (finalLatitude == null || finalLongitude == null) {
             // 經緯度留空: 用最新的名稱/地址重新查一次, 找不到就保留原本的值 (不清空)
             // 先試 Places API (對店名/景點名準確率高很多), 找不到再 fallback Geocoding API (適合純地址)
             String query = String.join(" ",
@@ -203,22 +204,61 @@ public class PoiController {
                 geo = googleMapsClient.geocode(query, country);
             }
             if (geo != null) {
-                poi.setLatitude(BigDecimal.valueOf(geo.latitude));
-                poi.setLongitude(BigDecimal.valueOf(geo.longitude));
+                finalLatitude = BigDecimal.valueOf(geo.latitude);
+                finalLongitude = BigDecimal.valueOf(geo.longitude);
+            } else {
+                finalLatitude = original.getLatitude();
+                finalLongitude = original.getLongitude();
             }
         }
 
-        poiService.save(poi);
+        if (isShared) {
+            Poi copy = new Poi(AID, category, name, country, city, address, finalLatitude, finalLongitude);
+            copy.setOriginalName(originalName);
+            copy.setSuggestedStayMin(suggestedStayMin);
+            copy.setDescription(description);
+            copy.setAgencyPrice(agencyPrice);
+            copy.setSupplierContact(supplierContact);
+            copy.setSupplierNotes(supplierNotes);
+            Poi saved = poiService.overrideSharedPoi(AID, original, copy);
+            return "redirect:/poi/" + saved.getPID() + "/edit";
+        }
+
+        original.setCategory(category);
+        original.setName(name);
+        original.setOriginalName(originalName);
+        original.setCountry(country);
+        original.setCity(city);
+        original.setAddress(address);
+        original.setSuggestedStayMin(suggestedStayMin);
+        original.setDescription(description);
+        original.setAgencyPrice(agencyPrice);
+        original.setSupplierContact(supplierContact);
+        original.setSupplierNotes(supplierNotes);
+        original.setLatitude(finalLatitude);
+        original.setLongitude(finalLongitude);
+
+        poiService.save(original);
         return "redirect:/poi/" + PID + "/edit";
     }
 
     // POST /poi/{id}/delete → 刪除景點
+    // 共用庫的景點「刪除」不會真的刪掉 (其他旅行社還要看得到), 只會記一筆隱藏紀錄, 讓這間旅行社之後看不到它
     @PostMapping("/{id}/delete")
     public String delete(@PathVariable("id") int PID, HttpSession session,
                           org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
-        if (session.getAttribute("AID") == null) return "redirect:/login";
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+        Poi poi = poiService.findById(PID);
+        if (poi == null) return "redirect:/poi";
+        if (poi.getAID() != null && !poi.getAID().equals(AID)) return "redirect:/poi";
+
         try {
-            poiService.delete(PID);
+            if (poi.getAID() == null) {
+                poiService.hideSharedPoi(AID, PID);
+            } else {
+                poiService.delete(PID);
+            }
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("deleteError",
                     "刪除失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString()));

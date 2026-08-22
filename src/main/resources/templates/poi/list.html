@@ -151,13 +151,13 @@
             background: #f1f5f9;
             color: #475569;
         }
-        .tag-category.attraction { background: #eff6ff; color: var(--primary-blue); }
-        .tag-category.restaurant { background: #fff7ed; color: #ea580c; }
-        .tag-category.hotel { background: #f0fdfa; color: #0d9488; }
-        .tag-category.rest_stop { background: #faf5ff; color: var(--primary-purple); }
-        .tag-category.airport { background: #ecfeff; color: #0891b2; }
-        .tag-category.transport { background: #f0f9ff; color: #0369a1; }
-        .tag-category.shopping { background: #fdf2f8; color: #db2777; }
+        .tag-category.景點 { background: #eff6ff; color: var(--primary-blue); }
+        .tag-category.餐廳 { background: #fff7ed; color: #ea580c; }
+        .tag-category.飯店 { background: #f0fdfa; color: #0d9488; }
+        .tag-category.休息站 { background: #faf5ff; color: var(--primary-purple); }
+        .tag-category.機場 { background: #ecfeff; color: #0891b2; }
+        .tag-category.交通 { background: #f0f9ff; color: #0369a1; }
+        .tag-category.購物 { background: #fdf2f8; color: #db2777; }
 
         /* 定位狀態標籤 */
         .geo-badge {
@@ -241,13 +241,13 @@
             <input type="text" name="keyword" class="search-input" placeholder="搜尋景點名稱、原文地名、國家或城市..." th:value="${keyword}" />
             <select name="category" class="search-select">
                 <option value="">全部類型</option>
-                <option value="attraction" th:selected="${category == 'attraction'}">景點</option>
-                <option value="restaurant" th:selected="${category == 'restaurant'}">餐廳</option>
-                <option value="hotel" th:selected="${category == 'hotel'}">飯店</option>
-                <option value="rest_stop" th:selected="${category == 'rest_stop'}">休息站</option>
-                <option value="airport" th:selected="${category == 'airport'}">機場</option>
-                <option value="transport" th:selected="${category == 'transport'}">交通</option>
-                <option value="shopping" th:selected="${category == 'shopping'}">購物</option>
+                <option value="景點" th:selected="${category == '景點'}">景點</option>
+                <option value="餐廳" th:selected="${category == '餐廳'}">餐廳</option>
+                <option value="飯店" th:selected="${category == '飯店'}">飯店</option>
+                <option value="休息站" th:selected="${category == '休息站'}">休息站</option>
+                <option value="機場" th:selected="${category == '機場'}">機場</option>
+                <option value="交通" th:selected="${category == '交通'}">交通</option>
+                <option value="購物" th:selected="${category == '購物'}">購物</option>
             </select>
             <button type="submit" class="btn-search">
                 <i class="fa-solid fa-magnifying-glass"></i> 搜尋
@@ -277,13 +277,13 @@
                 </td>
                 <td>
                     <span class="tag-category" th:classappend="${poi.category}" th:switch="${poi.category}">
-                        <th:block th:case="'attraction'">景點</th:block>
-                        <th:block th:case="'restaurant'">餐廳</th:block>
-                        <th:block th:case="'hotel'">飯店</th:block>
-                        <th:block th:case="'rest_stop'">休息站</th:block>
-                        <th:block th:case="'airport'">機場</th:block>
-                        <th:block th:case="'transport'">交通</th:block>
-                        <th:block th:case="'shopping'">購物</th:block>
+                        <th:block th:case="'景點'">景點</th:block>
+                        <th:block th:case="'餐廳'">餐廳</th:block>
+                        <th:block th:case="'飯店'">飯店</th:block>
+                        <th:block th:case="'休息站'">休息站</th:block>
+                        <th:block th:case="'機場'">機場</th:block>
+                        <th:block th:case="'交通'">交通</th:block>
+                        <th:block th:case="'購物'">購物</th:block>
                         <th:block th:case="*" th:text="${poi.category}"></th:block>
                     </span>
                 </td>

@@ -85,7 +85,7 @@ public class AnthropicClient {
      *   2) 行程編輯畫面手動把自訂項目加入 POI 資料庫時自動產生介紹
      *
      * @param name     地點名稱 (必填)
-     * @param category attraction / restaurant / hotel 等分類, 可為 null
+     * @param category 景點 / 餐廳 / 飯店 等分類 (中文), 可為 null
      * @param country  國家, 可為 null
      * @param region   地區/城市, 可為 null
      * @param hint     原始行程文字裡跟這個地點有關的補充說明 (例如 AI 解析時的 note), 可為 null,

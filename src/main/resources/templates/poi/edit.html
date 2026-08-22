@@ -334,6 +334,13 @@
         <a th:href="@{/poi}" class="back-link"><i class="fa-solid fa-arrow-left"></i> 返回景點列表</a>
     </div>
 
+    <!-- 共用庫景點提示: 編輯/刪除這筆不會影響其他旅行社, 存檔會自動變成公司專屬的複本 -->
+    <div th:if="${isSharedPoi != null && isSharedPoi}"
+         style="flex-shrink:0; margin-bottom: 16px; padding: 10px 16px; border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 10px; font-size: 12.5px; color: #1e40af; display:flex; align-items:center; gap: 8px;">
+        <i class="fa-solid fa-circle-info"></i>
+        這是平台共用景點庫的資料。儲存編輯後，系統會自動建立一份「貴公司專屬」的複本，不會更動到共用庫原始資料，其他旅行社不受影響；刪除也只會讓貴公司之後看不到這筆，不會真的從共用庫移除。
+    </div>
+
     <!-- 滿版雙欄佈局 (新增/編輯都固定雙欄) -->
     <div class="poi-grid-layout">
 
@@ -354,13 +361,13 @@
                         <div class="form-group">
                             <label class="form-label">類型</label>
                             <select name="category" class="form-control" required>
-                                <option value="attraction" th:selected="${poi?.category == 'attraction'}">景點</option>
-                                <option value="restaurant" th:selected="${poi?.category == 'restaurant'}">餐廳</option>
-                                <option value="hotel" th:selected="${poi?.category == 'hotel'}">飯店 / 住宿</option>
-                                <option value="rest_stop" th:selected="${poi?.category == 'rest_stop'}">休息站</option>
-                                <option value="airport" th:selected="${poi?.category == 'airport'}">機場</option>
-                                <option value="transport" th:selected="${poi?.category == 'transport'}">交通</option>
-                                <option value="shopping" th:selected="${poi?.category == 'shopping'}">購物</option>
+                                <option value="景點" th:selected="${poi?.category == '景點'}">景點</option>
+                                <option value="餐廳" th:selected="${poi?.category == '餐廳'}">餐廳</option>
+                                <option value="飯店" th:selected="${poi?.category == '飯店'}">飯店 / 住宿</option>
+                                <option value="休息站" th:selected="${poi?.category == '休息站'}">休息站</option>
+                                <option value="機場" th:selected="${poi?.category == '機場'}">機場</option>
+                                <option value="交通" th:selected="${poi?.category == '交通'}">交通</option>
+                                <option value="購物" th:selected="${poi?.category == '購物'}">購物</option>
                             </select>
                         </div>
                     </div>
@@ -493,15 +500,21 @@
                 </div>
             </div>
 
-            <!-- 危險操作區 (刪除, 只有編輯模式才有; 固定顯示、不放進手風琴) -->
+            <!-- 危險操作區 (刪除, 只有編輯模式才有; 固定顯示、不放進手風琴)
+                 共用庫景點: 其實是「隱藏」而非真的刪除, 文字跟確認訊息改一下避免使用者誤會 -->
             <div class="danger-strip" th:if="${poi != null && poi.PID != null}">
                 <div>
-                    <div style="font-weight: 700; color: #991b1b; font-size: 13.5px; margin-bottom: 2px;">刪除景點資料</div>
-                    <div style="font-size: 11.5px; color: #7f1d1d;">此動作無法復原。</div>
+                    <div style="font-weight: 700; color: #991b1b; font-size: 13.5px; margin-bottom: 2px;"
+                         th:text="${isSharedPoi != null && isSharedPoi} ? '隱藏此景點' : '刪除景點資料'">刪除景點資料</div>
+                    <div style="font-size: 11.5px; color: #7f1d1d;"
+                         th:text="${isSharedPoi != null && isSharedPoi} ? '只會讓貴公司之後看不到這筆，共用庫資料本身不受影響，其他旅行社仍可使用。' : '此動作無法復原。'">此動作無法復原。</div>
                 </div>
-                <form method="post" th:action="@{'/poi/' + ${poi.PID} + '/delete'}" onsubmit="return confirm('確定要刪除這筆景點資料嗎？此動作無法復原。');" style="margin:0;">
+                <form method="post" th:action="@{'/poi/' + ${poi.PID} + '/delete'}"
+                      th:attr="onsubmit=${isSharedPoi != null && isSharedPoi} ? 'return confirm(\'確定要隱藏這筆共用景點嗎？之後貴公司在列表中將看不到它。\');' : 'return confirm(\'確定要刪除這筆景點資料嗎？此動作無法復原。\');'"
+                      style="margin:0;">
                     <button type="submit" class="btn-danger">
-                        <i class="fa-regular fa-trash-can"></i> 刪除
+                        <i class="fa-regular fa-trash-can"></i>
+                        <span th:text="${isSharedPoi != null && isSharedPoi} ? '隱藏' : '刪除'">刪除</span>
                     </button>
                 </form>
             </div>

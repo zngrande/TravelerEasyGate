@@ -38,11 +38,16 @@ public class PoiDAOImpl implements PoiDAO {
         return em.find(Poi.class, PID);
     }
 
-    // 平台共用庫 (AID IS NULL) + 該旅行社自建的 POI
+    // 平台共用庫 (AID IS NULL, 但排除掉這間旅行社已經改寫/隱藏過的, 見 PoiOverride) + 該旅行社自建的 POI
+    // (自建的 POI 裡也包含「改寫共用庫景點」產生出來的複本, 複本本身跟一般自建景點完全沒有差別)
+    private static final String SHARED_OR_OWN_CLAUSE =
+            "(p.AID = :aid OR (p.AID IS NULL AND p.PID NOT IN " +
+            "(SELECT po.originalPid FROM PoiOverride po WHERE po.AID = :aid))) ";
+
     @Override
     public List<Poi> findByAgencyOrShared(Integer AID) {
         return em.createQuery(
-                        "SELECT p FROM Poi p WHERE p.AID IS NULL OR p.AID = :aid ORDER BY p.PID DESC", Poi.class)
+                        "SELECT p FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE + "ORDER BY p.PID DESC", Poi.class)
                 .setParameter("aid", AID)
                 .getResultList();
     }
@@ -60,7 +65,7 @@ public class PoiDAOImpl implements PoiDAO {
             return findByAgencyOrShared(AID);
         }
         StringBuilder jpql = new StringBuilder(
-                "SELECT p FROM Poi p WHERE (p.AID IS NULL OR p.AID = :aid) AND p.country IN :countries ");
+                "SELECT p FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE + "AND p.country IN :countries ");
         // 多國行程時, 「地區」通常只對應其中一國, 拿去跟全部國家的 POI 一起比對容易誤篩掉其他國家的資料, 故只在單一國家時套用
         List<String> regions = (countries.size() == 1) ? splitLocationTokens(region) : List.of();
         boolean hasRegion = !regions.isEmpty();
@@ -99,7 +104,7 @@ public class PoiDAOImpl implements PoiDAO {
     @Override
     public List<Poi> searchByKeyword(Integer AID, String keyword, String category) {
         StringBuilder jpql = new StringBuilder(
-                "SELECT p FROM Poi p WHERE (p.AID IS NULL OR p.AID = :aid) ");
+                "SELECT p FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE);
         if (keyword != null && !keyword.isBlank()) {
             jpql.append("AND (p.name LIKE :kw OR p.originalName LIKE :kw OR p.city LIKE :kw OR p.country LIKE :kw) ");
         }

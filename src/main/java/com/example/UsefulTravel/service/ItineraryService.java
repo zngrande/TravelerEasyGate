@@ -72,12 +72,18 @@ public class ItineraryService {
 
     public Itinerary createItinerary(int AID, int createdBy, String title, String country, String region,
                                      int daysCount, LocalDate startDate) {
+        return createItinerary(AID, createdBy, title, country, region, daysCount, startDate, null);
+    }
+
+    public Itinerary createItinerary(int AID, int createdBy, String title, String country, String region,
+                                     int daysCount, LocalDate startDate, String description) {
         Itinerary itinerary = new Itinerary(AID, createdBy, title, country, daysCount);
         itinerary.setRegion(region);
         itinerary.setStartDate(startDate);
         if (startDate != null) {
             itinerary.setEndDate(startDate.plusDays(daysCount - 1));
         }
+        itinerary.setDescription((description != null && !description.isBlank()) ? description : null);
         itineraryDAO.save(itinerary);
 
         for (int d = 1; d <= daysCount; d++) {
@@ -101,7 +107,12 @@ public class ItineraryService {
      */
     public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
                                                int daysCount, LocalDate startDate) {
-        Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate);
+        return createItineraryWithAiPlan(AID, createdBy, title, country, region, daysCount, startDate, null);
+    }
+
+    public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
+                                               int daysCount, LocalDate startDate, String description) {
+        Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate, description);
 
         List<Poi> candidates = poiDAO.findByAgencyAndCountry(AID, country, region);
         if (candidates.isEmpty()) return itinerary; // 資料庫裡沒有符合國家/地區的景點, 保持空白行程讓使用者自己排
@@ -109,7 +120,7 @@ public class ItineraryService {
         List<ItineraryDay> days = itineraryDayDAO.findByItinerary(itinerary.getITID());
 
         try {
-            Map<Integer, List<Integer>> plan = planDaysWithAi(country, region, daysCount, candidates);
+            Map<Integer, List<Integer>> plan = planDaysWithAi(country, region, daysCount, candidates, description);
             if (plan.isEmpty()) return itinerary; // AI 沒排出任何結果, 一樣退回空白行程
 
             Map<Integer, Poi> candidateByPid = new HashMap<>();
@@ -126,23 +137,58 @@ public class ItineraryService {
                 }
             }
 
-            // 資料庫裡這個國家/地區如果完全沒有餐廳/飯店類的候選景點, AI 當然也排不出真正的早/午/晚餐跟住宿。
-            // 這種情況不要放著不管 (時間軸看起來像漏排), 也不要硬找不相關的地點湊數, 改成先補一個純文字的
-            // 預留項目 (早餐/午餐/晚餐/住宿), 不連結 POI、不查座標、不顯示在地圖上, 讓線控之後自己換成真正的地點。
-            boolean hasRestaurant = candidates.stream().anyMatch(p -> "restaurant".equals(p.getCategory()));
-            boolean hasHotel = candidates.stream().anyMatch(p -> "hotel".equals(p.getCategory()));
-            if (!hasRestaurant || !hasHotel) {
-                for (ItineraryDay day : days) {
-                    if (!hasRestaurant) {
-                        addPlaceholderItem(day.getIDID(), "meal", "早餐");
-                        addPlaceholderItem(day.getIDID(), "meal", "午餐");
-                        addPlaceholderItem(day.getIDID(), "meal", "晚餐");
+            // AI 排出來的初稿不保證每天都有 3 餐、剛好 1 間住宿——使用者反映過兩個常見的「怪」狀況：
+            // (1) 明明候選餐廳數量足夠, AI 卻常常一天只排 1 餐, 不是 3 餐都排;
+            // (2) 飯店在不同天之間跳來跳去, 例如 Day1/Day3 住 A 飯店、Day2 卻換成 B 飯店, 中間被打斷又換回來。
+            // 系統提示詞裡雖然已經有明確要求「每天 3 餐」「同一間要連續住, 不能來回切換」, 但不能只靠 AI 自律,
+            // 這裡用程式碼再逐天檢查、強制補齊/修正一次, 不管 AI 有沒有乖乖照規則排, 結果都會是穩定的。
+            List<Poi> restaurantCandidates = candidates.stream()
+                    .filter(p -> "餐廳".equals(p.getCategory())).collect(java.util.stream.Collectors.toList());
+            List<Poi> hotelCandidates = candidates.stream()
+                    .filter(p -> "飯店".equals(p.getCategory())).collect(java.util.stream.Collectors.toList());
+
+            // (1) 逐天補到剛好 3 餐: 候選餐廳夠的話輪流從候選清單裡挑 (允許重複使用, 跟原本「數量不足以合理重複」
+            //     的規則一致); 候選餐廳掛零的極端狀況才用純文字預留項目 (不連結 POI、不查座標、不顯示在地圖上)。
+            int restaurantRoundRobin = 0;
+            for (ItineraryDay day : days) {
+                long mealCount = itineraryItemDAO.findByDay(day.getIDID()).stream()
+                        .filter(item -> "meal".equals(item.getItemType())).count();
+                String[] fallbackLabels = {"早餐", "午餐", "晚餐"};
+                while (mealCount < 3) {
+                    if (restaurantCandidates.isEmpty()) {
+                        addPlaceholderItem(day.getIDID(), "meal", fallbackLabels[(int) Math.min(mealCount, 2)]);
+                    } else {
+                        Poi pick = restaurantCandidates.get(restaurantRoundRobin % restaurantCandidates.size());
+                        restaurantRoundRobin++;
+                        addItem(day.getIDID(), pick.getPID(), "meal", pick.getName(), pick.getSuggestedStayMin());
                     }
-                    if (!hasHotel) {
+                    mealCount++;
+                }
+            }
+
+            // (2) 逐天確保剛好 1 間住宿: 沒有的話補一間 (候選掛零一樣退回純文字預留項目);
+            //     如果 AI 同一天排了不只 1 間, 只留下第一間, 其餘刪掉, 避免同一天出現兩間飯店。
+            for (ItineraryDay day : days) {
+                List<ItineraryItem> hotelItems = itineraryItemDAO.findByDay(day.getIDID()).stream()
+                        .filter(item -> "hotel".equals(item.getItemType())).collect(java.util.stream.Collectors.toList());
+                if (hotelItems.isEmpty()) {
+                    if (hotelCandidates.isEmpty()) {
                         addPlaceholderItem(day.getIDID(), "hotel", "住宿");
+                    } else {
+                        Poi pick = hotelCandidates.get(0);
+                        addItem(day.getIDID(), pick.getPID(), "hotel", pick.getName(), pick.getSuggestedStayMin());
+                    }
+                } else if (hotelItems.size() > 1) {
+                    for (int i = 1; i < hotelItems.size(); i++) {
+                        itineraryItemDAO.deleteById(hotelItems.get(i).getIIID());
                     }
                 }
             }
+
+            // (3) 修正「A、B、A 來回切換」這種怪異安排: 如果第 i 天跟第 i+2 天住同一間, 但中間第 i+1 天卻是
+            //     別間, 這極可能是 AI 亂跳、不是真的換城市——把第 i+1 天也改成跟前後一致, 讓同一間飯店的
+            //     入住天數變成連續區塊, 不會被打斷又接回來 (不影響 AABBB 這種正常的「換過去就不換回來」分段)。
+            normalizeHotelContiguity(days);
 
             // 加完之後跑一次自動整理 (meal_time 模式): 依序標出早/中/晚餐、住宿排到當天最後面, 排序更像正常行程
             autoArrangeItinerary(itinerary.getITID(), "meal_time");
@@ -154,13 +200,15 @@ public class ItineraryService {
         return itinerary;
     }
 
-    // 把資料庫裡的 POI 分類 (attraction/restaurant/hotel/rest_stop/airport/transport/shopping) 轉成
-    // 行程項目的分類 (attraction/meal/hotel/...), 跟前端地圖上「點灰色建議標記直接加入行程」用的判斷邏輯一致
+    // 把資料庫裡的 POI 分類 (中文: 景點/餐廳/飯店/休息站/機場/交通/購物, 使用者要求資料庫維持中文,
+    // 不要轉成英文) 轉成行程項目的分類 (attraction/meal/hotel/..., 這個是 itinerary_item.item_type
+    // 欄位, 跟 poi.category 是兩個獨立的欄位, item_type 維持英文), 跟前端地圖上「點灰色建議標記
+    // 直接加入行程」用的判斷邏輯一致 (見 board.html)
     private String mapPoiCategoryToItemType(String poiCategory) {
         if (poiCategory == null) return "attraction";
         return switch (poiCategory) {
-            case "restaurant" -> "meal";
-            case "hotel" -> "hotel";
+            case "餐廳" -> "meal";
+            case "飯店" -> "hotel";
             default -> "attraction";
         };
     }
@@ -175,8 +223,152 @@ public class ItineraryService {
         itineraryItemDAO.save(item);
     }
 
+    // 修正「AI 安排行程」排出來的住宿在天數之間來回跳動的怪狀況 (見 createItineraryWithAiPlan 呼叫端說明)：
+    // 掃過每一天的住宿 (呼叫這個之前已經確保每天剛好 0 或 1 筆), 如果第 i 天、第 i+2 天是同一間, 但中間
+    // 第 i+1 天卻是別間, 代表這極可能是 AI 亂跳、不是真的換城市, 把第 i+1 天也改成跟前後一致。
+    private void normalizeHotelContiguity(List<ItineraryDay> days) {
+        ItineraryItem[] hotelByDay = new ItineraryItem[days.size()];
+        for (int i = 0; i < days.size(); i++) {
+            hotelByDay[i] = itineraryItemDAO.findByDay(days.get(i).getIDID()).stream()
+                    .filter(item -> "hotel".equals(item.getItemType()))
+                    .findFirst().orElse(null);
+        }
+        for (int i = 1; i < hotelByDay.length - 1; i++) {
+            ItineraryItem prev = hotelByDay[i - 1];
+            ItineraryItem curr = hotelByDay[i];
+            ItineraryItem next = hotelByDay[i + 1];
+            if (prev == null || curr == null || next == null) continue;
+            if (samePlace(prev, next) && !samePlace(prev, curr)) {
+                curr.setPID(prev.getPID());
+                curr.setCustomName(prev.getCustomName());
+                curr.setStayDurationMin(prev.getStayDurationMin());
+                itineraryItemDAO.save(curr);
+                hotelByDay[i] = curr; // 更新暫存陣列, 避免後面比對用到修正前的舊資料
+            }
+        }
+    }
+
+    private boolean samePlace(ItineraryItem a, ItineraryItem b) {
+        if (a.getPID() != null && b.getPID() != null) return a.getPID().equals(b.getPID());
+        return java.util.Objects.equals(a.getCustomName(), b.getCustomName());
+    }
+
+    // ------------------------------------------------------------
+    // 建立行程時「行程重點資訊」填的去程/回程班機 → 自動轉成行程項目
+    // ------------------------------------------------------------
+
+    /**
+     * 建立行程 (不管是「建立行程並進入看板」的空白行程, 還是「AI 安排行程」排完初稿之後) 都會呼叫這個：
+     * 如果使用者在「行程重點資訊」填了去程/回程班機的機場/時間, 各自轉成 item_type=transport 的項目,
+     * 去程整批固定放第一天最前面 (原本第一天已經有的項目全部往後推), 回程整批固定加在最後一天最後面。
+     * 每個方向都支援「+新增航段」多筆 (例如轉機), 用同一個表單欄位名稱重複送出多筆, 對應到同一個 index
+     * 位置的出發機場/出發時間/抵達機場/抵達時間組成一個航段, 依填寫順序依序插入 (不會打亂順序)。
+     * 兩個方向各自獨立判斷: 只填了去程沒填回程 (或反過來) 也可以, 某一個航段列四個欄位都沒填就直接跳過那一列。
+     *
+     * 這只是建立當下決定「初始位置放最前面/最後面」, 不是釘死不能動的特殊項目 —— 建立後這些項目
+     * 跟其他項目一樣, 使用者可以照常拖曳排序、編輯、刪除。
+     *
+     * 呼叫時機很重要: 一定要在 createItineraryWithAiPlan() 內部的 autoArrangeItinerary() 執行完之後才呼叫
+     * (也就是整個建立流程 - 包含 AI 排程 - 全部跑完, controller 拿到回傳的 Itinerary 之後才呼叫這個方法),
+     * 不然去程/回程班機插入的位置會被後面的自動整理重新洗牌, 沒辦法保證「最前面/最後面」。
+     */
+    public void attachFlightItems(int ITID,
+                                  List<String> outDepAirport, List<String> outDepTime,
+                                  List<String> outArrAirport, List<String> outArrTime,
+                                  List<String> retDepAirport, List<String> retDepTime,
+                                  List<String> retArrAirport, List<String> retArrTime) {
+        List<ItineraryDay> days = itineraryDayDAO.findByItinerary(ITID);
+        if (days.isEmpty()) return;
+        ItineraryDay firstDay = days.get(0); // findByItinerary 已經依 day_number ASC 排序
+        ItineraryDay lastDay = days.get(days.size() - 1);
+
+        attachFlightLegs(firstDay.getIDID(), true, "去程班機", outDepAirport, outDepTime, outArrAirport, outArrTime);
+
+        // 只有一天的行程, 第一天跟最後一天是同一天: 去程剛插到最前面, 回程要接在「這一天現在的最後面」
+        // (也就是去程插入之後的最新狀態), 直接沿用同一個 IDID 重新查一次即可, attachFlightLegs 內部本來就是
+        // 即時查 findByDay() 決定要插入的位置, 不會漏算剛剛插入的去程那幾筆。
+        attachFlightLegs(lastDay.getIDID(), false, "回程班機", retDepAirport, retDepTime, retArrAirport, retArrTime);
+    }
+
+    // asFirstBlock=true: 這一整批航段固定插在最前面 (依填寫順序、維持先後關係, 其餘項目全部往後推);
+    // false: 這一整批航段依填寫順序 append 在最後面。四個 List 用同一個 index 對齊組成一個航段, 缺的欄位留空。
+    private void attachFlightLegs(int IDID, boolean asFirstBlock, String label,
+                                  List<String> depAirports, List<String> depTimes,
+                                  List<String> arrAirports, List<String> arrTimes) {
+        int legCount = Math.max(Math.max(listSize(depAirports), listSize(depTimes)),
+                                Math.max(listSize(arrAirports), listSize(arrTimes)));
+        if (legCount == 0) return;
+
+        List<ItineraryItem> legItems = new ArrayList<>();
+        for (int i = 0; i < legCount; i++) {
+            String fromAirport = listGet(depAirports, i);
+            java.time.LocalTime depTime = parseTimeOrNull(listGet(depTimes, i));
+            String toAirport = listGet(arrAirports, i);
+            java.time.LocalTime arrTime = parseTimeOrNull(listGet(arrTimes, i));
+            if (isBlank(fromAirport) && isBlank(toAirport) && depTime == null && arrTime == null) continue; // 這個航段整列都沒填, 跳過
+
+            // 只有一段就直接用「去程班機」；有多段 (轉機) 才加編號「去程班機1」「去程班機2」方便分辨先後順序
+            String segmentLabel = legCount > 1 ? (label + (i + 1)) : label;
+            String customName = buildFlightLabel(segmentLabel, fromAirport, toAirport);
+            ItineraryItem item = new ItineraryItem(IDID, null, "transport", customName, 0); // sort_order 最後統一算
+            item.setFromLocation(isBlank(fromAirport) ? null : fromAirport.trim());
+            item.setToLocation(isBlank(toAirport) ? null : toAirport.trim());
+            item.setTransportMethod("飛機");
+            item.setStartTime(depTime);
+            item.setEndTime(arrTime);
+            // 機場欄位是自由文字 (沒有連結 POI/經緯度), 沒有座標可以畫在地圖上, 關掉顯示在地圖上避免出現錯誤定位點
+            item.setShowOnMap(false);
+            legItems.add(item);
+        }
+        if (legItems.isEmpty()) return; // 每一列都沒填, 這個方向不用建立任何項目
+
+        List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
+        if (asFirstBlock) {
+            for (ItineraryItem it : existing) {
+                it.setSortOrder(it.getSortOrder() + legItems.size());
+                itineraryItemDAO.save(it);
+            }
+            for (int i = 0; i < legItems.size(); i++) {
+                legItems.get(i).setSortOrder(i);
+                itineraryItemDAO.save(legItems.get(i));
+            }
+        } else {
+            int nextOrder = existing.size();
+            for (ItineraryItem legItem : legItems) {
+                legItem.setSortOrder(nextOrder++);
+                itineraryItemDAO.save(legItem);
+            }
+        }
+    }
+
+    // 組出項目清單上顯示的名稱, 例如「去程班機：桃園國際機場 → 東京成田機場」; 只填一邊機場就退化成「XX 出發」/「抵達 XX」
+    private String buildFlightLabel(String label, String fromAirport, String toAirport) {
+        boolean hasFrom = !isBlank(fromAirport);
+        boolean hasTo = !isBlank(toAirport);
+        if (hasFrom && hasTo) return label + "：" + fromAirport.trim() + " → " + toAirport.trim();
+        if (hasFrom) return label + "：" + fromAirport.trim() + " 出發";
+        if (hasTo) return label + "：抵達 " + toAirport.trim();
+        return label;
+    }
+
+    // 表單 <input type="time"> 送出的是 "HH:mm"，沒填就是空字串／null，兩種都當作沒填處理
+    private java.time.LocalTime parseTimeOrNull(String time) {
+        if (isBlank(time)) return null;
+        try {
+            return java.time.LocalTime.parse(time.trim());
+        } catch (Exception e) {
+            return null; // 格式不對就當沒填, 不要讓建立行程整個失敗
+        }
+    }
+
+    private int listSize(List<String> list) { return list == null ? 0 : list.size(); }
+
+    private String listGet(List<String> list, int index) { return (list != null && index < list.size()) ? list.get(index) : null; }
+
     // 把候選景點清單丟給 AI, 請它只從清單裡挑選 PID 並安排每一天要去哪些, 回傳 {天數 -> [PID,...]}
-    private Map<Integer, List<Integer>> planDaysWithAi(String country, String region, int daysCount, List<Poi> candidates) throws Exception {
+    // description: 使用者在「建立新行程」頁面「行程重點資訊」填的行程說明 (選填, 例如「第一天到東京,
+    // 第二天去河口湖...」), 有填的話一併丟給 AI 當作額外的規劃參考, 讓排出來的初稿更貼近使用者想法。
+    private Map<Integer, List<Integer>> planDaysWithAi(String country, String region, int daysCount, List<Poi> candidates, String description) throws Exception {
         String system = """
             你是旅遊行程規劃助手, 負責幫旅行社從「已有的景點/餐廳/飯店資料庫」裡挑選並安排出一份 N 天的行程初稿。
             使用者會給你這個國家/地區在資料庫裡「所有可用」的候選清單 (每筆有 pid / name / category / stay_min),
@@ -184,8 +376,13 @@ public class ItineraryService {
             絕對不可以自己生出候選清單沒有的地點或 pid。
 
             規則:
-            - category=景點 的排每天 2~4 個當作主要行程; category=餐廳 的每天安排 1~3 個 (盡量涵蓋午餐/晚餐);
-              category=飯店 的每天最多安排 1 個 (如果只有一間飯店, 每天都排同一間也沒關係, 代表這幾天都住這裡)。
+            - category=景點 的排每天 2~4 個當作主要行程。
+            - category=餐廳 的每天應該排剛好 3 個 (早餐、午餐、晚餐都要有), 不要只排 1 個或 2 個就結束那一天；
+              只有候選餐廳數量真的太少 (整個候選清單裡少於 3 間不同的餐廳) 才可以少於 3 個。
+            - category=飯店 的每天恰好安排 1 個。同一趟行程如果只有 1 間候選飯店, 就整趟都排這一間;
+              如果有多間候選飯店, 決定要換到某一間之後就要連續排到不需要再換為止才能換下一間,
+              絕對不可以「換過去又換回原本那間」來回跳動 (例如 Day1=A, Day2=B, Day3=A 這種安排是禁止的；
+              Day1=A, Day2=A, Day3=B 這種「換過去就不再換回來」的連續分段才是允許的)。
             - 同一個 pid 不要在同一天重複出現; 不同天之間, 如果 景點/餐廳 數量足夠, 盡量不要重複,
               但如果候選數量比行程天數少, 允許合理重複使用, 不要留空某一天。
             - 每個地點只放在最適合的一天就好, 不要漏掉候選清單裡看起來明顯必去的知名景點。
@@ -198,6 +395,10 @@ public class ItineraryService {
         userContent.append("國家: ").append(country != null ? country : "未指定");
         userContent.append("\n地區: ").append(region != null && !region.isBlank() ? region : "未指定");
         userContent.append("\n總天數: ").append(daysCount);
+        if (description != null && !description.isBlank()) {
+            userContent.append("\n使用者填寫的行程重點/期望安排 (請優先參考, 但還是只能挑選候選清單裡有的 pid): ")
+                    .append(description.trim());
+        }
         userContent.append("\n候選景點清單 (JSON 陣列, 每筆是 pid/name/category/stay_min):\n");
         userContent.append("[");
         for (int i = 0; i < candidates.size(); i++) {
@@ -205,7 +406,7 @@ public class ItineraryService {
             if (i > 0) userContent.append(",");
             userContent.append("{\"pid\":").append(poi.getPID())
                     .append(",\"name\":\"").append(poi.getName() != null ? poi.getName().replace("\"", "") : "")
-                    .append("\",\"category\":\"").append(poi.getCategory() != null ? poi.getCategory() : "attraction")
+                    .append("\",\"category\":\"").append(poi.getCategory() != null ? poi.getCategory() : "景點")
                     .append("\",\"stay_min\":").append(poi.getSuggestedStayMin() != null ? poi.getSuggestedStayMin() : 60)
                     .append("}");
         }
@@ -473,15 +674,16 @@ public class ItineraryService {
         return poi;
     }
 
-    // AI/手動輸入的 item_type 對應到 POI 資料庫的 category (transport/highlight 不是實體地點, 不能加入)
-    // 這裡要用跟 poi/new.html、PoiController、AiParseService 一致的英文 category 值 (attraction/
-    // restaurant/hotel), 不能用中文, 不然新建立的 POI 會跟畫面上的類型篩選/自動完成對不上
+    // AI/手動輸入的 item_type (英文) 對應到 POI 資料庫的 category (transport/highlight 不是實體地點, 不能加入)。
+    // 使用者要求 poi.category 維持中文, 這裡要用跟 poi/new.html、poi/edit.html、poi/list.html、
+    // PoiController、AiParseService 一致的中文 category 值 (景點/餐廳/飯店), 不能用英文,
+    // 不然新建立的 POI 會跟畫面上的類型篩選/自動完成對不上
     private String mapItemTypeToPoiCategory(String itemType) {
         if (itemType == null) return null;
         return switch (itemType) {
-            case "attraction" -> "attraction";
-            case "meal" -> "restaurant";
-            case "hotel" -> "hotel";
+            case "attraction" -> "景點";
+            case "meal" -> "餐廳";
+            case "hotel" -> "飯店";
             default -> null;
         };
     }
@@ -544,9 +746,17 @@ public class ItineraryService {
         // 有連結 POI 的話, 直接把座標也複製到項目自己身上 (跟自訂項目走同一套地圖邏輯, 不用每次都查 Poi 表)
         if (PID != null) {
             Poi poi = poiDAO.findById(PID);
-            if (poi != null && poi.getLatitude() != null) {
-                item.setLatitude(poi.getLatitude());
-                item.setLongitude(poi.getLongitude());
+            if (poi != null) {
+                if (poi.getLatitude() != null) {
+                    item.setLatitude(poi.getLatitude());
+                    item.setLongitude(poi.getLongitude());
+                }
+                // 使用者要求: 從景點資料庫加入的項目要帶出該景點自己設定的建議停留時間, 呼叫端 (前端「加入行程」
+                // 按鈕) 目前不會傳 stayDurationMin 進來, 一律是 null, 這裡補上這個預設值; 如果呼叫端有明確
+                // 指定 (例如 AI 解析出來的預估停留時間), 還是以呼叫端傳進來的值為準, 不會被這裡蓋掉。
+                if (stayDurationMin == null && poi.getSuggestedStayMin() != null) {
+                    item.setStayDurationMin(poi.getSuggestedStayMin());
+                }
             }
         } else if (shouldGeocode(itemType, timeSlot, customName)) {
             // 沒有連結 POI (通常是 AI 解析出來、但公司資料庫裡還沒有的新景點) 也要自動查座標,
@@ -1031,8 +1241,15 @@ public class ItineraryService {
         }
 
         ItineraryDay day = itineraryDayDAO.findById(IDID);
-        // "auto" 代表不強制整天用同一種方式, 讓 RouteService 針對每一段依實際距離用 AI 判斷推薦
-        String transportMode = day != null && day.getTransportMode() != null ? day.getTransportMode() : "auto";
+        // 使用者要求: 兩個行程點距離在 1 公里以內要預設走路 (RouteService.recommendMode() 本來就有這個規則),
+        // 但這條規則實際上一直沒有真的生效: ItineraryDay.transportMode 欄位不管是資料庫欄位預設值還是
+        // entity 的預設值都是 "driving"（不是 null), 前端也已經把「整天強制切換走路/開車」的下拉選單拿掉、
+        // 改成每一段各自獨立選 (board.html 不再呼叫 /day/{IDID}/transport-mode), 所以這裡原本的判斷式
+        // 幾乎每次都會拿到 "driving" 而不是 "auto"，導致 recommendMode() 的距離判斷永遠被跳過、每一段都
+        // 被強制當開車算。既然「整天強制」這個功能在現在的畫面上已經沒有入口可以觸發, 這裡固定改成 "auto",
+        // 讓每一段預設都套用 recommendMode() 的距離規則 (<=1公里走路, 否則開車); 使用者在看板上對某一段
+        // 手動選過的走路/開車, 已經由上面的 overrides 機制保留下來, 不會被這裡蓋掉。
+        String transportMode = "auto";
         routeService.calculateAndSaveSegments(IDID, itemsForRouting, transportMode, overrides);
 
         if (cascadeToNextDay && day != null) {

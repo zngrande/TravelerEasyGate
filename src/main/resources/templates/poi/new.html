@@ -354,13 +354,13 @@
                         <div class="form-group">
                             <label class="form-label">類型</label>
                             <select name="category" class="form-control" required>
-                                <option value="attraction" th:selected="${poi?.category == 'attraction'}">景點</option>
-                                <option value="restaurant" th:selected="${poi?.category == 'restaurant'}">餐廳</option>
-                                <option value="hotel" th:selected="${poi?.category == 'hotel'}">飯店 / 住宿</option>
-                                <option value="rest_stop" th:selected="${poi?.category == 'rest_stop'}">休息站</option>
-                                <option value="airport" th:selected="${poi?.category == 'airport'}">機場</option>
-                                <option value="transport" th:selected="${poi?.category == 'transport'}">交通</option>
-                                <option value="shopping" th:selected="${poi?.category == 'shopping'}">購物</option>
+                                <option value="景點" th:selected="${poi?.category == '景點'}">景點</option>
+                                <option value="餐廳" th:selected="${poi?.category == '餐廳'}">餐廳</option>
+                                <option value="飯店" th:selected="${poi?.category == '飯店'}">飯店 / 住宿</option>
+                                <option value="休息站" th:selected="${poi?.category == '休息站'}">休息站</option>
+                                <option value="機場" th:selected="${poi?.category == '機場'}">機場</option>
+                                <option value="交通" th:selected="${poi?.category == '交通'}">交通</option>
+                                <option value="購物" th:selected="${poi?.category == '購物'}">購物</option>
                             </select>
                         </div>
                     </div>

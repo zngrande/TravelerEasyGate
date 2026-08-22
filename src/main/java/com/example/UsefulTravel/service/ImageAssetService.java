@@ -60,20 +60,24 @@ public class ImageAssetService {
         return imageAssetDAO.findUnlinked(AID);
     }
 
-    public List<ImageAsset> listForPoi(int PID) {
-        return imageAssetDAO.findByPoi(PID);
+    // 圖片是「各自綁定」: 每張圖片只屬於上傳它的旅行社 (即使綁的是共用庫的 PID),
+    // 不需要也不應該去改動/複製 POI 本身 — POI 複本 (override) 只在真的修改到 POI 欄位時才需要。
+    public List<ImageAsset> listForPoi(int PID, int AID) {
+        return imageAssetDAO.findByPoi(PID, AID);
     }
 
-    public void linkToPoi(int IAID, Integer PID) {
+    public void linkToPoi(int AID, int IAID, Integer PID) {
         ImageAsset image = imageAssetDAO.findById(IAID);
         if (image == null) throw new IllegalArgumentException("找不到這張圖片");
+        if (image.getAID() != AID) return; // 不是自己上傳的圖片, 靜默忽略 (避免竄改網址操作別間旅行社的照片)
         image.setMatchedPid(PID);
         imageAssetDAO.save(image);
     }
 
-    public void delete(int IAID) {
+    public void delete(int AID, int IAID) {
         ImageAsset image = imageAssetDAO.findById(IAID);
         if (image == null) return;
+        if (image.getAID() != AID) return; // 同上, 不是自己的圖片不能刪
         imageStorageService.delete(image.getFilePath());
         imageAssetDAO.deleteById(IAID);
     }

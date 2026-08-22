@@ -1029,12 +1029,29 @@
     }
 
     // 頂部「上一步」按鈕: 功能是「復原」, 跟 Word 的上一步/復原一樣 —— 放棄目前所有還沒儲存的變更
-    // (欄位編輯/排序/刪除/類別更換等), 恢復成「上次儲存後」的樣子。因為這些變更都還只是暫存在瀏覽器裡、
-    // 完全沒送到後端過, 最單純可靠的做法就是整頁重新整理, 讓畫面重新跟資料庫拿一次最新(=上次儲存後)的資料。
+    // (欄位編輯/排序/刪除/類別更換/新增項目等), 恢復成「上次儲存後」的樣子。欄位編輯/排序/刪除這些變更都還只是
+    // 暫存在瀏覽器裡、完全沒送到後端過, 直接整頁重新整理、讓畫面重新跟資料庫拿一次最新資料就能復原。
+    // 但「新增項目」(pendingAdds) 比較特別: 新增當下就已經真的寫進資料庫了 (見上方「暫存編輯機制」的說明),
+    // 單純重新整理並不會讓它消失, 所以復原前要先呼叫後端把這些新增的項目真的刪掉, 才能真正回到「上次儲存後」。
     // 沒有任何還沒儲存的變更時這顆按鈕是反灰的 (見 updateSaveButton), 不會有事情可以復原。
-    function goBackOneStep() {
+    async function goBackOneStep() {
         if (!hasUnsavedChanges) return;
         if (!confirm('確定要放棄目前還沒儲存的變更，恢復成上次儲存後的樣子嗎？')) return;
+
+        const btn = document.getElementById('undoBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '復原中...'; }
+
+        for (const iiid of pendingAdds) {
+            const idid = findDayOfItem(iiid);
+            if (idid == null) continue;
+            try {
+                await fetch(`/itinerary/day/${idid}/items/${iiid}`, { method: 'DELETE' });
+            } catch (err) {
+                // 刪除新增項目失敗也繼續復原流程, 不要卡住使用者; 重新整理後如果項目還在,
+                // 代表這筆刪除真的失敗了, 使用者可以在畫面上再手動刪一次
+            }
+        }
+
         window.location.reload();
     }
 
@@ -1073,17 +1090,28 @@
     // ---------------- 暫存編輯機制 ----------------
     // 排序 / 欄位編輯 / 刪除 都只會先存在下面這些變數裡，畫面立即反映，但不會打 API；
     // 真正送到後端存檔是按下「儲存編輯」按鈕時才會一次送出 (見 saveAllChanges())。
-    // 新增項目 (從 景點資料庫加入 / 自訂項目 / 加入景點資料庫 / 切換候選點 / 切換交通方式 / 自動整理 / 上傳圖片)
-    // 因為牽涉到後端的地理定位、多候選點拆解等邏輯，維持「立即存檔」，不會被暫存機制擋住。
+    // 新增項目 (從 景點資料庫加入 / 自訂項目 / 推薦景點面板加入) 因為牽涉到後端的地理定位、多候選點拆解等邏輯,
+    // 沒辦法只在瀏覽器端「假裝」新增, 新增當下還是會直接打 API 真的寫進資料庫。但使用者要求「有改動就要能夠
+    // 儲存/上一步」, 所以新增成功後改成用 pendingAdds 記住這個新項目的 iiid, 一樣呼叫 markDirty() 讓
+    // 儲存/上一步按鈕跟其他編輯一樣亮起來; 按「上一步」放棄變更時, 這些其實已經寫進資料庫的新項目會被
+    // 後端真的刪掉 (見 goBackOneStep), 保持「按鈕變灰 = 真的沒有任何未儲存變更」這個保證。
+    // 切換候選點 / 切換交通方式 / 自動整理 / 上傳圖片 / 加入景點資料庫 (把既有自訂項目連結到 POI) 這幾個
+    // 因為改的是「既有項目」而不是「新增項目」, 語意跟復原方式都不太一樣 (自動整理甚至會動到一整天的順序),
+    // 這次沒有一起處理, 維持原本的「立即存檔」, 不會讓儲存/上一步按鈕亮起來。
     // 項目內的拖曳排序 (pendingItemOrder) 也改成跟其他編輯一樣先暫存, 要按「儲存編輯」才會真的存進資料庫、
-    // 「上一步」/離開畫面不儲存也能正確復原——這是刻意的取捨: 拉車距離/時間要等存檔後重新整理才會用新順序
-    // 重算 (儲存前地圖跟路線提示文字暫時還是舊順序的數字, 畫面上會用一個小提示告知使用者), 換來的是排序
-    // 這個動作能跟其他編輯一樣, 有清楚的「儲存前可以隨時放棄」保護, 不會拖曳完手滑就直接洗掉資料庫舊順序。
+    // 「上一步」/離開畫面不儲存也能正確復原——換來的是排序這個動作能跟其他編輯一樣, 有清楚的「儲存前可以
+    // 隨時放棄」保護, 不會拖曳完手滑就直接洗掉資料庫舊順序。
+    // 使用者要求拖曳當下就要能看到距離/時間跟著變, 不要等存檔才看得到: 拖曳後 (存檔前) 顯示的公里數/分鐘數
+    // 改成用 computePreviewRoutes() 在瀏覽器端即時算出來的「預估值」(直線距離 + 固定均速估算, 見下方函式),
+    // 跟後端 RouteService 找不到 Google API 金鑰時的 fallback 公式同一套, 盡量讓預估值跟存檔後的真實值
+    // 數量級一致；畫面上會清楚標示「約」「(預估)」跟停用交通方式切換, 提醒使用者這還不是最終數字, 真正
+    // 準確的路網距離/時間 (呼叫 Google Distance Matrix API) 還是要等按下「儲存編輯」才會算出來、覆蓋掉預估值。
     let dayCache = {};        // idid -> { items, routes, optionsMap } 最近一次從後端抓到的原始資料
     let pendingEdits = {};    // iiid -> { customName, stayDurationMin, locationHint, note, showOnMap, description, descriptionPid }
     let pendingDeletes = new Set(); // 已標記移除、還沒送出的 iiid
     let pendingDayOrder = null; // 拖拉 Day 分頁後的新 IDID 順序, null 代表天數順序沒有異動
     let pendingItemOrder = {};  // idid -> 拖拉這一天項目順序後的新 IIID 陣列, 這個 idid 沒有 key 代表這天順序沒有異動
+    let pendingAdds = new Set(); // 這次編輯session新增、還沒按「儲存編輯」確認的 iiid (其實已經寫進資料庫, 見上方說明)
     let hasUnsavedChanges = false;
 
     function markDirty() {
@@ -1144,6 +1172,120 @@
         return items;
     }
 
+    // ------------------------------------------------------------------------------------------
+    // 拖曳排序後、存檔前的「即時預估距離/時間」計算 (純前端, 不打任何 API)。
+    // 跟後端 RouteService 的 fallback 公式 (找不到 Google API 金鑰或呼叫失敗時用) 同一套邏輯: 兩點座標
+    // 算直線距離 (haversine)、依走路/開車均速換算成分鐘、乘 1.5 倍安全緩衝後四捨五入到最近 10 分鐘。
+    // 這裡算出來的只是「預估值」——真正準確的路網距離/時間要等按下「儲存編輯」、後端呼叫 Google Distance
+    // Matrix API 重新計算後才會有, 畫面上會清楚標示這是預估值 (見 renderDay 組 routeInfoEl 的地方)。
+    // ------------------------------------------------------------------------------------------
+    const PREVIEW_WALK_SPEED_KMH = 4.5;
+    const PREVIEW_DRIVE_SPEED_KMH = 30.0;
+    const PREVIEW_SAFETY_MULTIPLIER = 1.5;
+    const PREVIEW_ROUND_TO_MINUTES = 10;
+    const PREVIEW_BACKTRACK_ANGLE_THRESHOLD = 120.0;
+
+    function previewHaversineKm(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const toRad = d => d * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    function previewBearing(lat1, lon1, lat2, lon2) {
+        const toRad = d => d * Math.PI / 180;
+        const phi1 = toRad(lat1), phi2 = toRad(lat2);
+        const deltaLambda = toRad(lon2 - lon1);
+        const y = Math.sin(deltaLambda) * Math.cos(phi2);
+        const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    function previewAngleDiff(a, b) {
+        const diff = Math.abs(a - b) % 360;
+        return diff > 180 ? 360 - diff : diff;
+    }
+
+    // 跟 RouteService.recommendMode() 同一條規則: 1公里以內預設走路, 超過預設開車
+    function previewRecommendMode(distanceKm) {
+        return distanceKm <= 1.0 ? 'walking' : 'driving';
+    }
+
+    function previewRoundToNearest10(minutes) {
+        const rounded = Math.round(minutes / PREVIEW_ROUND_TO_MINUTES) * PREVIEW_ROUND_TO_MINUTES;
+        return Math.max(rounded, PREVIEW_ROUND_TO_MINUTES);
+    }
+
+    // 依目前畫面上的順序 (buildDisplayItems, 已套用 pendingItemOrder) 即時算出這一天每一段的預估距離/時間。
+    // 如果某一段 (from-to 這一對 IIID) 在存檔前的舊資料裡已經有真實計算過的紀錄, 沿用它原本選的走路/開車
+    // (盡量減少畫面上「同一段突然自己換了交通方式」的觀感), 距離/時間本身仍然一律用新順序重新估算。
+    function computePreviewRoutes(idid) {
+        const items = buildDisplayItems(idid);
+        const cache = dayCache[idid] || {};
+        const savedRoutes = cache.routes || [];
+        const carryOverHotel = cache.carryOverHotel;
+
+        const chain = (carryOverHotel && items.length > 0) ? [carryOverHotel].concat(items) : items;
+
+        const savedModeByPair = {};
+        savedRoutes.forEach(r => { savedModeByPair[r.fromItemId + '-' + r.toItemId] = r.transportMode; });
+
+        const result = [];
+        let prevBearing = null;
+        for (let i = 0; i < chain.length - 1; i++) {
+            const from = chain[i], to = chain[i + 1];
+            if (from.latitude == null || from.longitude == null || to.latitude == null || to.longitude == null) {
+                prevBearing = null;
+                continue;
+            }
+            const fromLat = parseFloat(from.latitude), fromLng = parseFloat(from.longitude);
+            const toLat = parseFloat(to.latitude), toLng = parseFloat(to.longitude);
+
+            const distanceKm = previewHaversineKm(fromLat, fromLng, toLat, toLng);
+            const pairKey = from.IIID + '-' + to.IIID;
+            const mode = savedModeByPair[pairKey] || previewRecommendMode(distanceKm);
+            const avgSpeed = mode === 'walking' ? PREVIEW_WALK_SPEED_KMH : PREVIEW_DRIVE_SPEED_KMH;
+            const rawMinutes = (distanceKm / avgSpeed) * 60;
+            const durationMin = previewRoundToNearest10(rawMinutes * PREVIEW_SAFETY_MULTIPLIER);
+
+            const currentBearing = previewBearing(fromLat, fromLng, toLat, toLng);
+            const backtrack = prevBearing != null && previewAngleDiff(prevBearing, currentBearing) > PREVIEW_BACKTRACK_ANGLE_THRESHOLD;
+            prevBearing = currentBearing;
+
+            result.push({
+                fromItemId: from.IIID,
+                toItemId: to.IIID,
+                distanceKm: distanceKm.toFixed(2),
+                durationMin,
+                transportMode: mode,
+                backtrack,
+                estimated: true // 標記這是前端即時預估, 不是後端算好存進資料庫的真實值 (沒有 RSID)
+            });
+        }
+        return result;
+    }
+
+    // 組出「通勤拉車資訊」那一行的 innerHTML, 真實資料 (有 RSID) 跟前端即時預估值 (estimated: true, 沒有
+    // RSID) 共用同一個排版, 差別只在: 預估值文字改用「約 XX 公里」前面加註「(預估)」、開車/走路下拉選單
+    // 換成沒有互動的純顯示 (預估階段還沒有真正的 RSID 可以呼叫 updateSegmentTransportMode 存檔切換,
+    // 硬要顯示成可以選的下拉選單反而會誤導使用者以為選了會生效)。
+    function buildRouteInfoHtml(route, idid) {
+        const icon = route.backtrack ? '⚠️ 疑似迴頭路 · ' : (route.transportMode === 'walking' ? '🚶 ' : '🚗 ');
+        if (route.estimated) {
+            const modeText = route.transportMode === 'walking' ? '🚶 走路' : '🚗 開車';
+            return `<span>${icon}</span>約 ${route.distanceKm} 公里 · 約 ${route.durationMin} 分鐘`
+                + `<span style="margin-left:6px;font-size:11px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:1px 6px;" title="直線距離估算, 儲存編輯後會換成 Google 地圖實際路網計算的準確數字">預估 · ${modeText}</span>`;
+        }
+        return `<span>${icon}</span>約 ${route.distanceKm} 公里 · 約 ${route.durationMin} 分鐘　`
+            + `<select onchange="updateSegmentTransportMode(${route.RSID}, this.value, ${idid})" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border-color);margin-left:4px;">`
+            + `<option value="walking" ${route.transportMode === 'walking' ? 'selected' : ''}>🚶 走路</option>`
+            + `<option value="driving" ${route.transportMode === 'driving' ? 'selected' : ''}>🚗 開車</option>`
+            + `</select>`;
+    }
+
     function findDayOfItem(iiid) {
         for (const idid of Object.keys(dayCache)) {
             if ((dayCache[idid].items || []).some(it => it.IIID === iiid)) return Number(idid);
@@ -1189,10 +1331,13 @@
         renderDay(idid);
     }
 
-    // 純畫面渲染: 只依賴 dayCache + pendingEdits/pendingDeletes, 不打 API
+    // 純畫面渲染: 只依賴 dayCache + pendingEdits/pendingDeletes, 不打 API。
+    // 有暫存中還沒存檔的排序異動時, routes 改用 computePreviewRoutes() 即時算出的預估值, 不是舊的
+    // (拖曳前) 存檔資料, 這樣拖曳完立刻就能看到距離/時間跟著新順序變動, 不用等按「儲存編輯」。
     function renderDay(idid) {
         const items = buildDisplayItems(idid);
-        const routes = (dayCache[idid] && dayCache[idid].routes) || [];
+        const hasPendingOrder = !!pendingItemOrder[idid];
+        const routes = hasPendingOrder ? computePreviewRoutes(idid) : ((dayCache[idid] && dayCache[idid].routes) || []);
         const optionsMap = (dayCache[idid] && dayCache[idid].optionsMap) || {};
 
         const list = document.getElementById('list-' + idid);
@@ -1205,12 +1350,12 @@
             emptyHint.style.display = 'none';
         }
 
-        // 這天有拖曳後還沒存檔的新排序時, 提醒使用者下面的公里數/分鐘數還是拖曳前的舊數字,
-        // 存檔後才會用新順序重新算 (跟其他暫存中的編輯一樣, 按「上一步」也能放棄這個排序)
-        if (pendingItemOrder[idid]) {
+        // 這天有拖曳後還沒存檔的新排序時, 下方公里數/分鐘數已經改成即時預估值 (見上面 computePreviewRoutes),
+        // 提醒使用者這還是預估、不是最終路網數據, 準確數字要等按「儲存編輯」後端重新計算才會有。
+        if (hasPendingOrder) {
             const orderHint = document.createElement('div');
             orderHint.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 16px;margin-bottom:8px;font-size:12.5px;color:#92400e;background:#fffbeb;border:1px dashed #fcd34d;border-radius:12px;';
-            orderHint.innerHTML = `<span>⚠️</span><span>順序已變更（尚未儲存）：下方的公里數／分鐘數要按「儲存編輯」後才會依新順序重新計算。</span>`;
+            orderHint.innerHTML = `<span>⚠️</span><span>順序已變更（尚未儲存）：下方的公里數／分鐘數目前是即時預估值（直線距離估算），按「儲存編輯」後才會換成 Google 地圖實際路網計算出的準確數字。</span>`;
             list.appendChild(orderHint);
         }
 
@@ -1228,12 +1373,7 @@
             if (carryRoute && items.length > 0) {
                 const info = document.createElement('div');
                 info.className = 'route-info' + (carryRoute.backtrack ? ' backtrack' : '');
-                const icon = carryRoute.backtrack ? '⚠️ 疑似迴頭路 · ' : (carryRoute.transportMode === 'walking' ? '🚶 ' : '🚗 ');
-                info.innerHTML = `<span>${icon}</span>約 ${carryRoute.distanceKm} 公里 · 約 ${carryRoute.durationMin} 分鐘　`
-                    + `<select onchange="updateSegmentTransportMode(${carryRoute.RSID}, this.value, ${idid})" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border-color);margin-left:4px;">`
-                    + `<option value="walking" ${carryRoute.transportMode === 'walking' ? 'selected' : ''}>🚶 走路</option>`
-                    + `<option value="driving" ${carryRoute.transportMode === 'driving' ? 'selected' : ''}>🚗 開車</option>`
-                    + `</select>`;
+                info.innerHTML = buildRouteInfoHtml(carryRoute, idid);
                 list.appendChild(info);
             }
         }
@@ -1284,7 +1424,7 @@
             const mapLabel = mapLabels[item.IIID];
             const isHotelLabel = mapLabel === '🛏️';
             const mapLabelBadge = mapLabel
-                ? `<span onclick="focusMapMarker(${idid}, ${item.IIID})" title="點擊在地圖上定位這個點 (對應 ${isHotelLabel ? '床' : mapLabel} 點)" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:${isHotelLabel ? '#0d9488' : '#2563eb'};color:#fff;font-size:11px;font-weight:700;flex-shrink:0;">${mapLabel}</span>`
+                ? `<span onclick="focusMapMarker(${idid}, ${item.IIID})" title="點擊在地圖上定位這個點 (對應 ${isHotelLabel ? '床' : mapLabel} 點)" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:${isHotelLabel ? HOTEL_MARKER_COLOR : STANDARD_MARKER_COLOR};color:#fff;font-size:11px;font-weight:700;flex-shrink:0;">${mapLabel}</span>`
                 : '';
 
             li.innerHTML = `
@@ -1389,12 +1529,7 @@
             if (route) {
                 routeInfoEl = document.createElement('div');
                 routeInfoEl.className = 'route-info' + (route.backtrack ? ' backtrack' : '');
-                const icon = route.backtrack ? '⚠️ 疑似迴頭路 · ' : (route.transportMode === 'walking' ? '🚶 ' : '🚗 ');
-                routeInfoEl.innerHTML = `<span>${icon}</span>約 ${route.distanceKm} 公里 · 約 ${route.durationMin} 分鐘　`
-                    + `<select onchange="updateSegmentTransportMode(${route.RSID}, this.value, ${idid})" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border-color);margin-left:4px;">`
-                    + `<option value="walking" ${route.transportMode === 'walking' ? 'selected' : ''}>🚶 走路</option>`
-                    + `<option value="driving" ${route.transportMode === 'driving' ? 'selected' : ''}>🚗 開車</option>`
-                    + `</select>`;
+                routeInfoEl.innerHTML = buildRouteInfoHtml(route, idid);
                 list.appendChild(routeInfoEl);
             }
 
@@ -1434,9 +1569,15 @@
         // 啟用拖曳排序: 拖完只先暫存新順序到 pendingItemOrder, 不打 API, 要按「儲存編輯」才會真的送出存檔
         // (跟其他編輯一樣可以隨時「上一步」放棄; 代價是拉車距離/時間會停在拖曳前的舊數字, 直到存檔後才重新整理算出新的,
         // 所以下面 renderDay 會在這天有暫存排序時顯示一個小提示告知使用者, 見 buildDisplayItems 開頭的說明)
+        // 注意: 這個清單裡除了 .item-row 項目本身, 中間還穿插了拉車距離/時間的 .route-info、住宿延續提示、
+        // 排序異動提示 banner 這些「不是項目」的區塊。一定要限定 draggable: '.item-row'，不然 SortableJS
+        // 預設會把整個清單的每一個子元素都當成可拖曳/可排序，使用者一不小心拖到這些提示區塊，
+        // 拖曳前後的項目順序其實沒變 (evt.oldIndex/newIndex 沒對齊到真正的項目), 畫面看起來拖了、
+        // 但 pendingItemOrder 沒被設到、儲存/上一步按鈕當然也不會被點亮，讓人誤以為儲存機制壞掉。
         if (list._sortable) list._sortable.destroy();
         list._sortable = new Sortable(list, {
             animation: 150,
+            draggable: '.item-row',
             onEnd: (evt) => {
                 if (evt.oldIndex === evt.newIndex) return;
                 const newOrder = Array.from(list.querySelectorAll('.item-row')).map(el => parseInt(el.dataset.iiid));
@@ -1501,7 +1642,7 @@
                 const addBtn = document.createElement('button');
                 addBtn.textContent = '+ 加入';
                 addBtn.onclick = () => {
-                    addSuggestedBetween(idid, fromIIID, toIIID, poi.PID, poi.name, poi.category === 'restaurant' ? 'meal' : (poi.category === 'hotel' ? 'hotel' : 'attraction'));
+                    addSuggestedBetween(idid, fromIIID, toIIID, poi.PID, poi.name, poi.category === '餐廳' ? 'meal' : (poi.category === '飯店' ? 'hotel' : 'attraction'));
                     panel.remove();
                 };
                 row.appendChild(addBtn);
@@ -1637,12 +1778,14 @@
     let mapInfoWindow = null;
     const allPoisForMap = /*[[${poiList}]]*/ [];
 
-    // 互動地圖標記樣式: 一般類型維持 Google 地圖內建的預設紅色標記 (不額外指定 icon, 就是最原始那種紅色水滴狀圖示),
-    // 住宿維持不變 (青色 + 床的 emoji)。點擊項目列上的字母徽章時 (focusMapMarker) 才會暫時換成放大版本方便定位,
-    // 换回別的點或重新整理地圖時就會用 marker.setIcon(null) 復原成 Google 內建的預設樣子。
-    const SELECTED_MARKER_ICON_URL = 'https://maps.google.com/mapfiles/ms/icons/red-dot.png';
-    const SELECTED_MARKER_SIZE = 46;
+    // 互動地圖標記樣式: 每個點都是自己畫的圓點圖示 (不是 Google 內建的預設紅色水滴標記), 這樣才能保證
+    // 「點擊放大」時只是同一個圖示變大, 不會換成別的顏色/圖案。住宿固定用青色 + 床的 emoji, 其餘類型統一用
+    // 同一個顏色 (跟原本 Google 預設標記接近的紅色)。點擊項目列上的字母徽章時 (focusMapMarker) 會把圖示換成
+    // 放大版, 大小是平常的 MARKER_SCALE_UP_RATIO 倍 (使用者指定 1.5 倍), 顏色不變; 换到別的點或重新整理地圖時
+    // 用 marker.setIcon(normalIcon) 復原成平常大小。
+    const MARKER_SCALE_UP_RATIO = 1.5;
     const HOTEL_MARKER_COLOR = '#0d9488';
+    const STANDARD_MARKER_COLOR = '#ea4335'; // 跟 Google 地圖內建預設標記接近的紅色
 
     // 景點資料庫快選面板: 依國家/地區/景點名稱關鍵字 (三個欄位皆為部分比對、大小寫不拘, 同時輸入時要三個條件都符合) 篩選 allPoisForMap 並重畫清單
     function renderPoiQuickList() {
@@ -1849,22 +1992,19 @@
         itemPoints.forEach((p) => {
             const pos = { lat: p.lat, lng: p.lng };
             const isHotel = p.itemType === 'hotel';
-            let normalIcon = null, bigIcon, labelConfig;
+            const color = isHotel ? HOTEL_MARKER_COLOR : STANDARD_MARKER_COLOR;
+            const normalScale = isHotel ? 13 : 10;
+            const normalIcon = { path: google.maps.SymbolPath.CIRCLE, scale: normalScale, fillColor: color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 };
+            const bigIcon = { path: google.maps.SymbolPath.CIRCLE, scale: normalScale * MARKER_SCALE_UP_RATIO, fillColor: color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 };
+            let labelConfig;
             if (isHotel) {
-                normalIcon = { path: google.maps.SymbolPath.CIRCLE, scale: 13, fillColor: HOTEL_MARKER_COLOR, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 };
-                bigIcon = { path: google.maps.SymbolPath.CIRCLE, scale: 19, fillColor: HOTEL_MARKER_COLOR, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 };
                 labelConfig = { text: '🛏️', fontSize: '13px' };
             } else {
-                // normalIcon 維持 null = 不指定 icon, 用 Google 地圖內建的預設紅色標記, 標籤用純文字字串
-                // (跟內建標記的標籤樣式一致), 只有點擊放大時 (bigIcon) 才換成可以調整大小的自訂圖示。
-                bigIcon = { url: SELECTED_MARKER_ICON_URL, scaledSize: new google.maps.Size(SELECTED_MARKER_SIZE, SELECTED_MARKER_SIZE) };
-                labelConfig = String.fromCharCode(65 + Math.min(letterIndex, 25));
+                labelConfig = { text: String.fromCharCode(65 + Math.min(letterIndex, 25)), color: '#fff', fontWeight: '700', fontSize: '11px' };
                 letterIndex++;
             }
-            const markerOptions = { position: pos, map: inst.map, title: p.name, label: labelConfig };
-            if (normalIcon) markerOptions.icon = normalIcon;
-            const marker = new google.maps.Marker(markerOptions);
-            marker.set('normalIcon', normalIcon); // 一般類型是 null, setIcon(null) 就會復原成 Google 內建預設樣式
+            const marker = new google.maps.Marker({ position: pos, map: inst.map, title: p.name, label: labelConfig, icon: normalIcon });
+            marker.set('normalIcon', normalIcon);
             marker.set('bigIcon', bigIcon);
             inst.markers.push(marker);
             if (p.iiid != null) inst.markersByIIID[p.iiid] = marker;
@@ -1885,7 +2025,7 @@
                 }
             });
             marker.addListener('click', () => {
-                const typeGuess = poi.category === 'restaurant' ? 'meal' : (poi.category === 'hotel' ? 'hotel' : 'attraction');
+                const typeGuess = poi.category === '餐廳' ? 'meal' : (poi.category === '飯店' ? 'hotel' : 'attraction');
                 const content = document.createElement('div');
                 content.style.cssText = 'padding:2px;font-family:inherit;';
                 content.innerHTML = `
@@ -1992,19 +2132,28 @@
         if (!currentDayId) { alert('請先選擇一天'); return; }
         const params = new URLSearchParams({ PID: pid, itemType, customName: name });
         fetch(`/itinerary/day/${currentDayId}/items?` + params.toString(), { method: 'POST' })
-            .then(() => loadDay(currentDayId));
+            .then(res => res.json())
+            .then(newItem => {
+                pendingAdds.add(newItem.IIID);
+                markDirty();
+                return loadDay(currentDayId);
+            })
+            .catch(err => alert('加入失敗：' + err.message));
     }
 
     // 從「推薦這中間順路的景點/餐廳」面板按下＋加入時用這個, 跟 addToCurrentDay 的差別是:
     // 後端 addItem 預設一律把新項目加到當天最後面 (sort_order = 目前最大值 + 1), 所以這裡在新增成功、
     // 拿到新項目的 IIID 之後, 再組一份「把新項目插到 fromIIID 跟 toIIID 中間」的順序, 立即存檔
-    // (這裡是「新增項目」流程的一部分, 跟本來就維持立即存檔的新增邏輯走同一條路; 跟使用者直接拖曳既有項目
-    // 排序 [pendingItemOrder, 先暫存等按「儲存編輯」] 是兩件不同的事, 不要混為一談)。
+    // (新增本身跟 addToCurrentDay 一樣沒辦法只在瀏覽器端暫存, 一樣用 pendingAdds 記住讓儲存/上一步按鈕亮起來,
+    // 詳見上方「暫存編輯機制」的說明; 插入排序這個動作也是新增流程的一部分, 一起立即存檔, 跟使用者拖曳既有
+    // 項目排序 [pendingItemOrder, 先暫存等按「儲存編輯」] 是兩件不同的事, 不要混為一談)。
     function addSuggestedBetween(idid, fromIIID, toIIID, pid, name, itemType) {
         const params = new URLSearchParams({ PID: pid, itemType, customName: name });
         fetch(`/itinerary/day/${idid}/items?` + params.toString(), { method: 'POST' })
             .then(res => res.json())
             .then(newItem => {
+                pendingAdds.add(newItem.IIID);
+                markDirty();
                 return fetchDay(idid).then(() => {
                     const order = (dayCache[idid].items || []).map(it => it.IIID).filter(id => id !== newItem.IIID);
                     const insertAt = order.indexOf(fromIIID);
@@ -2038,12 +2187,16 @@
         if (hintInput.value.trim()) params.set('locationHint', hintInput.value.trim());
 
         fetch(`/itinerary/day/${currentDayId}/items/custom?` + params.toString(), { method: 'POST' })
-            .then(() => {
+            .then(res => res.json())
+            .then(newItem => {
+                pendingAdds.add(newItem.IIID);
+                markDirty();
                 nameInput.value = '';
                 hintInput.value = '';
                 toggleAccordion(null);
-                loadDay(currentDayId);
-            });
+                return loadDay(currentDayId);
+            })
+            .catch(err => alert('新增失敗：' + err.message));
     }
 
     async function selectItemOption(idid, iiid, selectEl) {
@@ -2291,12 +2444,14 @@
                 const res = await fetch(`/itinerary/day/${idid}/items/${iiid}/edit?` + params.toString(), { method: 'POST' });
                 if (!res.ok) throw new Error(`儲存項目編輯失敗 (HTTP ${res.status})`);
 
-                // 介紹說明是存在景點資料庫上的欄位, 不屬於這個行程項目本身, 要另外呼叫 POI 的 API 同步回去
+                // 介紹說明是存在景點資料庫上的欄位, 不屬於這個行程項目本身, 要另外呼叫 POI 的 API 同步回去。
+                // 帶上 iiid: 如果這筆景點是共用庫的, 後端存檔時會建立公司專屬複本, 順便把這個項目的連結
+                // 改指向新複本 (不會這裡改了共用庫景點本身, 見 PoiService.updateDescription)。
                 if (edit.descriptionPid != null && edit.description != null) {
                     const descRes = await fetch(`/poi/${edit.descriptionPid}/description`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: new URLSearchParams({ description: edit.description }).toString()
+                        body: new URLSearchParams({ description: edit.description, iiid: iiid }).toString()
                     });
                     if (!descRes.ok) throw new Error(`儲存景點介紹說明失敗 (HTTP ${descRes.status})`);
                 }
@@ -2332,11 +2487,13 @@
             for (const key of Object.keys(pendingEdits)) { const d = findDayOfItem(Number(key)); if (d != null) affectedDays.add(d); }
             for (const key of Object.keys(pendingItemOrder)) { affectedDays.add(Number(key)); }
 
-            // 清空暫存狀態
+            // 清空暫存狀態 (pendingAdds 裡的新增項目本來就已經真的存進資料庫了, 這裡不用再送什麼 API,
+            // 單純把它們從「暫存中」名單移除、視為已確認即可)
             pendingEdits = {};
             pendingDeletes = new Set();
             pendingDayOrder = null;
             pendingItemOrder = {};
+            pendingAdds = new Set();
             hasUnsavedChanges = false;
 
             if (dayOrderChanged) {

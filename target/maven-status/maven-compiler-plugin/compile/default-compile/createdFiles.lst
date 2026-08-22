@@ -15,6 +15,7 @@ com\example\UsefulTravel\DAO\TravelComponentDAOImpl.class
 com\example\UsefulTravel\DAO\CountryCityCodeDAO.class
 com\example\UsefulTravel\service\ItineraryService.class
 com\example\UsefulTravel\entity\ItineraryItem.class
+com\example\UsefulTravel\DAO\PoiOverrideDAO.class
 com\example\UsefulTravel\DAO\RouteSegmentDAOImpl.class
 com\example\UsefulTravel\entity\PoiImage.class
 com\example\UsefulTravel\entity\Quotation.class
@@ -88,6 +89,8 @@ com\example\UsefulTravel\controller\TravelComponentController.class
 com\example\UsefulTravel\service\FormulaEngine$FormulaException.class
 com\example\UsefulTravel\DAO\ItineraryItemDAO.class
 com\example\UsefulTravel\entity\Agency.class
+com\example\UsefulTravel\entity\PoiOverride.class
+com\example\UsefulTravel\DAO\PoiOverrideDAOImpl.class
 com\example\UsefulTravel\service\DocumentExtractionService.class
 com\example\UsefulTravel\service\FormulaEngine.class
 com\example\UsefulTravel\DAO\PoiCooperationLogDAO.class

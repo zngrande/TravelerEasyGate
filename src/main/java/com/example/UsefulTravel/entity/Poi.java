@@ -17,7 +17,7 @@ public class Poi {
     private Integer AID; // null = 平台共用庫
 
     @Column(name = "category")
-    private String category; // attraction / restaurant / hotel / rest_stop
+    private String category; // 景點 / 餐廳 / 飯店 / 休息站 / 機場 / 交通 / 購物 (中文, 使用者要求資料庫維持中文, 不要用英文)
 
     @Column(name = "name")
     private String name;

@@ -84,7 +84,7 @@ public class ExportService {
         try (XWPFDocument doc = new XWPFDocument()) {
             addTitlePage(doc, itinerary, isB2B, palette);
             if (options.includeItinerary) {
-                addDaysContent(doc, itinerary.getITID(), palette, options);
+                addDaysContent(doc, itinerary.getITID(), itinerary.getAID(), palette, options);
             }
             if (isB2B) {
                 addQuoteTable(doc, itinerary.getITID());
@@ -156,7 +156,7 @@ public class ExportService {
         doc.createParagraph(); // 空行
     }
 
-    private void addDaysContent(XWPFDocument doc, int ITID, StylePalette palette, ExportOptions options) {
+    private void addDaysContent(XWPFDocument doc, int ITID, int AID, StylePalette palette, ExportOptions options) {
         List<ItineraryDay> days = itineraryService.getDays(ITID);
 
         for (ItineraryDay day : days) {
@@ -197,7 +197,7 @@ public class ExportService {
 
                 // 圖片: 這個項目連結的 POI 如果有綁定圖片資源庫的照片, 插入第一張
                 if (options.includeImages && item.getPID() != null) {
-                    insertItemImage(doc, item.getPID());
+                    insertItemImage(doc, item.getPID(), AID);
                 }
 
                 // 拉車距離: 依勾選決定要不要顯示
@@ -232,8 +232,9 @@ public class ExportService {
     /**
      * 插入這個項目連結的 POI 綁定的第一張圖片資源庫照片 (沒有綁定圖片就跳過)
      */
-    private void insertItemImage(XWPFDocument doc, int PID) {
-        List<com.example.UsefulTravel.entity.ImageAsset> images = imageAssetDAO.findByPoi(PID);
+    private void insertItemImage(XWPFDocument doc, int PID, int AID) {
+        // 只取這份行程所屬旅行社自己上傳的照片, 不要把別間旅行社綁在同一個共用景點上的照片印進企劃書
+        List<com.example.UsefulTravel.entity.ImageAsset> images = imageAssetDAO.findByPoi(PID, AID);
         if (images.isEmpty()) return;
 
         try {

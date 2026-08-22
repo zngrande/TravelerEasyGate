@@ -175,7 +175,8 @@ public class TemplateMergeService {
                 // 收集這個項目綁定的圖片, 之後統一插在標題和行程之間, 圖說用項目/景點名稱
                 // 沒勾「圖片」選項就整段跳過, 不然就算勾選只勾行程, 圖片還是會被輸出
                 if (includeImages && item.getPID() != null) {
-                    List<ImageAsset> assets = imageAssetDAO.findByPoi(item.getPID());
+                    // 只取這份行程所屬旅行社自己上傳的照片, 共用景點底下別間旅行社的照片不能混進來
+                    List<ImageAsset> assets = imageAssetDAO.findByPoi(item.getPID(), itinerary.getAID());
                     if (!assets.isEmpty()) {
                         ImageAsset asset = assets.get(0);
                         try {

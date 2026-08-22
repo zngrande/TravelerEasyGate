@@ -64,6 +64,9 @@ public class Itinerary {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description; // 行程重點說明 (選填, 建立行程時填寫), 例如「五天四夜, 第一天到東京...」
+
     public Itinerary() {}
 
     public Itinerary(int AID, int createdBy, String title, String country, int daysCount) {
@@ -127,4 +130,7 @@ public class Itinerary {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 }

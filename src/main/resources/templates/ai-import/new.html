@@ -456,7 +456,7 @@ Day3：瑞穗牧場→花蓮機場送機 (含早餐)
         if (row) row.remove();
     }
 
-    // 機場輸入框自動完成: 打字即時打 /poi/autocomplete?category=airport 篩選, 選擇後把「常用名稱 (代碼)」填回輸入框
+    // 機場輸入框自動完成: 打字即時打 /poi/autocomplete?category=機場 篩選, 選擇後把「常用名稱 (代碼)」填回輸入框
     function setupAirportAutocomplete(input) {
         if (!input || input.dataset.autocompleteBound === '1') return;
         input.dataset.autocompleteBound = '1';
@@ -476,7 +476,7 @@ Day3：瑞穗牧場→花蓮機場送機 (含早餐)
         });
 
         function fetchSuggestions(keyword) {
-            fetch(POI_AUTOCOMPLETE_URL + '?keyword=' + encodeURIComponent(keyword) + '&category=airport')
+            fetch(POI_AUTOCOMPLETE_URL + '?keyword=' + encodeURIComponent(keyword) + '&category=' + encodeURIComponent('機場'))
                 .then(res => res.ok ? res.json() : [])
                 .then(items => renderList(items))
                 .catch(() => closeList());

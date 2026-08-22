@@ -51,6 +51,125 @@
         .btn-ai-plan:hover { opacity: 0.9; }
         .btn-row { display: flex; gap: 10px; margin-top: 10px; }
         .ai-plan-hint { font-size: 12px; color: var(--text-gray); margin-top: 8px; line-height: 1.5; }
+
+        /* 國家/城市欄位的自動完成建議清單 (使用者要求: 沿用之前機場欄位那套「打字跳出資料庫內容」的做法,
+           讓使用者可以參考國家城市通用代碼庫、更快更準確地填寫目的地。純粹是輸入輔助, 選了建議項目
+           還是只會把地名文字填回欄位 (不會把代碼一起塞進去), 不影響這兩個欄位原本的自由文字比對邏輯。 */
+        .cc-autocomplete-wrap { position: relative; }
+        .cc-suggest-list {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .cc-suggest-list.open { display: block; }
+        .cc-suggest-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .cc-suggest-item:hover { background: #eff6ff; }
+        .cc-suggest-item .cc-suggest-code {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            background: #eff6ff;
+            padding: 1px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        /* 行程重點資訊: 去程/回程班機 (機場+時間) + 行程說明, 選填。
+           機場欄位沿用跟目的地國家/城市一樣的自動完成做法, 打字會跳出景點資料庫裡「機場」分類的建議清單。 */
+        .context-card {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+        }
+        .context-section-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #334155;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .context-hint {
+            font-size: 12.5px;
+            color: var(--text-gray);
+            margin-bottom: 14px;
+            line-height: 1.5;
+        }
+        .leg-block { margin-bottom: 18px; }
+        .leg-block:last-child { margin-bottom: 0; }
+        .leg-block-title {
+            font-size: 12.5px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .leg-row {
+            display: grid;
+            grid-template-columns: 1fr 140px 1fr 140px 32px;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 10px;
+        }
+        .leg-row:last-child { margin-bottom: 0; }
+        .leg-field label {
+            display: block;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        /* 機場欄位的自動完成沿用跟國家/城市欄位同一套 .cc-autocomplete-wrap / .cc-suggest-list 樣式 */
+        .btn-remove-leg {
+            width: 32px;
+            height: 34px;
+            border: 1px solid var(--border-color);
+            background: #fff;
+            color: #94a3b8;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+        .btn-remove-leg:hover { border-color: #f87171; color: #ef4444; background: #fef2f2; }
+        .btn-add-leg {
+            background: none;
+            border: 1px dashed #93c5fd;
+            color: var(--primary-blue);
+            font-size: 12.5px;
+            font-weight: 600;
+            padding: 7px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .btn-add-leg:hover { background: #eff6ff; }
     </style>
 </head>
 <body>
@@ -78,11 +197,17 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">目的地國家</label>
-                    <input type="text" name="country" class="form-control" placeholder="例：日本" required />
+                    <div class="cc-autocomplete-wrap">
+                        <input type="text" name="country" id="countryInput" class="form-control" placeholder="例：日本" autocomplete="off" required />
+                        <div class="cc-suggest-list" id="countrySuggestList"></div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">地區 / 城市 (選填)</label>
-                    <input type="text" name="region" class="form-control" placeholder="例：東京 (留空代表整個國家)" />
+                    <div class="cc-autocomplete-wrap">
+                        <input type="text" name="region" id="regionInput" class="form-control" placeholder="例：東京 (留空代表整個國家)" autocomplete="off" />
+                        <div class="cc-suggest-list" id="regionSuggestList"></div>
+                    </div>
                 </div>
             </div>
             <div class="form-row">
@@ -95,6 +220,95 @@
                     <input type="date" name="startDate" class="form-control" />
                 </div>
             </div>
+            <!-- 行程重點資訊 (選填): 去程/回程班機機場+時間、行程說明。
+                 有填去程機場/時間就會在建立行程時自動新增交通項目放在第一天最前面; 回程同理放在最後一天最後面。
+                 去程/回程都支援「+新增航段」加轉機: 同一個方向底下每一列都是同一組欄位名稱, 後端會依填寫順序
+                 依序組成多筆交通項目。行程說明存起來給「AI 安排行程」當額外的排程參考
+                 (例如「第一天到東京, 第二天去河口湖...」這種描述)。 -->
+            <div class="context-card">
+                <div class="context-section-label"><i class="fa-solid fa-plane-departure" style="color: var(--primary-blue);"></i> 行程重點資訊（選填）</div>
+                <div class="context-hint">
+                    填寫去程/回程班機的機場與時間，建立行程後會自動排進第一天最前面（去程）、最後一天最後面（回程）；如果有轉機可以用「+新增航段」加更多航段。行程說明會作為「AI 安排行程」時的額外參考。全部欄位皆為選填。
+                </div>
+
+                <div class="leg-block">
+                    <div class="leg-block-title"><i class="fa-solid fa-plane-departure"></i> 去程</div>
+                    <div id="outLegsContainer" data-legs-container>
+                        <div class="leg-row" data-leg-row>
+                            <div class="leg-field">
+                                <label>出發機場</label>
+                                <div class="cc-autocomplete-wrap">
+                                    <input type="text" name="outDepAirport" class="form-control leg-airport-input" placeholder="例：台灣桃園國際機場" autocomplete="off" />
+                                    <div class="cc-suggest-list"></div>
+                                </div>
+                            </div>
+                            <div class="leg-field">
+                                <label>出發時間</label>
+                                <input type="time" name="outDepTime" class="form-control" />
+                            </div>
+                            <div class="leg-field">
+                                <label>抵達機場</label>
+                                <div class="cc-autocomplete-wrap">
+                                    <input type="text" name="outArrAirport" class="form-control leg-airport-input" placeholder="例：東京成田機場" autocomplete="off" />
+                                    <div class="cc-suggest-list"></div>
+                                </div>
+                            </div>
+                            <div class="leg-field">
+                                <label>抵達時間</label>
+                                <input type="time" name="outArrTime" class="form-control" />
+                            </div>
+                            <button type="button" class="btn-remove-leg" onclick="removeLeg(this)" title="移除這個航段">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-add-leg" onclick="addLeg('outLegsContainer')">
+                        <i class="fa-solid fa-plus"></i> 新增航段（例如轉機）
+                    </button>
+                </div>
+
+                <div class="leg-block">
+                    <div class="leg-block-title"><i class="fa-solid fa-plane-arrival"></i> 回程</div>
+                    <div id="retLegsContainer" data-legs-container>
+                        <div class="leg-row" data-leg-row>
+                            <div class="leg-field">
+                                <label>出發機場</label>
+                                <div class="cc-autocomplete-wrap">
+                                    <input type="text" name="retDepAirport" class="form-control leg-airport-input" placeholder="例：東京成田機場" autocomplete="off" />
+                                    <div class="cc-suggest-list"></div>
+                                </div>
+                            </div>
+                            <div class="leg-field">
+                                <label>出發時間</label>
+                                <input type="time" name="retDepTime" class="form-control" />
+                            </div>
+                            <div class="leg-field">
+                                <label>抵達機場</label>
+                                <div class="cc-autocomplete-wrap">
+                                    <input type="text" name="retArrAirport" class="form-control leg-airport-input" placeholder="例：台灣桃園國際機場" autocomplete="off" />
+                                    <div class="cc-suggest-list"></div>
+                                </div>
+                            </div>
+                            <div class="leg-field">
+                                <label>抵達時間</label>
+                                <input type="time" name="retArrTime" class="form-control" />
+                            </div>
+                            <button type="button" class="btn-remove-leg" onclick="removeLeg(this)" title="移除這個航段">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-add-leg" onclick="addLeg('retLegsContainer')">
+                        <i class="fa-solid fa-plus"></i> 新增航段（例如轉機）
+                    </button>
+                </div>
+
+                <div class="form-group" style="margin-bottom:0; margin-top:18px;">
+                    <label class="form-label">行程說明</label>
+                    <textarea name="description" class="form-control" rows="3" placeholder="例：五天四夜，第一天到東京，第二天去河口湖，第三天箱根泡湯..."></textarea>
+                </div>
+            </div>
+
             <div class="btn-row">
                 <button type="submit" class="btn-submit">
                     <i class="fa-solid fa-check"></i> 建立行程並進入看板
@@ -111,6 +325,162 @@
         </form>
     </div>
 </main>
+
+<script>
+    // 國家/城市欄位自動完成: 打字即時打 /reference/country-city/autocomplete 篩選, 選了建議項目只把
+    // 地名文字 (name) 填回輸入框, 不會把代碼一起塞進去, 才不會影響這兩個欄位原本的自由文字比對邏輯。
+    // 邏輯沿用 AI 行程解析頁面「出發/抵達機場」欄位那一套自動完成的做法 (見 ai-import/new.html)。
+    function setupCountryCityAutocomplete(input, list, type) {
+        if (!input || !list) return;
+        let debounceTimer = null;
+
+        input.addEventListener('input', function () {
+            const keyword = input.value.trim();
+            clearTimeout(debounceTimer);
+            if (!keyword) { closeList(); return; }
+            debounceTimer = setTimeout(() => fetchSuggestions(keyword), 200);
+        });
+
+        input.addEventListener('blur', function () {
+            setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+
+        function fetchSuggestions(keyword) {
+            fetch('/reference/country-city/autocomplete?keyword=' + encodeURIComponent(keyword) + '&type=' + encodeURIComponent(type))
+                .then(res => res.ok ? res.json() : [])
+                .then(items => renderList(items))
+                .catch(() => closeList());
+        }
+
+        function renderList(items) {
+            if (!items || items.length === 0) { closeList(); return; }
+            list.innerHTML = '';
+            items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'cc-suggest-item';
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = item.name;
+                const codeSpan = document.createElement('span');
+                codeSpan.className = 'cc-suggest-code';
+                codeSpan.textContent = item.code || '';
+                row.appendChild(nameSpan);
+                if (item.code) row.appendChild(codeSpan);
+                row.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    input.value = item.name; // 只填地名文字, 不附代碼, 保持跟原本自由文字比對邏輯相容
+                    closeList();
+                });
+                list.appendChild(row);
+            });
+            list.classList.add('open');
+        }
+
+        function closeList() {
+            list.classList.remove('open');
+            list.innerHTML = '';
+        }
+    }
+
+    // 機場欄位自動完成: 打字即時打 /poi/autocomplete?category=機場 篩選 (跟 AI 行程解析頁「出發/抵達機場」
+    // 欄位同一套邏輯), 選了建議項目把「常用名稱（原文代碼）」填回輸入框方便對照。
+    // 建議清單改成用 closest() 從輸入框本身往上找同一個 .cc-autocomplete-wrap 底下的 .cc-suggest-list
+    // (不是靠固定 id), 這樣「+新增航段」複製出來的新列才不會因為 id 重複而綁錯建議清單。
+    function setupAirportAutocomplete(input) {
+        if (!input || input.dataset.autocompleteBound === '1') return;
+        input.dataset.autocompleteBound = '1';
+
+        const list = input.closest('.cc-autocomplete-wrap').querySelector('.cc-suggest-list');
+        let debounceTimer = null;
+
+        input.addEventListener('input', function () {
+            const keyword = input.value.trim();
+            clearTimeout(debounceTimer);
+            if (!keyword) { closeList(); return; }
+            debounceTimer = setTimeout(() => fetchSuggestions(keyword), 200);
+        });
+
+        input.addEventListener('blur', function () {
+            setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+
+        function fetchSuggestions(keyword) {
+            fetch('/poi/autocomplete?keyword=' + encodeURIComponent(keyword) + '&category=' + encodeURIComponent('機場'))
+                .then(res => res.ok ? res.json() : [])
+                .then(items => renderList(items))
+                .catch(() => closeList());
+        }
+
+        function renderList(items) {
+            if (!items || items.length === 0) { closeList(); return; }
+            list.innerHTML = '';
+            items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'cc-suggest-item';
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = item.name;
+                const codeSpan = document.createElement('span');
+                codeSpan.className = 'cc-suggest-code';
+                codeSpan.textContent = item.originalName || '';
+                row.appendChild(nameSpan);
+                if (item.originalName) row.appendChild(codeSpan);
+                row.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    input.value = item.originalName ? (item.name + '（' + item.originalName + '）') : item.name;
+                    closeList();
+                });
+                list.appendChild(row);
+            });
+            list.classList.add('open');
+        }
+
+        function closeList() {
+            list.classList.remove('open');
+            list.innerHTML = '';
+        }
+    }
+
+    // 「+新增航段」: 複製這個方向 (去程/回程) 容器裡的第一列當範本, 清空欄位內容後加到容器最後面,
+    // 再幫新列裡的兩個機場欄位重新綁定自動完成 (複製節點會把 dataset.autocompleteBound 也複製過去,
+    // 要先清掉這個標記, 不然 setupAirportAutocomplete 會誤判成「已經綁過了」而跳過)。
+    function addLeg(containerId) {
+        const container = document.getElementById(containerId);
+        const template = container.querySelector('.leg-row');
+        const clone = template.cloneNode(true);
+        clone.querySelectorAll('input').forEach(function (input) {
+            input.value = '';
+            delete input.dataset.autocompleteBound;
+        });
+        clone.querySelectorAll('.cc-suggest-list').forEach(function (list) {
+            list.innerHTML = '';
+            list.classList.remove('open');
+        });
+        container.appendChild(clone);
+        clone.querySelectorAll('.leg-airport-input').forEach(function (input) {
+            setupAirportAutocomplete(input);
+        });
+    }
+
+    // 移除這個航段列。至少留一列讓使用者知道這個方向還可以填, 真的只剩一列時改成清空欄位而不是整列拿掉。
+    function removeLeg(btn) {
+        const row = btn.closest('.leg-row');
+        const container = btn.closest('[data-legs-container]');
+        if (!row || !container) return;
+        if (container.querySelectorAll('.leg-row').length > 1) {
+            row.remove();
+        } else {
+            row.querySelectorAll('input').forEach(function (input) { input.value = ''; });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        setupCountryCityAutocomplete(document.getElementById('countryInput'), document.getElementById('countrySuggestList'), 'country');
+        setupCountryCityAutocomplete(document.getElementById('regionInput'), document.getElementById('regionSuggestList'), 'city');
+
+        document.querySelectorAll('.leg-airport-input').forEach(function (input) {
+            setupAirportAutocomplete(input);
+        });
+    });
+</script>
 
 </body>
 </html>

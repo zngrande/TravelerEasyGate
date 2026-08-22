@@ -329,13 +329,15 @@ public class AiParseService {
         return first.isEmpty() ? null : first;
     }
 
-    // AI 解析出的 item_type 對應到 POI 資料庫的 category (transport/highlight 沒有對應, 不能加入)
+    // AI 解析出的 item_type (英文) 對應到 POI 資料庫的 category (transport/highlight 沒有對應, 不能加入)。
+    // 使用者要求 poi.category 維持中文, 要跟 ItineraryService.mapItemTypeToPoiCategory、
+    // poi/new.html、poi/edit.html、poi/list.html 一致
     private String mapItemTypeToPoiCategory(String itemType) {
         if (itemType == null) return null;
         return switch (itemType) {
-            case "attraction" -> "attraction";
-            case "meal" -> "restaurant";
-            case "hotel" -> "hotel";
+            case "attraction" -> "景點";
+            case "meal" -> "餐廳";
+            case "hotel" -> "飯店";
             default -> null; // transport / highlight 不是實體地點, 不能加入 POI
         };
     }

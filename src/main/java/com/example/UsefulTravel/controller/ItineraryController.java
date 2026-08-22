@@ -68,19 +68,35 @@ public class ItineraryController {
     }
 
     // POST /itinerary/new → 建立行程 + 自動產生 Day1~DayN 骨架 (空白行程, 使用者自己手動排)
+    // 「行程重點資訊」的去程/回程班機、行程說明都是選填: 有填去程機場/時間就自動建立交通項目放第一天最前面,
+    // 有填回程就放最後一天最後面; 行程說明存進 itinerary.description (「AI 安排行程」會拿去當額外的排程參考)。
+    // 去程/回程都支援「+新增航段」多筆 (例如轉機), 表單同一個欄位名稱會重複送出多筆, 用 List 接收,
+    // 同一個 index 位置的出發機場/出發時間/抵達機場/抵達時間組成一個航段。
     @PostMapping("/new")
     public String create(@RequestParam String title,
                          @RequestParam String country,
                          @RequestParam(required = false) String region,
                          @RequestParam int daysCount,
                          @RequestParam(required = false) String startDate,
+                         @RequestParam(required = false) String description,
+                         @RequestParam(required = false) List<String> outDepAirport,
+                         @RequestParam(required = false) List<String> outDepTime,
+                         @RequestParam(required = false) List<String> outArrAirport,
+                         @RequestParam(required = false) List<String> outArrTime,
+                         @RequestParam(required = false) List<String> retDepAirport,
+                         @RequestParam(required = false) List<String> retDepTime,
+                         @RequestParam(required = false) List<String> retArrAirport,
+                         @RequestParam(required = false) List<String> retArrTime,
                          HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null || UID == null) return "redirect:/login";
 
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
-        Itinerary itinerary = itineraryService.createItinerary(AID, UID, title, country, region, daysCount, parsedDate);
+        Itinerary itinerary = itineraryService.createItinerary(AID, UID, title, country, region, daysCount, parsedDate, description);
+        itineraryService.attachFlightItems(itinerary.getITID(),
+                outDepAirport, outDepTime, outArrAirport, outArrTime,
+                retDepAirport, retDepTime, retArrAirport, retArrTime);
         return "redirect:/itinerary/" + itinerary.getITID() + "/board";
     }
 
@@ -92,6 +108,15 @@ public class ItineraryController {
                                     @RequestParam(required = false) String region,
                                     @RequestParam int daysCount,
                                     @RequestParam(required = false) String startDate,
+                                    @RequestParam(required = false) String description,
+                                    @RequestParam(required = false) List<String> outDepAirport,
+                                    @RequestParam(required = false) List<String> outDepTime,
+                                    @RequestParam(required = false) List<String> outArrAirport,
+                                    @RequestParam(required = false) List<String> outArrTime,
+                                    @RequestParam(required = false) List<String> retDepAirport,
+                                    @RequestParam(required = false) List<String> retDepTime,
+                                    @RequestParam(required = false) List<String> retArrAirport,
+                                    @RequestParam(required = false) List<String> retArrTime,
                                     HttpSession session,
                                     org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
@@ -99,9 +124,20 @@ public class ItineraryController {
         if (AID == null || UID == null) return "redirect:/login";
 
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
-        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate);
+        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate, description);
 
-        if (!itineraryService.hasAnyItem(itinerary.getITID())) {
+        // 這個提示是「AI 有沒有真的排到景點資料庫裡的東西」, 一定要在插入去程/回程班機之前判斷 ——
+        // 不然只要有填班機資訊, hasAnyItem() 就會一直是 true (班機本身也算一筆項目), 提示永遠不會跳出來,
+        // 使用者反而不知道 AI 其實沒排到任何真正的景點。
+        boolean aiFoundNothing = !itineraryService.hasAnyItem(itinerary.getITID());
+
+        // 一定要等 createItineraryWithAiPlan() 內部的自動整理 (meal_time) 全部跑完才能插入去程/回程班機,
+        // 不然剛插好的「第一筆/最後一筆」會被自動整理重新洗牌 (見 ItineraryService.attachFlightItems 說明)
+        itineraryService.attachFlightItems(itinerary.getITID(),
+                outDepAirport, outDepTime, outArrAirport, outArrTime,
+                retDepAirport, retDepTime, retArrAirport, retArrTime);
+
+        if (aiFoundNothing) {
             redirectAttributes.addFlashAttribute("aiPlanNotice",
                     "AI 沒有找到「" + country + (region != null && !region.isBlank() ? " / " + region : "")
                             + "」符合的景點資料 (或 AI 排程失敗), 已建立空白行程, 請從左側手動加入景點。");

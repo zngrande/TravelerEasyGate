@@ -45,6 +45,8 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiCoopera
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiCooperationLogDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiDAO.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiDAOImpl.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiOverrideDAO.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PoiOverrideDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PriceTierTemplateDAO.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PriceTierTemplateDAOImpl.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\DAO\PriceTierTemplateRowDAO.java
@@ -81,6 +83,7 @@ C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\MarginS
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\Poi.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\PoiCooperationLog.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\PoiImage.java
+C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\PoiOverride.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\PriceTierTemplate.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\PriceTierTemplateRow.java
 C:\sourcetree\UsefulTravel\src\main\java\com\example\UsefulTravel\entity\Quotation.java
