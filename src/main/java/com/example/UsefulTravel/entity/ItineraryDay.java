@@ -25,6 +25,13 @@ public class ItineraryDay {
     @Column(name = "theme")
     private String theme;
 
+    // Patch 27: 這一天指定要安排的城市 (可能不只一個, 用「、」分隔, 跟 country/region 同一套格式) ——
+    // 取代原本整趟行程共用一段自由文字「行程說明」的做法, 改成逐天指定, 「AI 安排行程」排這一天時只會
+    // 從這個城市底下的景點/餐廳/飯店挑選。NULL/空字串代表這天沒有指定城市 (通常是班機/轉機日),
+    // AI 安排行程時會完全跳過這天, 不強制排任何景點/餐食/住宿。
+    @Column(name = "planned_cities")
+    private String plannedCities;
+
     @Column(name = "start_time")
     private LocalTime startTime = LocalTime.of(9, 0); // 這天的出發時間, 預設早上9點, 用來算時間軸
 
@@ -54,6 +61,9 @@ public class ItineraryDay {
 
     public String getTheme() { return theme; }
     public void setTheme(String theme) { this.theme = theme; }
+
+    public String getPlannedCities() { return plannedCities; }
+    public void setPlannedCities(String plannedCities) { this.plannedCities = plannedCities; }
 
     public LocalTime getStartTime() { return startTime; }
     public void setStartTime(LocalTime startTime) { this.startTime = startTime; }

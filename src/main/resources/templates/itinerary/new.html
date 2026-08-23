@@ -277,6 +277,47 @@
             margin-top: 4px;
         }
         .btn-add-leg:hover { background: #eff6ff; }
+
+        /* Patch 27: 逐天城市指定, 取代原本整趟行程共用一段自由文字的「行程說明」欄位。
+           依「預計天數」動態產生一列一列, 每列是一個跟「地區/城市」欄位同一套 ms-wrap 多選元件, 但選項
+           只會列出使用者已經在上面「地區/城市」選過的城市 (同步資料來源, 不用另外打 API)。
+           班機日 (依去程/回程「第幾天」欄位即時算出, 規則跟後端 attachFlightLegsAcrossDays 一致: 去程/回程
+           各自涵蓋到的天數裡, 只有「去程最後一天」「回程第一天」還留著給使用者指定城市, 其餘天數自動停用,
+           不會出現下拉選單) 顯示成一小段提示文字, 不會送出任何城市。 */
+        .day-cities-section { margin-top: 18px; }
+        .day-city-row {
+            display: grid;
+            grid-template-columns: 84px 1fr;
+            gap: 14px;
+            align-items: start;
+            padding: 10px 0;
+            border-bottom: 1px dashed var(--border-color);
+        }
+        .day-city-row:last-child { border-bottom: none; }
+        .day-city-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #334155;
+            padding-top: 11px;
+            white-space: nowrap;
+        }
+        .day-city-ms { min-height: 40px; }
+        .day-city-hint {
+            font-size: 11.5px;
+            color: var(--text-gray);
+            margin-top: 5px;
+            line-height: 1.4;
+        }
+        .day-city-flight-note {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #94a3b8;
+            padding: 10px 12px;
+            background: #f1f5f9;
+            border-radius: 8px;
+        }
     </style>
 </head>
 <body>
@@ -324,22 +365,25 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">預計天數</label>
-                    <input type="number" name="daysCount" class="form-control" min="1" max="30" value="5" required />
+                    <input type="number" name="daysCount" id="daysCountInput" class="form-control" min="1" max="30" value="5" required />
                 </div>
                 <div class="form-group">
                     <label class="form-label">出發日期 (選填)</label>
                     <input type="date" name="startDate" class="form-control" />
                 </div>
             </div>
-            <!-- 行程重點資訊 (選填): 去程/回程班機機場+時間、行程說明。
+            <!-- 行程重點資訊 (選填): 去程/回程班機機場+時間、逐天城市指定。
                  有填去程機場/時間就會在建立行程時自動新增交通項目放在第一天最前面; 回程同理放在最後一天最後面。
                  去程/回程都支援「+新增航段」加轉機: 同一個方向底下每一列都是同一組欄位名稱, 後端會依填寫順序
-                 依序組成多筆交通項目。行程說明存起來給「AI 安排行程」當額外的排程參考
-                 (例如「第一天到東京, 第二天去河口湖...」這種描述)。 -->
+                 依序組成多筆交通項目。
+                 Patch 27: 原本這裡還有一個自由文字「行程說明」欄位給「AI 安排行程」當參考, 改成下面的
+                 「逐天城市指定」區塊 (依「預計天數」動態產生, 只列出已選的「地區/城市」) —— 「AI 安排行程」
+                 排某一天時只會從這一天指定的城市底下的景點/餐廳/飯店挑選, 不會混進別的城市, 也不會因為某天
+                 沒指定城市 (通常是班機/轉機日) 而誤排一整天觀光行程。 -->
             <div class="context-card">
                 <div class="context-section-label"><i class="fa-solid fa-plane-departure" style="color: var(--primary-blue);"></i> 行程重點資訊（選填）</div>
                 <div class="context-hint">
-                    填寫去程/回程班機的機場與時間，「第幾天」可指定這段班機要排在第幾天（例如第二天才搭夜間跨國班機），不填預設去程排第1天、回程排最後一天；如果有轉機或跨日行程可以用「+新增航段」加更多航段，並分別填不同天。行程說明會作為「AI 安排行程」時的額外參考。全部欄位皆為選填。
+                    填寫去程/回程班機的機場與時間，「第幾天」可指定這段班機要排在第幾天（例如第二天才搭夜間跨國班機），不填預設去程排第1天、回程排最後一天；如果有轉機或跨日行程可以用「+新增航段」加更多航段，並分別填不同天。下方「逐天城市指定」會依填寫的天數自動列出每一天，選好這天要去的城市後，「AI 安排行程」只會從這個城市的景點/餐廳/飯店裡挑選；班機當天的行程日 (例如去程第1天、回程最後一天) 會自動略過不需指定。全部欄位皆為選填。
                 </div>
 
                 <div class="leg-block">
@@ -422,9 +466,12 @@
                     </button>
                 </div>
 
-                <div class="form-group" style="margin-bottom:0; margin-top:18px;">
-                    <label class="form-label">行程說明</label>
-                    <textarea name="description" class="form-control" rows="3" placeholder="例：五天四夜，第一天到東京，第二天去河口湖，第三天箱根泡湯..."></textarea>
+                <div class="day-cities-section" style="margin-top:18px;">
+                    <div class="context-section-label"><i class="fa-solid fa-map-pin" style="color: var(--primary-blue);"></i> 逐天城市指定</div>
+                    <div class="context-hint" style="margin-bottom:10px;">
+                        依上面「地區/城市」已選的城市，逐天指定這天要去哪裡；「AI 安排行程」只會從這天指定的城市挑選景點。同一天選多個城市時，請依造訪先後順序依序點選。
+                    </div>
+                    <div id="dayCitiesContainer"><!-- 由 renderDayCitiesRows() 依天數動態產生 --></div>
                 </div>
             </div>
 
@@ -805,7 +852,12 @@
                             };
                         });
                 });
-            }
+            },
+            // Patch 27: 「地區/城市」選擇變動時 (加選/移除城市), 逐天城市指定的每一列選項來源就是這裡的
+            // getSelected(), 要跟著重繪 (renderDayCitiesRows 會保留仍然有效的既有選擇, 見該函式說明)。
+            // 這個函式在 renderDayCitiesRows() 定義之前就先掛上, 沒關係——function 宣告會整個 hoist 到
+            // 這個 DOMContentLoaded callback 的最上面, 呼叫當下一定已經存在。
+            function () { if (typeof renderDayCitiesRows === 'function') renderDayCitiesRows(); }
         );
 
         // 地區欄位是否啟用, 依「目的地國家」有沒有選任何一個決定: 一個都沒選就停用; 只要選了一個 (含
@@ -836,6 +888,167 @@
             }
         }
         onCountryChanged([]); // 初始狀態: 國家還沒選, 地區欄位先停用
+
+        // ------------------------------------------------------------
+        // Patch 27: 逐天城市指定, 取代原本的「行程說明」自由文字欄位。
+        // 依「預計天數」動態產生 Day1~DayN 每一列, 每列是一個 ms-wrap 多選元件, 選項固定就是「地區/城市」
+        // 欄位目前已選的城市 (regionMs.getSelected(), 同步資料不用另外打 API) —— 只會出現使用者已經選過的
+        // 城市, 呼應需求「只會出現選擇的城市」。
+        //
+        // 班機日判斷: 跟後端 attachFlightLegsAcrossDays()/attachFlightItems() 完全一致的規則 (一個航段只要
+        // 出發機場/出發時間/抵達機場/抵達時間其中一個有填就算「這個航段有填」；「第幾天」沒填或超出範圍,
+        // 去程預設第 1 天、回程預設最後一天) 先算出去程/回程各自涵蓋到的天數集合, 再套用使用者確認過的規則：
+        // 「去程最後一天」「回程第一天」還留著可以指定城市, 其餘班機/轉機日自動停用 (不顯示下拉選單、
+        // 不送出城市, 後端收到空字串當作交通/轉機日, 完全不會安排任何景點/餐食/住宿進這一天)。
+        // ------------------------------------------------------------
+        let dayRowControllers = []; // index = 天數-1, null 代表這天是自動停用的班機日
+        let daySelectionSnapshot = {}; // 天數 -> 上次重繪前的已選城市, 用來在重繪 (daysCount/班機資訊變動) 時盡量保留使用者已經選好的東西
+
+        // 讀出目前某個方向 (去程/回程) 每一段航段的「有沒有填」「第幾天」, 規則跟後端 resolveFlightDayNumbers 一致
+        function collectLegDayInputs(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return [];
+            const rows = container.querySelectorAll('.leg-row');
+            const legs = [];
+            rows.forEach(function (row) {
+                const dayInput = row.querySelector('.leg-day-input');
+                const airportInputs = row.querySelectorAll('.leg-airport-input');
+                const timeInputs = row.querySelectorAll('input[type="time"]');
+                let hasAny = false;
+                airportInputs.forEach(function (i) { if (i.value && i.value.trim()) hasAny = true; });
+                timeInputs.forEach(function (i) { if (i.value && i.value.trim()) hasAny = true; });
+                legs.push({ hasAny: hasAny, day: dayInput ? dayInput.value : '' });
+            });
+            return legs;
+        }
+
+        function resolveFlightDayNumbersJs(totalDays, legs, defaultDayIndex) {
+            const result = new Set();
+            legs.forEach(function (leg) {
+                if (!leg.hasAny) return;
+                let idx = parseInt(leg.day, 10);
+                if (!idx || isNaN(idx) || idx < 1 || idx > totalDays) idx = defaultDayIndex;
+                result.add(idx);
+            });
+            return result;
+        }
+
+        // 算出這次要自動停用 (不能指定城市) 的天數集合: 去程/回程各自涵蓋到的天數裡, 只留「去程最後一天」
+        // 「回程第一天」可以選, 其餘全部停用 —— 呼應使用者要求「去程最後一天、回程第一天可選，其他班機日
+        // 自動停用/隱藏」。
+        function computeDisabledFlightDays(totalDays) {
+            const outboundDays = resolveFlightDayNumbersJs(totalDays, collectLegDayInputs('outLegsContainer'), 1);
+            const returnDays = resolveFlightDayNumbersJs(totalDays, collectLegDayInputs('retLegsContainer'), totalDays);
+            const disabled = new Set();
+            outboundDays.forEach(function (d) { disabled.add(d); });
+            returnDays.forEach(function (d) { disabled.add(d); });
+            if (outboundDays.size > 0) disabled.delete(Math.max.apply(null, Array.from(outboundDays)));
+            if (returnDays.size > 0) disabled.delete(Math.min.apply(null, Array.from(returnDays)));
+            return disabled;
+        }
+
+        function snapshotDaySelections() {
+            dayRowControllers.forEach(function (ctrl, idx) {
+                if (ctrl) daySelectionSnapshot[idx + 1] = ctrl.getSelected();
+            });
+        }
+
+        function renderDayCitiesRows() {
+            snapshotDaySelections();
+
+            const rawDays = parseInt(document.getElementById('daysCountInput').value, 10);
+            const totalDays = Math.max(1, Math.min(30, isNaN(rawDays) ? 1 : rawDays));
+            const disabledSet = computeDisabledFlightDays(totalDays);
+            const allowedCities = regionMs.getSelected(); // [{value, label}], 目前「地區/城市」已選的城市
+            const allowedValues = new Set(allowedCities.map(function (c) { return c.value; }));
+
+            const container = document.getElementById('dayCitiesContainer');
+            container.innerHTML = '';
+            dayRowControllers = [];
+
+            for (let d = 1; d <= totalDays; d++) {
+                const row = document.createElement('div');
+                row.className = 'day-city-row';
+
+                const label = document.createElement('div');
+                label.className = 'day-city-label';
+                label.textContent = '第 ' + d + ' 天';
+                row.appendChild(label);
+
+                const body = document.createElement('div');
+
+                if (disabledSet.has(d)) {
+                    const note = document.createElement('div');
+                    note.className = 'day-city-flight-note';
+                    note.innerHTML = '<i class="fa-solid fa-plane"></i> 班機/轉機日，不需指定城市（不會安排景點）';
+                    body.appendChild(note);
+                    const hidden = document.createElement('input');
+                    hidden.type = 'hidden';
+                    hidden.name = 'dayCities';
+                    hidden.value = '';
+                    body.appendChild(hidden);
+                    dayRowControllers.push(null);
+                } else {
+                    const msWrap = document.createElement('div');
+                    msWrap.className = 'ms-wrap day-city-ms';
+                    const chips = document.createElement('div');
+                    chips.className = 'ms-chips';
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'ms-search-input';
+                    input.autocomplete = 'off';
+                    input.placeholder = allowedCities.length ? '點選這天要去的城市...' : '請先在上方選擇地區/城市';
+                    const dropdown = document.createElement('div');
+                    dropdown.className = 'ms-dropdown';
+                    msWrap.appendChild(chips);
+                    msWrap.appendChild(input);
+                    msWrap.appendChild(dropdown);
+                    body.appendChild(msWrap);
+
+                    const hidden = document.createElement('input');
+                    hidden.type = 'hidden';
+                    hidden.name = 'dayCities';
+                    body.appendChild(hidden);
+
+                    const hint = document.createElement('div');
+                    hint.className = 'day-city-hint';
+                    hint.textContent = '若這天要去多個城市，請依造訪先後順序依序點選';
+                    body.appendChild(hint);
+
+                    const ctrl = createMultiSelect(msWrap, chips, input, dropdown, hidden, function (keyword) {
+                        return Promise.resolve(allowedCities.filter(function (c) {
+                            return matchesKeyword({ name: c.label }, keyword);
+                        }));
+                    }, null);
+
+                    // 重繪前 (daysCount/班機資訊變動) 這天原本已經選好的城市, 只保留現在仍然在「地區/城市」
+                    // 清單裡的部分 (使用者可能後來又改了地區/城市選擇), 盡量不要平白讓使用者重選一次。
+                    const prevSelection = daySelectionSnapshot[d];
+                    if (prevSelection && prevSelection.length) {
+                        const kept = prevSelection.filter(function (s) { return allowedValues.has(s.value); });
+                        if (kept.length) ctrl.setSelected(kept);
+                    }
+                    dayRowControllers.push(ctrl);
+                }
+
+                row.appendChild(body);
+                container.appendChild(row);
+            }
+        }
+
+        // 觸發時機: 天數變動、去程/回程航段的任何欄位變動 (event delegation, 涵蓋「+新增航段」動態加進來的列)、
+        // 地區/城市選擇變動 (regionMs 的 onChange, 已經在建立 regionMs 時掛上, 見下面補掛)。
+        document.getElementById('daysCountInput').addEventListener('input', renderDayCitiesRows);
+        document.getElementById('daysCountInput').addEventListener('change', renderDayCitiesRows);
+        ['outLegsContainer', 'retLegsContainer'].forEach(function (id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('input', renderDayCitiesRows);
+                el.addEventListener('change', renderDayCitiesRows);
+            }
+        });
+
+        renderDayCitiesRows(); // 初始渲染 (預設 5 天, 這時「地區/城市」通常還沒選, 每一列都會提示先選城市)
 
         document.querySelectorAll('.leg-airport-input').forEach(function (input) {
             setupAirportAutocomplete(input);

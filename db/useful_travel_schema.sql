@@ -318,3 +318,11 @@ ALTER TABLE itinerary_item ADD COLUMN item_region VARCHAR(50) DEFAULT NULL;
 --     看板上也能手動編輯; 用來支援「早餐固定第一個/中午安排午餐/晚上安排晚餐/飯店固定排最後」的自動整理規則
 -- ------------------------------------------------------------
 ALTER TABLE itinerary_item ADD COLUMN time_slot VARCHAR(20) DEFAULT NULL;
+
+-- ------------------------------------------------------------
+-- 22. 逐天指定城市 (取代整趟行程共用一段自由文字「行程說明」)
+--     「建立新行程」頁面改成依天數顯示逐天城市下拉選單, 「AI 安排行程」排某一天時只會從這一天
+--     指定的城市底下的景點/餐廳/飯店挑選; NULL/空字串代表這天沒有指定城市 (通常是班機/轉機日,
+--     AI 安排行程時會完全跳過這天)。詳見 migration_itinerary_day_planned_cities.sql。
+-- ------------------------------------------------------------
+ALTER TABLE itinerary_day ADD COLUMN planned_cities VARCHAR(255) NULL AFTER theme;

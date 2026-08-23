@@ -68,17 +68,20 @@ public class ItineraryController {
     }
 
     // POST /itinerary/new → 建立行程 + 自動產生 Day1~DayN 骨架 (空白行程, 使用者自己手動排)
-    // 「行程重點資訊」的去程/回程班機、行程說明都是選填: 有填去程機場/時間就自動建立交通項目放第一天最前面,
-    // 有填回程就放最後一天最後面; 行程說明存進 itinerary.description (「AI 安排行程」會拿去當額外的排程參考)。
-    // 去程/回程都支援「+新增航段」多筆 (例如轉機), 表單同一個欄位名稱會重複送出多筆, 用 List 接收,
-    // 同一個 index 位置的出發機場/出發時間/抵達機場/抵達時間組成一個航段。
+    // 「行程重點資訊」的去程/回程班機是選填: 有填去程機場/時間就自動建立交通項目放第一天最前面,
+    // 有填回程就放最後一天最後面。去程/回程都支援「+新增航段」多筆 (例如轉機), 表單同一個欄位名稱會重複
+    // 送出多筆, 用 List 接收, 同一個 index 位置的出發機場/出發時間/抵達機場/抵達時間組成一個航段。
+    //
+    // Patch 27: 原本自由文字的「行程說明」欄位改成逐天指定城市的下拉選單 (dayCities, 前端依「預計天數」
+    // 動態產生, index 0 對應第 1 天、index 1 對應第 2 天...以此類推, 只列出已選的「地區/城市」, 見
+    // itinerary/new.html 的 renderDayCitiesRows())。這裡直接原樣轉交給 ItineraryService。
     @PostMapping("/new")
     public String create(@RequestParam String title,
                          @RequestParam String country,
                          @RequestParam(required = false) String region,
                          @RequestParam int daysCount,
                          @RequestParam(required = false) String startDate,
-                         @RequestParam(required = false) String description,
+                         @RequestParam(required = false) List<String> dayCities,
                          @RequestParam(required = false) List<String> outDepAirport,
                          @RequestParam(required = false) List<String> outDepTime,
                          @RequestParam(required = false) List<String> outArrAirport,
@@ -95,10 +98,13 @@ public class ItineraryController {
         if (AID == null || UID == null) return "redirect:/login";
 
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
-        Itinerary itinerary = itineraryService.createItinerary(AID, UID, title, country, region, daysCount, parsedDate, description);
+        Itinerary itinerary = itineraryService.createItinerary(AID, UID, title, country, region, daysCount, parsedDate, dayCities);
         itineraryService.attachFlightItems(itinerary.getITID(),
                 outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
                 retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+        // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
+        // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
+        itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
         return "redirect:/itinerary/" + itinerary.getITID() + "/board";
     }
 
@@ -110,7 +116,7 @@ public class ItineraryController {
                                     @RequestParam(required = false) String region,
                                     @RequestParam int daysCount,
                                     @RequestParam(required = false) String startDate,
-                                    @RequestParam(required = false) String description,
+                                    @RequestParam(required = false) List<String> dayCities,
                                     @RequestParam(required = false) List<String> outDepAirport,
                                     @RequestParam(required = false) List<String> outDepTime,
                                     @RequestParam(required = false) List<String> outArrAirport,
@@ -128,11 +134,10 @@ public class ItineraryController {
         if (AID == null || UID == null) return "redirect:/login";
 
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
-        // 傳入去程/回程班機表單資料, 讓「AI 安排行程」內部先知道第一天/最後一天有沒有掛班機——
-        // 有的話那一天就不強制補「剛好 3 餐 + 1 間住宿」(見 ItineraryService 對應多載的 Javadoc 說明)。
-        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate, description,
-                outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
-                retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+        // dayCities 逐天指定城市 (見上面 create() 的說明) 取代了原本的「行程說明」自由文字, 沒有指定城市的天
+        // (前端只會讓去程班機最後一天/回程班機第一天可以選, 其餘班機/轉機日完全不會送出城市) 在 Service 裡
+        // 會被當成交通/轉機日, AI 排程完全跳過那一天, 不會再被誤排進一整天觀光行程。
+        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate, dayCities);
 
         // 這個提示是「AI 有沒有真的排到景點資料庫裡的東西」, 一定要在插入去程/回程班機之前判斷 ——
         // 不然只要有填班機資訊, hasAnyItem() 就會一直是 true (班機本身也算一筆項目), 提示永遠不會跳出來,
@@ -144,6 +149,9 @@ public class ItineraryController {
         itineraryService.attachFlightItems(itinerary.getITID(),
                 outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
                 retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+        // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
+        // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
+        itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
 
         if (aiFoundNothing) {
             redirectAttributes.addFlashAttribute("aiPlanNotice",
