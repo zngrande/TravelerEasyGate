@@ -66,8 +66,10 @@ public class PoiDAOImpl implements PoiDAO {
         }
         StringBuilder jpql = new StringBuilder(
                 "SELECT p FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE + "AND p.country IN :countries ");
-        // 多國行程時, 「地區」通常只對應其中一國, 拿去跟全部國家的 POI 一起比對容易誤篩掉其他國家的資料, 故只在單一國家時套用
-        List<String> regions = (countries.size() == 1) ? splitLocationTokens(region) : List.of();
+        // 地區條件不分國家數量, 只要有填就套用: city LIKE 是跟實際地名字串比對, 不同國家的地名本來就不會
+        // 剛好撞名到互相誤篩 (例如「東京」不會比對到台灣的 POI), 所以多國行程時也可以正常套用地區篩選,
+        // 不需要像先前那樣限制只有剛好選一個國家才套用 (那個限制反而讓多國行程沒辦法縮小範圍到指定城市)。
+        List<String> regions = splitLocationTokens(region);
         boolean hasRegion = !regions.isEmpty();
         if (hasRegion) {
             StringBuilder regionClause = new StringBuilder("AND (p.city IS NULL");

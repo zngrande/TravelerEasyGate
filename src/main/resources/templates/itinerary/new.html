@@ -99,9 +99,10 @@
            「清單裡有、但景點資料庫還沒有相對應資料」的國家/城市加上 ⚠ 警示標記 (呼應使用者這次要求的
            「檢視有沒有沒在資料庫的城市」)——選這些警示項目還是可以照選, 只是選了之後 AI 安排行程很可能
            排不出東西, 使用者會在選的當下就先看到、自己決定要不要繼續, 不用等 AI 排完才發現。
-           地區 (城市) 的可選清單依「目前已選的國家」動態決定 (只列出這些國家底下的城市, 依國家分組顯示),
-           國家清單有變動時 (使用者加選/移除某個國家) 現有的城市選擇會清空重選, 避免留著不屬於目前選定
-           國家的城市造成混淆。 */
+           地區 (城市) 的可選清單依「目前已選的國家」動態決定 (列出這些國家底下的所有城市, 依國家分組
+           顯示), 選了多個國家 (多國行程) 也可以正常選地區/城市, 不再限制只有剛好選一個國家才能選——
+           後端 findByAgencyAndCountry() 已同步放寬這項限制 (見 PoiDAOImpl 註解)。國家清單有變動時
+           (使用者加選/移除某個國家), 只會清掉「所屬國家已經被移除」的城市選擇, 其餘保留。 */
         .ms-wrap {
             position: relative;
             width: 100%;
@@ -233,7 +234,7 @@
         }
         .leg-row {
             display: grid;
-            grid-template-columns: 1fr 140px 1fr 140px 32px;
+            grid-template-columns: 92px 1fr 140px 1fr 140px 32px;
             gap: 10px;
             align-items: end;
             margin-bottom: 10px;
@@ -338,13 +339,17 @@
             <div class="context-card">
                 <div class="context-section-label"><i class="fa-solid fa-plane-departure" style="color: var(--primary-blue);"></i> 行程重點資訊（選填）</div>
                 <div class="context-hint">
-                    填寫去程/回程班機的機場與時間，建立行程後會自動排進第一天最前面（去程）、最後一天最後面（回程）；如果有轉機可以用「+新增航段」加更多航段。行程說明會作為「AI 安排行程」時的額外參考。全部欄位皆為選填。
+                    填寫去程/回程班機的機場與時間，「第幾天」可指定這段班機要排在第幾天（例如第二天才搭夜間跨國班機），不填預設去程排第1天、回程排最後一天；如果有轉機或跨日行程可以用「+新增航段」加更多航段，並分別填不同天。行程說明會作為「AI 安排行程」時的額外參考。全部欄位皆為選填。
                 </div>
 
                 <div class="leg-block">
                     <div class="leg-block-title"><i class="fa-solid fa-plane-departure"></i> 去程</div>
                     <div id="outLegsContainer" data-legs-container>
                         <div class="leg-row" data-leg-row>
+                            <div class="leg-field">
+                                <label>第幾天</label>
+                                <input type="number" name="outDepDay" class="form-control leg-day-input" min="1" placeholder="第1天" title="這段去程班機安排在第幾天，不填預設第1天" />
+                            </div>
                             <div class="leg-field">
                                 <label>出發機場</label>
                                 <div class="cc-autocomplete-wrap">
@@ -381,6 +386,10 @@
                     <div class="leg-block-title"><i class="fa-solid fa-plane-arrival"></i> 回程</div>
                     <div id="retLegsContainer" data-legs-container>
                         <div class="leg-row" data-leg-row>
+                            <div class="leg-field">
+                                <label>第幾天</label>
+                                <input type="number" name="retDepDay" class="form-control leg-day-input" min="1" placeholder="最後一天" title="這段回程班機安排在第幾天，不填預設最後一天" />
+                            </div>
                             <div class="leg-field">
                                 <label>出發機場</label>
                                 <div class="cc-autocomplete-wrap">
@@ -449,6 +458,17 @@
     //   onChange(selectedItems): 選項異動後的回呼 (目前只有國家欄位用, 連動更新地區欄位的啟用狀態/清空)
     // hidden input 的值是選取項目的「顯示名稱」用「、」接起來 (跟後端 splitLocationTokens 的拆解格式相容,
     // ItineraryController 收到的 country/region 字串格式因此完全沒變, 後端不需要跟著改)。
+
+    // 國家/地區下拉選單的關鍵字篩選: 除了比對中文名稱 (c.name), 也比對 country_city_code 的代碼欄位
+    // (c.code, 例如日本=JP、東京=TYO 這種), 這樣使用者除了打中文, 也可以直接打熟悉的英文代碼快速篩選
+    // (代碼不分大小寫比對, 使用者打小寫 jp 一樣找得到 JP)。
+    function matchesKeyword(option, keyword) {
+        if (!keyword) return true;
+        if (option.name && option.name.indexOf(keyword) !== -1) return true;
+        if (option.code && option.code.toUpperCase().indexOf(keyword.toUpperCase()) !== -1) return true;
+        return false;
+    }
+
     function createMultiSelect(wrap, chipsEl, inputEl, dropdownEl, hiddenEl, fetchOptions, onChange) {
         let selected = []; // [{value, label}]
         let currentOptions = [];
@@ -489,7 +509,10 @@
 
         function addItem(item) {
             if (!selected.some(function (s) { return s.value === item.value; })) {
-                selected.push({ value: item.value, label: item.label });
+                // 存整個 item (不只 value/label), 保留 group/countryCode 等額外欄位——地區欄位需要知道
+                // 每個已選城市屬於哪個國家 (countryCode), 之後國家清單變動時才能只清掉「所屬國家被移除」
+                // 的城市, 而不是不分青紅皂白全部清空 (見下面 onCountryChanged)
+                selected.push(item);
                 renderChips();
                 updateHidden();
                 if (onChange) onChange(selected);
@@ -644,14 +667,23 @@
     // 「+新增航段」: 複製這個方向 (去程/回程) 容器裡的第一列當範本, 清空欄位內容後加到容器最後面,
     // 再幫新列裡的兩個機場欄位重新綁定自動完成 (複製節點會把 dataset.autocompleteBound 也複製過去,
     // 要先清掉這個標記, 不然 setupAirportAutocomplete 會誤判成「已經綁過了」而跳過)。
+    // 「第幾天」欄位不跟著其他欄位一起清空: 新增的航段通常是同一天的轉機、或緊接著前一段的隔天班機,
+    // 預設沿用「目前最後一列」填的天數比留白更貼近實際情境, 使用者還是可以自己改成別天。
     function addLeg(containerId) {
         const container = document.getElementById(containerId);
-        const template = container.querySelector('.leg-row');
+        const rows = container.querySelectorAll('.leg-row');
+        const template = rows[0];
+        const lastRow = rows[rows.length - 1];
+        const lastDayInput = lastRow.querySelector('.leg-day-input');
+        const lastDayValue = lastDayInput ? lastDayInput.value : '';
+
         const clone = template.cloneNode(true);
         clone.querySelectorAll('input').forEach(function (input) {
             input.value = '';
             delete input.dataset.autocompleteBound;
         });
+        const clonedDayInput = clone.querySelector('.leg-day-input');
+        if (clonedDayInput && lastDayValue) clonedDayInput.value = lastDayValue;
         clone.querySelectorAll('.cc-suggest-list').forEach(function (list) {
             list.innerHTML = '';
             list.classList.remove('open');
@@ -718,7 +750,7 @@
                 return Promise.all([loadCcCountries(), loadPoiCountries()]).then(function (results) {
                     const ccCountries = results[0], poiCountrySet = new Set(results[1]);
                     return ccCountries
-                        .filter(function (c) { return !keyword || c.name.indexOf(keyword) !== -1; })
+                        .filter(function (c) { return matchesKeyword(c, keyword); })
                         .map(function (c) {
                             const hasPoi = poiCountrySet.has(c.name);
                             return {
@@ -741,22 +773,33 @@
             document.getElementById('regionHidden'),
             function (keyword) {
                 const countries = countryMs.getSelected(); // [{value: code, label: name}]
-                if (countries.length !== 1) return Promise.resolve([]); // 沒有剛好選一個國家就不列城市, 呼應 onCountryChanged 的停用邏輯
-                const countryName = countries[0].label;
-                const countryCode = countries[0].value;
+                if (countries.length === 0) return Promise.resolve([]); // 一個國家都沒選就不列城市
+                // 多國行程時, 依「目前已選的所有國家」一次查回各自底下的城市 (countryCodes 逗號分隔,
+                // /reference/country-city/cities 本來就支援多國代碼一次查, 見 ReferenceCodeController),
+                // 每個城市依它所屬的國家分組顯示 (opt.group), 也各自跟該國家自己的景點資料庫城市清單比對
+                // 有沒有資料 (不能把所有國家的城市混在一起跟同一份清單比對, 不然會誤判)。
+                const countryCodes = countries.map(function (c) { return c.value; });
+                const codeToName = {};
+                countries.forEach(function (c) { codeToName[c.value] = c.label; });
                 return Promise.all([
-                    fetch('/reference/country-city/cities?countryCodes=' + encodeURIComponent(countryCode))
+                    fetch('/reference/country-city/cities?countryCodes=' + encodeURIComponent(countryCodes.join(',')))
                         .then(function (r) { return r.ok ? r.json() : []; }),
-                    loadPoiCities(countryName)
+                    Promise.all(countries.map(function (c) { return loadPoiCities(c.label); }))
                 ]).then(function (results) {
-                    const ccCities = results[0], poiCitySet = new Set(results[1]);
+                    const ccCities = results[0];
+                    const poiCitySetByCountry = {}; // countryName -> Set(city)
+                    countries.forEach(function (c, idx) { poiCitySetByCountry[c.label] = new Set(results[1][idx]); });
                     return ccCities
-                        .filter(function (c) { return !keyword || c.name.indexOf(keyword) !== -1; })
+                        .filter(function (c) { return matchesKeyword(c, keyword); })
                         .map(function (c) {
+                            const countryName = codeToName[c.countryCode] || '';
+                            const poiCitySet = poiCitySetByCountry[countryName] || new Set();
                             const hasPoi = poiCitySet.has(c.name);
                             return {
                                 value: c.code,
                                 label: c.name,
+                                group: countryName,
+                                countryCode: c.countryCode,
                                 warn: !hasPoi,
                                 warnTitle: hasPoi ? '' : '景點資料庫在「' + countryName + '」目前還沒有「' + c.name + '」的資料'
                             };
@@ -765,26 +808,31 @@
             }
         );
 
-        // 地區欄位是否啟用/依哪個國家篩選城市, 依「目的地國家」目前選了幾個決定: 一個都沒選就停用;
-        // 剛好選一個就啟用並依那個國家列出城市清單; 選了兩個以上 (多國行程) 時, 後端
-        // findByAgencyAndCountry() 本來就不會用地區條件篩選 (只在剛好單一國家時套用, 見 PoiDAOImpl 註解),
-        // 這裡也停用地區欄位並清空已選的城市、說明原因, 避免使用者誤以為多國行程時選了地區會生效。
+        // 地區欄位是否啟用, 依「目的地國家」有沒有選任何一個決定: 一個都沒選就停用; 只要選了一個 (含
+        // 多國行程) 就啟用, 依目前已選的「所有」國家列出各自城市 (分組顯示, 見上面 regionMs 的
+        // fetchOptions)。後端 findByAgencyAndCountry() 也已經同步放寬, 不再限制只有剛好選一個國家時
+        // 才套用地區篩選 (見 PoiDAOImpl 註解)。
+        //
+        // 國家清單異動時, 不整批清空已選的城市——只濾掉「所屬國家已經被移除」的城市, 其餘保留, 這樣使用者
+        // 加選/移除某個國家時, 原本已經選好的其他國家的城市不會平白消失 (city 選項存的是完整物件, 含
+        // countryCode, 見 createMultiSelect 的 addItem 註解)。
         function onCountryChanged(selectedCountries) {
             const regionWrap = document.getElementById('regionMsWrap');
             const regionInput = document.getElementById('regionSearchInput');
-            regionMs.setSelected([]); // 國家異動一律清空已選城市, 避免留著不屬於新選定國家的城市造成混淆
+            const allowedCodes = new Set(selectedCountries.map(function (c) { return c.value; }));
+            const currentRegions = regionMs.getSelected();
+            const keptRegions = currentRegions.filter(function (r) { return r.countryCode && allowedCodes.has(r.countryCode); });
+            if (keptRegions.length !== currentRegions.length) {
+                regionMs.setSelected(keptRegions);
+            }
             if (selectedCountries.length === 0) {
                 regionInput.disabled = true;
                 regionInput.placeholder = '請先選擇目的地國家';
                 regionWrap.classList.add('ms-disabled');
-            } else if (selectedCountries.length === 1) {
+            } else {
                 regionInput.disabled = false;
                 regionInput.placeholder = '例：東京 (可複選，留空代表整個國家)';
                 regionWrap.classList.remove('ms-disabled');
-            } else {
-                regionInput.disabled = true;
-                regionInput.placeholder = '多國行程不篩選地區，請進入看板後手動加入景點';
-                regionWrap.classList.add('ms-disabled');
             }
         }
         onCountryChanged([]); // 初始狀態: 國家還沒選, 地區欄位先停用

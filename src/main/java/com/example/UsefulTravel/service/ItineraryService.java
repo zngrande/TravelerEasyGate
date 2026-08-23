@@ -1,6 +1,7 @@
 package com.example.UsefulTravel.service;
 
 import com.example.UsefulTravel.DAO.AiImportDAO;
+import com.example.UsefulTravel.DAO.CountryCityCodeDAO;
 import com.example.UsefulTravel.DAO.ItineraryDAO;
 import com.example.UsefulTravel.DAO.ItineraryDayDAO;
 import com.example.UsefulTravel.DAO.ItineraryItemDAO;
@@ -21,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,6 +43,7 @@ public class ItineraryService {
     private final GoogleMapsClient googleMapsClient;
     private final AnthropicClient anthropicClient;
     private final ObjectMapper objectMapper;
+    private final CountryCityCodeDAO countryCityCodeDAO;
 
     @Autowired
     public ItineraryService(ItineraryDAO itineraryDAO, ItineraryDayDAO itineraryDayDAO,
@@ -48,7 +51,7 @@ public class ItineraryService {
                             RouteSegmentDAO routeSegmentDAO,
                             RouteService routeService, PoiDAO poiDAO, AiImportDAO aiImportDAO,
                             GoogleMapsClient googleMapsClient, AnthropicClient anthropicClient,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper, CountryCityCodeDAO countryCityCodeDAO) {
         this.itineraryDAO = itineraryDAO;
         this.itineraryDayDAO = itineraryDayDAO;
         this.itineraryItemDAO = itineraryItemDAO;
@@ -60,6 +63,7 @@ public class ItineraryService {
         this.googleMapsClient = googleMapsClient;
         this.anthropicClient = anthropicClient;
         this.objectMapper = objectMapper;
+        this.countryCityCodeDAO = countryCityCodeDAO;
     }
 
     /**
@@ -115,7 +119,14 @@ public class ItineraryService {
         Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate, description);
 
         List<Poi> candidates = poiDAO.findByAgencyAndCountry(AID, country, region);
-        if (candidates.isEmpty()) return itinerary; // 資料庫裡沒有符合國家/地區的景點, 保持空白行程讓使用者自己排
+        if (candidates.isEmpty() && region != null && !region.isBlank()) {
+            // 地區篩選完全找不到候選景點時, 先退回成只用國家篩選再試一次 ——
+            // 使用者填的地區/城市名稱 (例如「佛羅倫斯、威尼斯、比薩、米蘭、羅馬」) 常常跟
+            // poi.city 實際存的字串沒辦法字面 exact match 上, 但這個國家在資料庫裡其實有大量景點,
+            // 不應該只因為城市名稱顆粒度對不上就整個放棄、建出空白行程。
+            candidates = poiDAO.findByAgencyAndCountry(AID, country, null);
+        }
+        if (candidates.isEmpty()) return itinerary; // 這個國家在資料庫裡完全沒有景點, 保持空白行程讓使用者自己排
 
         List<ItineraryDay> days = itineraryDayDAO.findByItinerary(itinerary.getITID());
 
@@ -272,34 +283,41 @@ public class ItineraryService {
      * (也就是整個建立流程 - 包含 AI 排程 - 全部跑完, controller 拿到回傳的 Itinerary 之後才呼叫這個方法),
      * 不然去程/回程班機插入的位置會被後面的自動整理重新洗牌, 沒辦法保證「最前面/最後面」。
      */
+    // outDepDay/retDepDay: 每個航段對應「第幾天」(1-based, 跟 outDepAirport 等 List 用同一個 index 對齊)。
+    // 選填 —— 沒填/填錯/超出範圍的航段, 去程預設回到第一天、回程預設回到最後一天 (跟改版前的行為一致),
+    // 這樣才能表達「出發當天先搭國內線轉機、隔天才搭跨國夜間班機」這種橫跨多天的去程/回程行程。
     public void attachFlightItems(int ITID,
                                   List<String> outDepAirport, List<String> outDepTime,
                                   List<String> outArrAirport, List<String> outArrTime,
+                                  List<String> outDepDay,
                                   List<String> retDepAirport, List<String> retDepTime,
-                                  List<String> retArrAirport, List<String> retArrTime) {
-        List<ItineraryDay> days = itineraryDayDAO.findByItinerary(ITID);
+                                  List<String> retArrAirport, List<String> retArrTime,
+                                  List<String> retDepDay) {
+        List<ItineraryDay> days = itineraryDayDAO.findByItinerary(ITID); // 已依 day_number ASC 排序
         if (days.isEmpty()) return;
-        ItineraryDay firstDay = days.get(0); // findByItinerary 已經依 day_number ASC 排序
-        ItineraryDay lastDay = days.get(days.size() - 1);
 
-        attachFlightLegs(firstDay.getIDID(), true, "去程班機", outDepAirport, outDepTime, outArrAirport, outArrTime);
+        attachFlightLegsAcrossDays(days, true, "去程班機", outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay);
 
-        // 只有一天的行程, 第一天跟最後一天是同一天: 去程剛插到最前面, 回程要接在「這一天現在的最後面」
-        // (也就是去程插入之後的最新狀態), 直接沿用同一個 IDID 重新查一次即可, attachFlightLegs 內部本來就是
-        // 即時查 findByDay() 決定要插入的位置, 不會漏算剛剛插入的去程那幾筆。
-        attachFlightLegs(lastDay.getIDID(), false, "回程班機", retDepAirport, retDepTime, retArrAirport, retArrTime);
+        // 回程跟去程分開兩批處理, 就算某一段回程跟某一段去程被分到同一天, 各自的 findByDay() 也是即時查詢,
+        // 不會漏算對方剛剛插入的項目。
+        attachFlightLegsAcrossDays(days, false, "回程班機", retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
     }
 
-    // asFirstBlock=true: 這一整批航段固定插在最前面 (依填寫順序、維持先後關係, 其餘項目全部往後推);
-    // false: 這一整批航段依填寫順序 append 在最後面。四個 List 用同一個 index 對齊組成一個航段, 缺的欄位留空。
-    private void attachFlightLegs(int IDID, boolean asFirstBlock, String label,
-                                  List<String> depAirports, List<String> depTimes,
-                                  List<String> arrAirports, List<String> arrTimes) {
+    // isOutbound=true (去程): 每個航段所在那一天, 這批同一天的航段固定插在「那一天」的最前面 (依填寫順序、維持先後關係,
+    // 其餘項目全部往後推); false (回程): 依填寫順序 append 在「那一天」的最後面。
+    // 四個內容 List 用同一個 index 對齊組成一個航段, 缺的欄位留空; dayIndexes 是每個航段對應的天數 (見上方欄位說明)。
+    private void attachFlightLegsAcrossDays(List<ItineraryDay> days, boolean isOutbound, String label,
+                                            List<String> depAirports, List<String> depTimes,
+                                            List<String> arrAirports, List<String> arrTimes,
+                                            List<String> dayIndexes) {
         int legCount = Math.max(Math.max(listSize(depAirports), listSize(depTimes)),
                                 Math.max(listSize(arrAirports), listSize(arrTimes)));
         if (legCount == 0) return;
 
-        List<ItineraryItem> legItems = new ArrayList<>();
+        int defaultDayIndex = isOutbound ? 1 : days.size();
+
+        // 用 LinkedHashMap 依「第一次出現的天數」順序分組, 同一天裡面的航段維持原本填寫的先後順序
+        Map<Integer, List<ItineraryItem>> legsByDay = new LinkedHashMap<>();
         for (int i = 0; i < legCount; i++) {
             String fromAirport = listGet(depAirports, i);
             java.time.LocalTime depTime = parseTimeOrNull(listGet(depTimes, i));
@@ -307,10 +325,13 @@ public class ItineraryService {
             java.time.LocalTime arrTime = parseTimeOrNull(listGet(arrTimes, i));
             if (isBlank(fromAirport) && isBlank(toAirport) && depTime == null && arrTime == null) continue; // 這個航段整列都沒填, 跳過
 
-            // 只有一段就直接用「去程班機」；有多段 (轉機) 才加編號「去程班機1」「去程班機2」方便分辨先後順序
+            int dayIndex = parseDayIndexOrDefault(listGet(dayIndexes, i), defaultDayIndex, days.size());
+            ItineraryDay targetDay = days.get(dayIndex - 1);
+
+            // 只有一段就直接用「去程班機」；有多段 (轉機/跨日) 才加編號「去程班機1」「去程班機2」方便分辨先後順序
             String segmentLabel = legCount > 1 ? (label + (i + 1)) : label;
             String customName = buildFlightLabel(segmentLabel, fromAirport, toAirport);
-            ItineraryItem item = new ItineraryItem(IDID, null, "transport", customName, 0); // sort_order 最後統一算
+            ItineraryItem item = new ItineraryItem(targetDay.getIDID(), null, "transport", customName, 0); // sort_order 最後統一算
             item.setFromLocation(isBlank(fromAirport) ? null : fromAirport.trim());
             item.setToLocation(isBlank(toAirport) ? null : toAirport.trim());
             item.setTransportMethod("飛機");
@@ -318,26 +339,44 @@ public class ItineraryService {
             item.setEndTime(arrTime);
             // 機場欄位是自由文字 (沒有連結 POI/經緯度), 沒有座標可以畫在地圖上, 關掉顯示在地圖上避免出現錯誤定位點
             item.setShowOnMap(false);
-            legItems.add(item);
-        }
-        if (legItems.isEmpty()) return; // 每一列都沒填, 這個方向不用建立任何項目
 
-        List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
-        if (asFirstBlock) {
-            for (ItineraryItem it : existing) {
-                it.setSortOrder(it.getSortOrder() + legItems.size());
-                itineraryItemDAO.save(it);
+            legsByDay.computeIfAbsent(dayIndex, k -> new ArrayList<>()).add(item);
+        }
+        if (legsByDay.isEmpty()) return; // 每一列都沒填, 這個方向不用建立任何項目
+
+        for (Map.Entry<Integer, List<ItineraryItem>> entry : legsByDay.entrySet()) {
+            int IDID = days.get(entry.getKey() - 1).getIDID();
+            List<ItineraryItem> legItems = entry.getValue();
+            List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
+            if (isOutbound) {
+                for (ItineraryItem it : existing) {
+                    it.setSortOrder(it.getSortOrder() + legItems.size());
+                    itineraryItemDAO.save(it);
+                }
+                for (int i = 0; i < legItems.size(); i++) {
+                    legItems.get(i).setSortOrder(i);
+                    itineraryItemDAO.save(legItems.get(i));
+                }
+            } else {
+                int nextOrder = existing.size();
+                for (ItineraryItem legItem : legItems) {
+                    legItem.setSortOrder(nextOrder++);
+                    itineraryItemDAO.save(legItem);
+                }
             }
-            for (int i = 0; i < legItems.size(); i++) {
-                legItems.get(i).setSortOrder(i);
-                itineraryItemDAO.save(legItems.get(i));
-            }
-        } else {
-            int nextOrder = existing.size();
-            for (ItineraryItem legItem : legItems) {
-                legItem.setSortOrder(nextOrder++);
-                itineraryItemDAO.save(legItem);
-            }
+        }
+    }
+
+    // 把使用者填的「第幾天」字串轉成合法的天數 index (1-based); 沒填/不是數字/超出這個行程實際天數範圍
+    // 都退回 defaultValue (去程預設第一天、回程預設最後一天), 不要讓格式錯誤直接讓建立行程失敗。
+    private int parseDayIndexOrDefault(String raw, int defaultValue, int totalDays) {
+        if (isBlank(raw)) return defaultValue;
+        try {
+            int idx = Integer.parseInt(raw.trim());
+            if (idx < 1 || idx > totalDays) return defaultValue;
+            return idx;
+        } catch (NumberFormatException e) {
+            return defaultValue;
         }
     }
 
@@ -397,7 +436,7 @@ public class ItineraryService {
         userContent.append("\n總天數: ").append(daysCount);
         if (description != null && !description.isBlank()) {
             userContent.append("\n使用者填寫的行程重點/期望安排 (請優先參考, 但還是只能挑選候選清單裡有的 pid): ")
-                    .append(description.trim());
+                    .append(expandLocationCodesForAi(description.trim()));
         }
         userContent.append("\n候選景點清單 (JSON 陣列, 每筆是 pid/name/category/stay_min):\n");
         userContent.append("[");
@@ -425,6 +464,44 @@ public class ItineraryService {
             plan.put(dayNumber, pids);
         }
         return plan;
+    }
+
+    // 使用者填在「行程說明」的自由文字裡, 如果打的是國家/城市代碼 (例如「JP五天四夜」「先去TYO再去OSA」)
+    // 而不是中文全名, 直接丟給 AI 雖然大多時候 AI 自己也看得懂常見代碼, 但這裡還是先做一次明確的展開,
+    // 把辨識得出來的代碼都在後面補上中文全名的括號註記 (例如「JP五天四夜」變成「JP（日本）五天四夜」),
+    // 讓 AI 拿到的提示文字不會曖昧不清 (不影響候選景點清單本身──候選清單早在這之前就已經依表單上的
+    // 「目的地國家/地區」欄位篩好了, 這裡只是讓 AI 更看得懂使用者這段自由文字裡指的是哪裡, 幫助它排出
+    // 更符合期望的順序, 不會因為這裡的展開而多出或少掉候選清單以外的地點)。
+    // 只在原始存進資料庫的 itinerary.description 之外, 另外組一份「展開後」的文字給 AI prompt 用,
+    // 使用者畫面上看到、之後編輯行程時看到的行程說明本身完全不會被這裡的展開結果覆蓋或竄改。
+    private String expandLocationCodesForAi(String description) {
+        Map<String, String> codeToName = new HashMap<>();
+        for (var c : countryCityCodeDAO.findByType("country")) {
+            if (c.getCode() != null && c.getName() != null) codeToName.put(c.getCode().toUpperCase(), c.getName());
+        }
+        for (var c : countryCityCodeDAO.findByType("city")) {
+            if (c.getCode() != null && c.getName() != null) codeToName.put(c.getCode().toUpperCase(), c.getName());
+        }
+        if (codeToName.isEmpty()) return description;
+
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\b[A-Za-z]{2,4}\\b").matcher(description);
+        StringBuilder result = new StringBuilder();
+        int lastEnd = 0;
+        while (matcher.find()) {
+            String token = matcher.group();
+            String name = codeToName.get(token.toUpperCase());
+            result.append(description, lastEnd, matcher.end());
+            lastEnd = matcher.end();
+            if (name == null) continue;
+            // 使用者自己已經在代碼後面用括號寫了說明 (例如「JP（日本）」), 就不用重複註記
+            int after = matcher.end();
+            if (after < description.length() && (description.charAt(after) == '（' || description.charAt(after) == '(')) {
+                continue;
+            }
+            result.append("（").append(name).append("）");
+        }
+        result.append(description.substring(lastEnd));
+        return result.toString();
     }
 
     // Claude 有時仍會習慣性包 ```json ... ``` , 保險起見去掉 (跟 AiParseService 同樣的處理方式)

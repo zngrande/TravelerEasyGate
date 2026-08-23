@@ -83,10 +83,12 @@ public class ItineraryController {
                          @RequestParam(required = false) List<String> outDepTime,
                          @RequestParam(required = false) List<String> outArrAirport,
                          @RequestParam(required = false) List<String> outArrTime,
+                         @RequestParam(required = false) List<String> outDepDay,
                          @RequestParam(required = false) List<String> retDepAirport,
                          @RequestParam(required = false) List<String> retDepTime,
                          @RequestParam(required = false) List<String> retArrAirport,
                          @RequestParam(required = false) List<String> retArrTime,
+                         @RequestParam(required = false) List<String> retDepDay,
                          HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
@@ -95,8 +97,8 @@ public class ItineraryController {
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
         Itinerary itinerary = itineraryService.createItinerary(AID, UID, title, country, region, daysCount, parsedDate, description);
         itineraryService.attachFlightItems(itinerary.getITID(),
-                outDepAirport, outDepTime, outArrAirport, outArrTime,
-                retDepAirport, retDepTime, retArrAirport, retArrTime);
+                outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
+                retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
         return "redirect:/itinerary/" + itinerary.getITID() + "/board";
     }
 
@@ -113,10 +115,12 @@ public class ItineraryController {
                                     @RequestParam(required = false) List<String> outDepTime,
                                     @RequestParam(required = false) List<String> outArrAirport,
                                     @RequestParam(required = false) List<String> outArrTime,
+                                    @RequestParam(required = false) List<String> outDepDay,
                                     @RequestParam(required = false) List<String> retDepAirport,
                                     @RequestParam(required = false) List<String> retDepTime,
                                     @RequestParam(required = false) List<String> retArrAirport,
                                     @RequestParam(required = false) List<String> retArrTime,
+                                    @RequestParam(required = false) List<String> retDepDay,
                                     HttpSession session,
                                     org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
@@ -134,8 +138,8 @@ public class ItineraryController {
         // 一定要等 createItineraryWithAiPlan() 內部的自動整理 (meal_time) 全部跑完才能插入去程/回程班機,
         // 不然剛插好的「第一筆/最後一筆」會被自動整理重新洗牌 (見 ItineraryService.attachFlightItems 說明)
         itineraryService.attachFlightItems(itinerary.getITID(),
-                outDepAirport, outDepTime, outArrAirport, outArrTime,
-                retDepAirport, retDepTime, retArrAirport, retArrTime);
+                outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
+                retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
 
         if (aiFoundNothing) {
             redirectAttributes.addFlashAttribute("aiPlanNotice",

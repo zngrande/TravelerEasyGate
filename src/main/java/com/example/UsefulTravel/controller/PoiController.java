@@ -118,11 +118,18 @@ public class PoiController {
         return ResponseEntity.ok(result);
     }
 
-    // GET /poi/countries?keyword= → 「建立新行程」頁面「目的地國家」欄位自動完成用。
+    // GET /poi/countries?keyword= → 「建立新行程」頁面「目的地國家」欄位比對「景點資料庫實際有哪些國家」用
+    // (country_city_code 參考表選單裡, 沒在這份清單內的國家會標示 ⚠ 警示, 見 itinerary/new.html)。
     // 原本這個欄位是純自由文字, 跟後端 AI 排程篩選候選景點用的是同一套自由文字比對, 但完全不保證使用者
     // 打的地名資料庫裡真的有 (使用者建立「義大利/羅馬、威尼斯、比薩、米蘭」行程時就是打了一個資料庫裡
-    // 根本沒有資料的國家, AI 排程當然找不到任何候選, 只能建立空白行程)。改成只列出「公司景點資料庫裡
-    // 實際存在」的國家 (共用庫+自己的, 見 PoiService/PoiDAOImpl), 選出來的國家保證查得到景點候選。
+    // 根本沒有資料的國家, AI 排程當然找不到任何候選, 只能建立空白行程)。
+    //
+    // 注意: 這裡回傳的是「資料庫裡實際存在哪些國家」的完整清單, 用來跟另一份清單做「有沒有資料」的存在性
+    // 比對 (前端組成 Set 直接查 has()), 不是打字篩選建議清單那種只需要列前幾筆的情境, 所以不能加 .limit(20)
+    // ——本來這裡仿造 /poi/autocomplete 的寫法多加了 .limit(20), 結果實際資料庫有 30 幾個不同國家, 超過
+    // 20 筆的部分 (含日本, 依資料庫排序不保證落在前 20 筆內) 會被截掉不列入回傳清單, 對照時就會被前端誤判
+    // 成「資料庫沒有這個國家的資料」而顯示警示, 但那些國家其實都有大量景點資料, 是這裡的程式邏輯錯誤,
+    // 不是真的缺資料 (keyword 篩選則保留, 用於 /poi/autocomplete 以外、有打字關鍵字時的情境)。
     @GetMapping("/countries")
     @ResponseBody
     public ResponseEntity<?> countries(@RequestParam(required = false) String keyword, HttpSession session) {
@@ -131,13 +138,12 @@ public class PoiController {
         String kw = keyword == null ? "" : keyword.trim();
         List<String> result = poiService.listCountries(AID).stream()
                 .filter(c -> kw.isEmpty() || c.contains(kw))
-                .limit(20)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(result);
     }
 
-    // GET /poi/cities?country=日本&keyword= → 「建立新行程」頁面「地區/城市」欄位自動完成用,
-    // 依已選定的「目的地國家」篩選出該國實際存在的城市清單 (「地區依國家判斷」)。
+    // GET /poi/cities?country=日本&keyword= → 同上, 「地區/城市」欄位比對「這個國家在景點資料庫裡實際有
+    // 哪些城市」用。同樣是完整存在性清單, 不能加 .limit(20) (理由同上面 countries() 的說明)。
     @GetMapping("/cities")
     @ResponseBody
     public ResponseEntity<?> cities(@RequestParam String country,
@@ -148,7 +154,6 @@ public class PoiController {
         String kw = keyword == null ? "" : keyword.trim();
         List<String> result = poiService.listCitiesByCountry(AID, country).stream()
                 .filter(c -> kw.isEmpty() || c.contains(kw))
-                .limit(20)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(result);
     }
