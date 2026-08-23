@@ -62,7 +62,9 @@ public class CountryCityCodeDAOImpl implements CountryCityCodeDAO {
     @Override
     public List<CountryCityCode> findByType(String type) {
         return em.createQuery(
-                        "SELECT c FROM CountryCityCode c WHERE c.type = :type ORDER BY c.name ASC", CountryCityCode.class)
+                        "SELECT c FROM CountryCityCode c WHERE c.type = :type " +
+                                "ORDER BY c.sortOrder ASC, c.name ASC",
+                        CountryCityCode.class)
                 .setParameter("type", type)
                 .getResultList();
     }

@@ -31,6 +31,9 @@ public class CountryCityCode {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
+    @Column(name = "sort_order")
+    private Integer sortOrder;
+
     public CountryCityCode() {}
 
     public CountryCityCode(String type, String code, String name, String countryCode) {
@@ -57,4 +60,7 @@ public class CountryCityCode {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public Integer getSortOrder() { return sortOrder; }
+    public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
 }
