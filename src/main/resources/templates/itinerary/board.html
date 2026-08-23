@@ -668,6 +668,7 @@
             align-items: center;
             justify-content: center;
         }
+        .btn-show-poi-db.active { color: #059669; } /* 開啟時改成跟左側「景點資料庫」模組同一個綠色 */
         .map-placeholder {
             text-align: center;
             color: var(--text-gray);
@@ -986,7 +987,7 @@
                             <i class="fa-solid fa-map-location-dot" style="color: var(--primary-blue);"></i> 地圖路線預覽
                         </div>
                         <div class="map-header-actions">
-                            <button type="button" class="btn-show-poi-db" onclick="toggleAccordion('Poi')" title="顯示景點資料庫">
+                            <button type="button" id="btnShowPoiDb" class="btn-show-poi-db" onclick="togglePoiDbOnMap()" title="在地圖上顯示/隱藏還沒排進今天行程的景點資料庫（灰色小點）">
                                 <i class="fa-solid fa-database"></i> 顯示景點資料庫
                             </button>
                             <a id="staticmap-link" href="#" onclick="openBigMapModal(); return false;" style="display:none;">開啟大圖 ↗</a>
@@ -1798,6 +1799,28 @@
     let mapInfoWindow = null;
     const allPoisForMap = /*[[${poiList}]]*/ [];
 
+    // 「顯示景點資料庫」開關: 控制地圖上要不要顯示還沒排進今天行程的公司景點資料庫灰色小點 (suggestPois,
+    // 見 renderMap 內部), 不再是打開左側「景點資料庫」模組面板。純前端狀態, 不用打 API, 切換時只重畫地圖。
+    let showPoiDbOnMap = false;
+
+    function togglePoiDbOnMap() {
+        showPoiDbOnMap = !showPoiDbOnMap;
+        updatePoiDbToggleButton();
+        if (currentDayId) renderMap(currentDayId);
+    }
+
+    function updatePoiDbToggleButton() {
+        const btn = document.getElementById('btnShowPoiDb');
+        if (!btn) return;
+        btn.classList.toggle('active', showPoiDbOnMap);
+        btn.innerHTML = showPoiDbOnMap
+            ? '<i class="fa-solid fa-database"></i> 隱藏景點資料庫'
+            : '<i class="fa-solid fa-database"></i> 顯示景點資料庫';
+        btn.title = showPoiDbOnMap
+            ? '目前地圖上正顯示還沒排進今天行程的景點資料庫灰點，點擊隱藏'
+            : '在地圖上顯示還沒排進今天行程的景點資料庫（灰色小點）';
+    }
+
     // 互動地圖標記樣式: 每個點都是自己畫的圓點圖示 (不是 Google 內建的預設紅色水滴標記), 這樣才能保證
     // 「點擊放大」時只是同一個圖示變大, 不會換成別的顏色/圖案。住宿固定用青色 + 床的 emoji, 其餘類型統一用
     // 同一個顏色 (跟原本 Google 預設標記接近的紅色)。點擊項目列上的字母徽章時 (focusMapMarker) 會把圖示換成
@@ -1968,7 +1991,11 @@
         // 不然關掉顯示地圖的項目反而會被誤判成「還沒加入今天」, 又以灰色建議標記的身份跑回地圖上。
         const allTodayItems = (dayCache[idid] && dayCache[idid].items) || itemPoints;
         const itemNames = new Set(allTodayItems.map(it => it.customName || it.name));
-        const suggestPois = allPoisForMap.filter(p => p.latitude != null && p.longitude != null && !itemNames.has(p.name));
+        // 只有開關打開時才把還沒排進今天的公司景點算進地圖，關閉時 suggestPois 是空陣列，
+        // 下面所有用到 suggestPois 的地方 (畫灰點、判斷地圖是不是全空) 自然就都不會顯示，不用另外改。
+        const suggestPois = showPoiDbOnMap
+            ? allPoisForMap.filter(p => p.latitude != null && p.longitude != null && !itemNames.has(p.name))
+            : [];
 
         if (itemPoints.length === 0 && suggestPois.length === 0) {
             wrap.innerHTML = '<div class="map-placeholder"><i class="fa-regular fa-map"></i><div>這天還沒有已定位的景點</div></div>';

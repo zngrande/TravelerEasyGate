@@ -250,7 +250,8 @@
         /* 機場欄位的自動完成沿用跟國家/城市欄位同一套 .cc-autocomplete-wrap / .cc-suggest-list 樣式 */
         .btn-remove-leg {
             width: 32px;
-            height: 34px;
+            padding: 11px 0; /* 跟 .form-control 的上下 padding 一致，讓按鈕跟旁邊的輸入框一樣高 */
+            box-sizing: border-box;
             border: 1px solid var(--border-color);
             background: #fff;
             color: #94a3b8;
