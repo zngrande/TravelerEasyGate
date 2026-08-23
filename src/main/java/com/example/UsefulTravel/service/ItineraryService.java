@@ -13,6 +13,8 @@ import com.example.UsefulTravel.entity.ItineraryDay;
 import com.example.UsefulTravel.entity.ItineraryItem;
 import com.example.UsefulTravel.entity.ItineraryItemOption;
 import com.example.UsefulTravel.entity.Poi;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -22,15 +24,19 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ItineraryService - 行程建立與積木式排版的核心跨表邏輯
  */
 @Service
 public class ItineraryService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ItineraryService.class);
 
     private final ItineraryDAO itineraryDAO;
     private final ItineraryDayDAO itineraryDayDAO;
@@ -116,6 +122,44 @@ public class ItineraryService {
 
     public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
                                                int daysCount, LocalDate startDate, String description) {
+        return createItineraryWithAiPlan(AID, createdBy, title, country, region, daysCount, startDate, description,
+                false, false);
+    }
+
+    /**
+     * 「AI 安排行程」+ 建立當下就知道去程/回程班機表單資料的版本 —— 用來判斷第一天/最後一天是不是已經有
+     * 掛去程/回程班機, 有的話那一天就完全不強制補「剛好 3 餐 + 1 間住宿」(見下方 day1HasFlight/lastDayHasFlight
+     * 用法說明), 因為出發/抵達當天的餐食、住宿常常不在這個行程的規劃範圍內 (例如出發前已經在家吃過、
+     * 或抵達當地已經是回程班機、不需要再排住宿)。
+     *
+     * 這裡只是「先算出第一天/最後一天有沒有掛班機」這個布林值——實際把班機項目插入行程看板，
+     * 仍然要等這個方法整個跑完 (包含下面的 autoArrangeItinerary) 之後，由呼叫端另外呼叫 attachFlightItems()，
+     * 原因跟 attachFlightItems() 的 Javadoc 說明的呼叫順序限制一致，這裡不能提前插入。
+     *
+     * outDepDay/retDepDay 用法、每個航段判斷「有沒有填」的規則, 都跟 attachFlightItems() 完全一致
+     * (見 resolveFlightDayNumbers)，去程沒填天數預設算第一天、回程沒填天數預設算最後一天。
+     */
+    public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
+                                               int daysCount, LocalDate startDate, String description,
+                                               List<String> outDepAirport, List<String> outDepTime,
+                                               List<String> outArrAirport, List<String> outArrTime,
+                                               List<String> outDepDay,
+                                               List<String> retDepAirport, List<String> retDepTime,
+                                               List<String> retArrAirport, List<String> retArrTime,
+                                               List<String> retDepDay) {
+        Set<Integer> outboundDays = resolveFlightDayNumbers(daysCount, outDepAirport, outDepTime,
+                outArrAirport, outArrTime, outDepDay, 1);
+        Set<Integer> returnDays = resolveFlightDayNumbers(daysCount, retDepAirport, retDepTime,
+                retArrAirport, retArrTime, retDepDay, daysCount);
+        boolean day1HasFlight = outboundDays.contains(1) || returnDays.contains(1);
+        boolean lastDayHasFlight = outboundDays.contains(daysCount) || returnDays.contains(daysCount);
+        return createItineraryWithAiPlan(AID, createdBy, title, country, region, daysCount, startDate, description,
+                day1HasFlight, lastDayHasFlight);
+    }
+
+    private Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
+                                               int daysCount, LocalDate startDate, String description,
+                                               boolean day1HasFlight, boolean lastDayHasFlight) {
         Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate, description);
 
         List<Poi> candidates = poiDAO.findByAgencyAndCountry(AID, country, region);
@@ -131,7 +175,12 @@ public class ItineraryService {
         List<ItineraryDay> days = itineraryDayDAO.findByItinerary(itinerary.getITID());
 
         try {
-            Map<Integer, List<Integer>> plan = planDaysWithAi(country, region, daysCount, candidates, description);
+            // 候選景點清單如果很大 (例如 region 篩不到、退回整個國家層級, 或本來就是熱門大國) 全部塞給 AI
+            // 容易讓 prompt 太長、AI 也更容易把輸出格式搞亂 (JSON 解析失敗、或被 max_tokens 截斷) ——
+            // 依類別各自設上限, 用等距抽樣縮小成一份「給 AI 排程用」的子清單 (見 buildAiCandidatePool 說明)。
+            // 後面的 candidateByPid / 逐天餐廳飯店自動補位, 仍然用完整的 candidates 清單, 不受這個上限影響。
+            List<Poi> aiCandidatePool = buildAiCandidatePool(candidates);
+            Map<Integer, List<Integer>> plan = planDaysWithAi(country, region, daysCount, aiCandidatePool, description);
             if (plan.isEmpty()) return itinerary; // AI 沒排出任何結果, 一樣退回空白行程
 
             Map<Integer, Poi> candidateByPid = new HashMap<>();
@@ -162,6 +211,10 @@ public class ItineraryService {
             //     的規則一致); 候選餐廳掛零的極端狀況才用純文字預留項目 (不連結 POI、不查座標、不顯示在地圖上)。
             int restaurantRoundRobin = 0;
             for (ItineraryDay day : days) {
+                // 第一天/最後一天如果已經掛了去程/回程班機, 完全不強制補這一天的餐食——
+                // 出發/抵達當天有沒有餐食是使用者自己的行程重點, AI 排出來的初稿是什麼就維持什麼 (含完全沒排)。
+                if ((day.getDayNumber() == 1 && day1HasFlight)
+                        || (day.getDayNumber() == daysCount && lastDayHasFlight)) continue;
                 long mealCount = itineraryItemDAO.findByDay(day.getIDID()).stream()
                         .filter(item -> "meal".equals(item.getItemType())).count();
                 String[] fallbackLabels = {"早餐", "午餐", "晚餐"};
@@ -180,6 +233,9 @@ public class ItineraryService {
             // (2) 逐天確保剛好 1 間住宿: 沒有的話補一間 (候選掛零一樣退回純文字預留項目);
             //     如果 AI 同一天排了不只 1 間, 只留下第一間, 其餘刪掉, 避免同一天出現兩間飯店。
             for (ItineraryDay day : days) {
+                // 理由跟上面餐食一致: 出發/抵達當天有掛班機的話, 住宿也完全不強制。
+                if ((day.getDayNumber() == 1 && day1HasFlight)
+                        || (day.getDayNumber() == daysCount && lastDayHasFlight)) continue;
                 List<ItineraryItem> hotelItems = itineraryItemDAO.findByDay(day.getIDID()).stream()
                         .filter(item -> "hotel".equals(item.getItemType())).collect(java.util.stream.Collectors.toList());
                 if (hotelItems.isEmpty()) {
@@ -205,7 +261,11 @@ public class ItineraryService {
             autoArrangeItinerary(itinerary.getITID(), "meal_time");
         } catch (Exception e) {
             // AI 沒設定 API Key / 呼叫失敗 / 回應解析失敗都不應該讓「建立行程」整個失敗,
-            // 保留已經建立好的空白行程骨架, 讓使用者可以照原本流程手動編排
+            // 保留已經建立好的空白行程骨架, 讓使用者可以照原本流程手動編排 ——
+            // 但一定要留下 log, 不然「AI 排程失敗」永遠只會看到畫面上那句籠統的提示, 沒辦法從外面判斷
+            // 真正原因是 API Key 沒設定、AI 回應被截斷、還是候選景點清單太大讓 AI 輸出格式跑掉。
+            LOGGER.warn("AI 安排行程失敗 (ITID={}, country={}, region={}, daysCount={}, candidates={}): {}",
+                    itinerary.getITID(), country, region, daysCount, candidates.size(), e.toString(), e);
         }
 
         return itinerary;
@@ -367,6 +427,31 @@ public class ItineraryService {
         }
     }
 
+    // 算出「去程」或「回程」這一個方向的班機表單資料實際會落在哪幾天 (1-based day number 的集合)——
+    // 判斷「這個航段有沒有填」「第幾天沒填/填錯要退回哪個預設值」的規則, 刻意跟 attachFlightLegsAcrossDays()
+    // 完全一致, 這樣才能保證「這裡算出來 day1HasFlight/lastDayHasFlight = true」跟「attachFlightItems() 之後
+    // 那一天真的會出現一個 transport 項目」是同一件事、不會兜不起來。只需要天數集合、不需要真的建立
+    // ItineraryItem, 所以不用像 attachFlightLegsAcrossDays() 一樣要吃 List<ItineraryDay>，直接吃 daysCount 就夠。
+    private Set<Integer> resolveFlightDayNumbers(int daysCount,
+                                                 List<String> depAirports, List<String> depTimes,
+                                                 List<String> arrAirports, List<String> arrTimes,
+                                                 List<String> dayIndexes, int defaultDayIndex) {
+        Set<Integer> result = new HashSet<>();
+        int legCount = Math.max(Math.max(listSize(depAirports), listSize(depTimes)),
+                                Math.max(listSize(arrAirports), listSize(arrTimes)));
+        for (int i = 0; i < legCount; i++) {
+            String fromAirport = listGet(depAirports, i);
+            java.time.LocalTime depTime = parseTimeOrNull(listGet(depTimes, i));
+            String toAirport = listGet(arrAirports, i);
+            java.time.LocalTime arrTime = parseTimeOrNull(listGet(arrTimes, i));
+            if (isBlank(fromAirport) && isBlank(toAirport) && depTime == null && arrTime == null) continue; // 這個航段整列都沒填, 跟 attachFlightLegsAcrossDays() 一樣跳過
+
+            int dayIndex = parseDayIndexOrDefault(listGet(dayIndexes, i), defaultDayIndex, daysCount);
+            result.add(dayIndex);
+        }
+        return result;
+    }
+
     // 把使用者填的「第幾天」字串轉成合法的天數 index (1-based); 沒填/不是數字/超出這個行程實際天數範圍
     // 都退回 defaultValue (去程預設第一天、回程預設最後一天), 不要讓格式錯誤直接讓建立行程失敗。
     private int parseDayIndexOrDefault(String raw, int defaultValue, int totalDays) {
@@ -403,6 +488,50 @@ public class ItineraryService {
     private int listSize(List<String> list) { return list == null ? 0 : list.size(); }
 
     private String listGet(List<String> list, int index) { return (list != null && index < list.size()) ? list.get(index) : null; }
+
+    // 「AI 安排行程」候選清單依類別各自的上限 —— region 篩不到候選、退回整個國家層級 (見
+    // createItineraryWithAiPlan 的 fallback), 或本來就是熱門大國/多城市行程時, 候選景點動輒上百筆,
+    // 全部塞進同一個 prompt 容易讓 AI 輸出格式跑掉 (JSON 解析失敗) 或被 max_tokens 截斷, 使用者只會看到
+    // 籠統的「AI 排程失敗」訊息, 但完全沒有出現這個問題的線索。
+    private static final int MAX_AI_ATTRACTIONS = 60;
+    private static final int MAX_AI_RESTAURANTS = 30;
+    private static final int MAX_AI_HOTELS = 15;
+
+    // 把完整的候選景點清單依類別各自抽樣縮小成一份「給 AI 排程用」的子清單。用等距抽樣 (不是單純砍掉
+    // 清單後半段) 讓抽到的候選盡量散布在整個清單範圍, 不會系統性地漏掉排序在後面的地點；候選數量本來就
+    // 沒超過上限的類別完全不受影響。這個子清單只影響「AI prompt 裡列出哪些候選」, createItineraryWithAiPlan
+    // 呼叫端逐天餐廳/飯店自動補位、把 AI 選到的 pid 對應回真正的 Poi, 用的都還是完整的 candidates 清單。
+    private List<Poi> buildAiCandidatePool(List<Poi> candidates) {
+        List<Poi> attractions = new ArrayList<>();
+        List<Poi> restaurants = new ArrayList<>();
+        List<Poi> hotels = new ArrayList<>();
+        List<Poi> others = new ArrayList<>(); // 休息站/機場/交通/購物等其他分類, 數量通常不多, 不特別設上限
+        for (Poi p : candidates) {
+            String category = p.getCategory();
+            if ("餐廳".equals(category)) restaurants.add(p);
+            else if ("飯店".equals(category)) hotels.add(p);
+            else if ("景點".equals(category)) attractions.add(p);
+            else others.add(p);
+        }
+        List<Poi> pool = new ArrayList<>();
+        pool.addAll(sampleEvenly(attractions, MAX_AI_ATTRACTIONS));
+        pool.addAll(sampleEvenly(restaurants, MAX_AI_RESTAURANTS));
+        pool.addAll(sampleEvenly(hotels, MAX_AI_HOTELS));
+        pool.addAll(others);
+        return pool;
+    }
+
+    // 等距抽樣: 清單本來就沒超過上限就整份原樣回傳; 超過的話依固定間距抽出 max 筆, 讓抽樣結果涵蓋
+    // 整個清單的頭尾範圍 (而不是永遠只拿排序在最前面或最後面的那一段)。
+    private List<Poi> sampleEvenly(List<Poi> list, int max) {
+        if (list.size() <= max || max <= 0) return list;
+        List<Poi> sampled = new ArrayList<>();
+        double step = (double) list.size() / max;
+        for (int i = 0; i < max; i++) {
+            sampled.add(list.get((int) (i * step)));
+        }
+        return sampled;
+    }
 
     // 把候選景點清單丟給 AI, 請它只從清單裡挑選 PID 並安排每一天要去哪些, 回傳 {天數 -> [PID,...]}
     // description: 使用者在「建立新行程」頁面「行程重點資訊」填的行程說明 (選填, 例如「第一天到東京,
@@ -451,7 +580,10 @@ public class ItineraryService {
         }
         userContent.append("]");
 
-        String response = anthropicClient.complete(system, userContent.toString(), 4000);
+        // maxTokens 從 4000 提高到 8000: 候選清單雖然已經在呼叫端 (buildAiCandidatePool) 依類別做過上限抽樣,
+        // 但天數多 (例如 10 天) 加上每天要排 2~4 個景點 + 3 餐 + 1 住宿, 完整 JSON 輸出還是可能逼近舊上限,
+        // 一旦被 max_tokens 截斷, 回應會變成不完整的 JSON, 解析直接失敗、整趟 AI 排程等於白跑。
+        String response = anthropicClient.complete(system, userContent.toString(), 8000);
         JsonNode root = objectMapper.readTree(stripCodeFence(response));
 
         Map<Integer, List<Integer>> plan = new HashMap<>();
@@ -972,7 +1104,7 @@ public class ItineraryService {
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
                                   String timeSlot, String note, Boolean showOnMap) {
         updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -984,11 +1116,16 @@ public class ItineraryService {
      * @param toAddress        交通項目專用: 目的地地址; 有填就直接採用, 沒填但有目的地名稱的話後端會自動查詢帶入
      * @param transportMethod  交通項目專用: 交通工具 (高鐵/飛機/遊覽車/渡輪/計程車...)
      * @param commuteDuration  交通項目專用: 通勤時間 (自由文字, 例如「約1小時30分」)
+     * @param startTime        交通項目專用: 出發時間 ("HH:mm", 選填); 傳 null 代表不更動, 傳空字串會清空。
+     *                         建立行程時「去程/回程班機」表單填的時間就是存在這裡 (見 attachFlightLegsAcrossDays),
+     *                         但建立之後原本完全沒有地方可以編輯——這裡補上編輯入口, 讓使用者事後也能補填/修正。
+     * @param endTime          交通項目專用: 抵達時間 ("HH:mm", 選填), 用法同 startTime
      */
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
                                   String timeSlot, String note, Boolean showOnMap,
                                   String itemType, String fromLocation, String fromAddress,
-                                  String toLocation, String toAddress, String transportMethod, String commuteDuration) {
+                                  String toLocation, String toAddress, String transportMethod, String commuteDuration,
+                                  String startTime, String endTime) {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
@@ -1049,6 +1186,12 @@ public class ItineraryService {
         }
         if (commuteDuration != null) {
             item.setCommuteDuration(commuteDuration.isBlank() ? null : commuteDuration.trim());
+        }
+        if (startTime != null) {
+            item.setStartTime(startTime.isBlank() ? null : parseTimeOrNull(startTime));
+        }
+        if (endTime != null) {
+            item.setEndTime(endTime.isBlank() ? null : parseTimeOrNull(endTime));
         }
 
         if (fromAddress != null && !fromAddress.isBlank()) {

@@ -128,7 +128,11 @@ public class ItineraryController {
         if (AID == null || UID == null) return "redirect:/login";
 
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
-        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate, description);
+        // 傳入去程/回程班機表單資料, 讓「AI 安排行程」內部先知道第一天/最後一天有沒有掛班機——
+        // 有的話那一天就不強制補「剛好 3 餐 + 1 間住宿」(見 ItineraryService 對應多載的 Javadoc 說明)。
+        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate, description,
+                outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
+                retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
 
         // 這個提示是「AI 有沒有真的排到景點資料庫裡的東西」, 一定要在插入去程/回程班機之前判斷 ——
         // 不然只要有填班機資訊, hasAnyItem() 就會一直是 true (班機本身也算一筆項目), 提示永遠不會跳出來,
@@ -316,9 +320,12 @@ public class ItineraryController {
                          @RequestParam(required = false) String toLocation,
                          @RequestParam(required = false) String toAddress,
                          @RequestParam(required = false) String transportMethod,
-                         @RequestParam(required = false) String commuteDuration) {
+                         @RequestParam(required = false) String commuteDuration,
+                         @RequestParam(required = false) String startTime,
+                         @RequestParam(required = false) String endTime) {
         itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
-                itemType, fromLocation, fromAddress, toLocation, toAddress, transportMethod, commuteDuration);
+                itemType, fromLocation, fromAddress, toLocation, toAddress, transportMethod, commuteDuration,
+                startTime, endTime);
     }
 
     // POST /itinerary/day/{IDID}/auto-arrange → 自動整理這一天 (預設: 餐廳/住宿排到最後面)

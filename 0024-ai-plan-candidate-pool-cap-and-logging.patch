@@ -1,0 +1,165 @@
+From 79cbd2f431e6b1d9badad851543cc4072ff577cd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 23 Aug 2026 08:48:18 +0000
+Subject: [PATCH] =?UTF-8?q?AI=20=E5=AE=89=E6=8E=92=E8=A1=8C=E7=A8=8B?=
+ =?UTF-8?q?=E9=81=87=E5=88=B0=E5=A4=A7=E9=87=8F=E5=80=99=E9=81=B8=E6=99=AF?=
+ =?UTF-8?q?=E9=BB=9E=20(=E4=BE=8B=E5=A6=82=E5=9C=8B=E5=AE=B6=E5=B1=A4?=
+ =?UTF-8?q?=E7=B4=9A=E9=80=80=E5=9B=9E=E7=AF=A9=E9=81=B8)=20=E6=99=82?=
+ =?UTF-8?q?=E5=AE=B9=E6=98=93=E6=8E=92=E7=A8=8B=E5=A4=B1=E6=95=97,=20?=
+ =?UTF-8?q?=E6=94=B9=E6=88=90=E4=BE=9D=E9=A1=9E=E5=88=A5=E4=B8=8A=E9=99=90?=
+ =?UTF-8?q?=E6=8A=BD=E6=A8=A3=20+=20=E6=8F=90=E9=AB=98=E8=BC=B8=E5=87=BA?=
+ =?UTF-8?q?=E4=B8=8A=E9=99=90=20+=20=E8=A3=9C=E4=B8=8A=E5=A4=B1=E6=95=97?=
+ =?UTF-8?q?=E8=A8=98=E9=8C=84?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+使用者實測回報：其他國家/單一城市的「AI 安排行程」都正常，只有這種多城市、候選景點被 Patch 23 的 fallback
+退回整個國家層級 (例如義大利 164 筆) 的情況才會排程失敗，畫面上看到的還是同一句籠統的「AI 沒有找到...符合的
+景點資料 (或 AI 排程失敗)」。
+
+根因排查：createItineraryWithAiPlan() 原本把完整的候選清單 (可能上百筆) 全部塞進送給 AI 的 prompt，且
+AI 回應的輸出上限 (max_tokens) 只有 4000——候選越多、天數越多，AI 要輸出的 JSON 越長，越容易被 max_tokens
+截斷成不完整的 JSON (解析直接失敗)，或候選太多讓 AI 輸出格式本身跑掉。更糟的是這個例外目前完全沒有記錄
+(catch (Exception e) { } 整個吞掉不留痕跡)，不管是 API Key 沒設定、AI 回應被截斷、還是其他原因，畫面上
+永遠只看到同一句話，沒辦法從外面判斷真正原因。
+
+修正：
+- 新增 buildAiCandidatePool()/sampleEvenly()：把候選清單依類別 (景點/餐廳/飯店) 各自設一個上限
+  (60/30/15，其他分類不設限)，用等距抽樣縮小成一份「給 AI 排程用」的子清單，讓抽到的候選盡量涵蓋整個清單
+  的頭尾範圍，不會系統性地漏掉排序在後面的地點。candidateByPid 對應、逐天餐廳/飯店自動補位這些後續步驟
+  仍然用完整的 candidates 清單，只有送進 AI prompt 的候選清單被縮小。
+- planDaysWithAi() 的 max_tokens 從 4000 提高到 8000，降低長天數/多候選行程輸出被截斷的風險。
+- catch 區塊補上 LOGGER.warn()，記錄 ITID/country/region/daysCount/candidates 數量跟完整例外堆疊，
+  之後同樣的情況再發生，直接看伺服器 log 就能確定真正原因，不用再用猜的。
+
+驗證：ItineraryService.java 括號平衡檢查通過；把 buildAiCandidatePool/sampleEvenly 抽成一個獨立的
+TestCandidatePool.java (純 Java, 不需要 Spring/Maven) 用 javac/java 實際編譯執行 12 組斷言，模擬使用者
+回報的義大利情境 (100 景點+40 餐廳+20 飯店+4 交通=164 筆)：確認裁切後總數大幅縮小 (109 筆)、各分類都
+剛好裁到上限、其他分類不受影響、抽樣結果涵蓋清單頭尾兩端不重複、候選數量本來就沒超過上限時完全不受影響、
+空清單/剛好等於上限的邊界情況都正確——12 項全部通過。這個 sandbox 依然沒有網路連線到 Maven Central，
+無法 mvn compile。
+
+這次沒辦法解決的：region 精準比對城市 (例如「羅馬」「威尼斯」) 為什麼在 SQL 層級就完全比對不到候選
+(觸發 Patch 23 的 fallback 退回國家層級) 本身還是未知——這代表 poi.city 欄位在義大利這幾筆資料上, 很
+可能跟使用者填的城市名稱字面對不上 (類似之前發現的「阿聯/阿拉伯聯合大公國」命名不一致)，但這個 sandbox
+沒有資料庫連線權限查證，需要有資料庫存取權限的人實際查一次 poi.city 欄位內容確認。
+---
+ .../service/ItineraryService.java             | 66 ++++++++++++++++++-
+ 1 file changed, 63 insertions(+), 3 deletions(-)
+
+diff --git a/src/main/java/com/example/UsefulTravel/service/ItineraryService.java b/src/main/java/com/example/UsefulTravel/service/ItineraryService.java
+index 91781a0..f625f25 100644
+--- a/src/main/java/com/example/UsefulTravel/service/ItineraryService.java
++++ b/src/main/java/com/example/UsefulTravel/service/ItineraryService.java
+@@ -13,6 +13,8 @@ import com.example.UsefulTravel.entity.ItineraryDay;
+ import com.example.UsefulTravel.entity.ItineraryItem;
+ import com.example.UsefulTravel.entity.ItineraryItemOption;
+ import com.example.UsefulTravel.entity.Poi;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ import tools.jackson.databind.JsonNode;
+@@ -32,6 +34,8 @@ import java.util.Map;
+ @Service
+ public class ItineraryService {
+ 
++    private static final Logger LOGGER = LoggerFactory.getLogger(ItineraryService.class);
++
+     private final ItineraryDAO itineraryDAO;
+     private final ItineraryDayDAO itineraryDayDAO;
+     private final ItineraryItemDAO itineraryItemDAO;
+@@ -131,7 +135,12 @@ public class ItineraryService {
+         List<ItineraryDay> days = itineraryDayDAO.findByItinerary(itinerary.getITID());
+ 
+         try {
+-            Map<Integer, List<Integer>> plan = planDaysWithAi(country, region, daysCount, candidates, description);
++            // 候選景點清單如果很大 (例如 region 篩不到、退回整個國家層級, 或本來就是熱門大國) 全部塞給 AI
++            // 容易讓 prompt 太長、AI 也更容易把輸出格式搞亂 (JSON 解析失敗、或被 max_tokens 截斷) ——
++            // 依類別各自設上限, 用等距抽樣縮小成一份「給 AI 排程用」的子清單 (見 buildAiCandidatePool 說明)。
++            // 後面的 candidateByPid / 逐天餐廳飯店自動補位, 仍然用完整的 candidates 清單, 不受這個上限影響。
++            List<Poi> aiCandidatePool = buildAiCandidatePool(candidates);
++            Map<Integer, List<Integer>> plan = planDaysWithAi(country, region, daysCount, aiCandidatePool, description);
+             if (plan.isEmpty()) return itinerary; // AI 沒排出任何結果, 一樣退回空白行程
+ 
+             Map<Integer, Poi> candidateByPid = new HashMap<>();
+@@ -205,7 +214,11 @@ public class ItineraryService {
+             autoArrangeItinerary(itinerary.getITID(), "meal_time");
+         } catch (Exception e) {
+             // AI 沒設定 API Key / 呼叫失敗 / 回應解析失敗都不應該讓「建立行程」整個失敗,
+-            // 保留已經建立好的空白行程骨架, 讓使用者可以照原本流程手動編排
++            // 保留已經建立好的空白行程骨架, 讓使用者可以照原本流程手動編排 ——
++            // 但一定要留下 log, 不然「AI 排程失敗」永遠只會看到畫面上那句籠統的提示, 沒辦法從外面判斷
++            // 真正原因是 API Key 沒設定、AI 回應被截斷、還是候選景點清單太大讓 AI 輸出格式跑掉。
++            LOGGER.warn("AI 安排行程失敗 (ITID={}, country={}, region={}, daysCount={}, candidates={}): {}",
++                    itinerary.getITID(), country, region, daysCount, candidates.size(), e.toString(), e);
+         }
+ 
+         return itinerary;
+@@ -404,6 +417,50 @@ public class ItineraryService {
+ 
+     private String listGet(List<String> list, int index) { return (list != null && index < list.size()) ? list.get(index) : null; }
+ 
++    // 「AI 安排行程」候選清單依類別各自的上限 —— region 篩不到候選、退回整個國家層級 (見
++    // createItineraryWithAiPlan 的 fallback), 或本來就是熱門大國/多城市行程時, 候選景點動輒上百筆,
++    // 全部塞進同一個 prompt 容易讓 AI 輸出格式跑掉 (JSON 解析失敗) 或被 max_tokens 截斷, 使用者只會看到
++    // 籠統的「AI 排程失敗」訊息, 但完全沒有出現這個問題的線索。
++    private static final int MAX_AI_ATTRACTIONS = 60;
++    private static final int MAX_AI_RESTAURANTS = 30;
++    private static final int MAX_AI_HOTELS = 15;
++
++    // 把完整的候選景點清單依類別各自抽樣縮小成一份「給 AI 排程用」的子清單。用等距抽樣 (不是單純砍掉
++    // 清單後半段) 讓抽到的候選盡量散布在整個清單範圍, 不會系統性地漏掉排序在後面的地點；候選數量本來就
++    // 沒超過上限的類別完全不受影響。這個子清單只影響「AI prompt 裡列出哪些候選」, createItineraryWithAiPlan
++    // 呼叫端逐天餐廳/飯店自動補位、把 AI 選到的 pid 對應回真正的 Poi, 用的都還是完整的 candidates 清單。
++    private List<Poi> buildAiCandidatePool(List<Poi> candidates) {
++        List<Poi> attractions = new ArrayList<>();
++        List<Poi> restaurants = new ArrayList<>();
++        List<Poi> hotels = new ArrayList<>();
++        List<Poi> others = new ArrayList<>(); // 休息站/機場/交通/購物等其他分類, 數量通常不多, 不特別設上限
++        for (Poi p : candidates) {
++            String category = p.getCategory();
++            if ("餐廳".equals(category)) restaurants.add(p);
++            else if ("飯店".equals(category)) hotels.add(p);
++            else if ("景點".equals(category)) attractions.add(p);
++            else others.add(p);
++        }
++        List<Poi> pool = new ArrayList<>();
++        pool.addAll(sampleEvenly(attractions, MAX_AI_ATTRACTIONS));
++        pool.addAll(sampleEvenly(restaurants, MAX_AI_RESTAURANTS));
++        pool.addAll(sampleEvenly(hotels, MAX_AI_HOTELS));
++        pool.addAll(others);
++        return pool;
++    }
++
++    // 等距抽樣: 清單本來就沒超過上限就整份原樣回傳; 超過的話依固定間距抽出 max 筆, 讓抽樣結果涵蓋
++    // 整個清單的頭尾範圍 (而不是永遠只拿排序在最前面或最後面的那一段)。
++    private List<Poi> sampleEvenly(List<Poi> list, int max) {
++        if (list.size() <= max || max <= 0) return list;
++        List<Poi> sampled = new ArrayList<>();
++        double step = (double) list.size() / max;
++        for (int i = 0; i < max; i++) {
++            sampled.add(list.get((int) (i * step)));
++        }
++        return sampled;
++    }
++
+     // 把候選景點清單丟給 AI, 請它只從清單裡挑選 PID 並安排每一天要去哪些, 回傳 {天數 -> [PID,...]}
+     // description: 使用者在「建立新行程」頁面「行程重點資訊」填的行程說明 (選填, 例如「第一天到東京,
+     // 第二天去河口湖...」), 有填的話一併丟給 AI 當作額外的規劃參考, 讓排出來的初稿更貼近使用者想法。
+@@ -451,7 +508,10 @@ public class ItineraryService {
+         }
+         userContent.append("]");
+ 
+-        String response = anthropicClient.complete(system, userContent.toString(), 4000);
++        // maxTokens 從 4000 提高到 8000: 候選清單雖然已經在呼叫端 (buildAiCandidatePool) 依類別做過上限抽樣,
++        // 但天數多 (例如 10 天) 加上每天要排 2~4 個景點 + 3 餐 + 1 住宿, 完整 JSON 輸出還是可能逼近舊上限,
++        // 一旦被 max_tokens 截斷, 回應會變成不完整的 JSON, 解析直接失敗、整趟 AI 排程等於白跑。
++        String response = anthropicClient.complete(system, userContent.toString(), 8000);
+         JsonNode root = objectMapper.readTree(stripCodeFence(response));
+ 
+         Map<Integer, List<Integer>> plan = new HashMap<>();
+-- 
+2.43.0
+

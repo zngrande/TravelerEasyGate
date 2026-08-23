@@ -1417,6 +1417,12 @@
             }
 
             const subText = (!isLinked && canAddToPoi) ? '<span class="unlinked-tag">未連結資料庫</span>' : '';
+            // 有填出發/抵達時間的項目 (目前只有交通/班機項目會有, 見 attachFlightLegsAcrossDays) 額外顯示一個時間徽章——
+            // 這兩個欄位建立行程時就存進資料庫了, 但一直以來畫面完全沒有地方顯示, 使用者填的去程/回程班機時間
+            // 看起來就像「沒有帶進行程表」, 其實只是沒有呈現出來。
+            const timeBadge = (item.startTime || item.endTime)
+                ? `<span class="unlinked-tag" style="background:#eff6ff;color:#1d4ed8;">🕐 ${item.startTime || '--:--'} → ${item.endTime || '--:--'}</span>`
+                : '';
             const mapLabel = mapLabels[item.IIID];
             const isHotelLabel = mapLabel === '🛏️';
             const mapLabelBadge = mapLabel
@@ -1434,7 +1440,7 @@
                             <span class="type-badge ${item.itemType}">${typeLabel[item.itemType] || item.itemType}</span>
                             ${nameHtml}
                         </div>
-                        <div style="margin-top:2px;">${subText}</div>
+                        <div style="margin-top:2px;">${timeBadge}${subText}</div>
                     </div>
                 </div>
                 <div class="item-row-right">
@@ -1502,6 +1508,10 @@
                     <input type="text" id="edit-transportmethod-${item.IIID}" value="${esc(item.transportMethod)}" placeholder="例如: 高鐵/飛機/遊覽車/計程車" />
                     <label>通勤時間</label>
                     <input type="text" id="edit-commuteduration-${item.IIID}" value="${esc(item.commuteDuration)}" placeholder="例如: 約1小時30分" />
+                    <label>出發時間 (選填, 例如班機起飛時間)</label>
+                    <input type="time" id="edit-starttime-${item.IIID}" value="${esc(item.startTime)}" />
+                    <label>抵達時間 (選填, 例如班機降落時間)</label>
+                    <input type="time" id="edit-endtime-${item.IIID}" value="${esc(item.endTime)}" />
                 </div>
 
                 <label>備註 (只跟著這個行程項目, 不會存進景點資料庫, 匯出企劃書時會一併輸出)</label>
@@ -1705,8 +1715,22 @@
             const duration = (item.stayDurationMin != null && item.stayDurationMin > 0)
                 ? item.stayDurationMin
                 : (defaultStayMin[item.itemType] ?? 60);
-            const start = current;
-            const end = current + Math.max(duration, 15);
+
+            // 有實際填寫出發/抵達時間的項目 (目前只有交通/班機項目會有, 見 attachFlightLegsAcrossDays) 直接採用
+            // 真實時間, 不要再套用「預設停留時間累加估算」——尤其是班機, 用累加估算完全對不上真實時刻表,
+            // 這正是使用者反映「航班出發抵達時間沒有一起帶進行程表的時間表」的原因。只有單邊有填時,
+            // 另一邊仍退回估算值撐住畫面, 兩邊都沒填則完全維持原本的累加估算行為 (不影響其他項目)。
+            let start = current;
+            let end = current + Math.max(duration, 15);
+            if (item.startTime) {
+                start = timeToMinutes(item.startTime);
+                end = item.endTime ? timeToMinutes(item.endTime) : start + Math.max(duration, 15);
+            } else if (item.endTime) {
+                end = timeToMinutes(item.endTime);
+                start = end - Math.max(duration, 15);
+                if (start < 0) start += 24 * 60; // 抵達時間很早 (例如 00:10) 往前推算停留時間變成負值, 視為前一天出發
+            }
+            if (end < start) end += 24 * 60; // 抵達時間字面上比出發時間早 → 隔夜/跨日班機, 視為隔天抵達
 
             const node = document.createElement('div');
             node.className = `timeline-node item-${item.itemType}`;
@@ -2204,7 +2228,9 @@
             toLocation: item.toLocation || null,
             toAddress: item.toAddress || null,
             transportMethod: item.transportMethod || null,
-            commuteDuration: item.commuteDuration || null
+            commuteDuration: item.commuteDuration || null,
+            startTime: item.startTime || null,
+            endTime: item.endTime || null
         };
         return Object.assign(base, existing, overrides || {});
     }
@@ -2235,6 +2261,8 @@
             const toAddress = document.getElementById('edit-toaddr-' + iiid).value.trim();
             const transportMethod = document.getElementById('edit-transportmethod-' + iiid).value.trim();
             const commuteDuration = document.getElementById('edit-commuteduration-' + iiid).value.trim();
+            const startTime = document.getElementById('edit-starttime-' + iiid).value.trim();
+            const endTime = document.getElementById('edit-endtime-' + iiid).value.trim();
             if (!fromLocation || !toLocation) { alert('請至少輸入起始點與目的地'); return; }
 
             const namePrefix = transportMethod ? (transportMethod + '：') : '';
@@ -2245,6 +2273,9 @@
             overrides.toAddress = toAddress || null;     // 空白代表「沒填」, 後端會依目的地自動查詢帶入
             overrides.transportMethod = transportMethod || null;
             overrides.commuteDuration = commuteDuration || null;
+            // 空白代表使用者主動清空——後端 updateItemDetails() 收到空字串會真的清掉這個時間, 不是「不更動」
+            overrides.startTime = startTime;
+            overrides.endTime = endTime;
             overrides.stayDurationMin = null;
             overrides.locationHint = null;
         } else {
@@ -2269,6 +2300,8 @@
             overrides.toAddress = null;
             overrides.transportMethod = null;
             overrides.commuteDuration = null;
+            overrides.startTime = null;
+            overrides.endTime = null;
         }
 
         pendingEdits[iiid] = buildPendingEditPayload(idid, iiid, overrides);
@@ -2415,6 +2448,8 @@
                 setIfPresent('toAddress', edit.toAddress);
                 setIfPresent('transportMethod', edit.transportMethod);
                 setIfPresent('commuteDuration', edit.commuteDuration);
+                setIfPresent('startTime', edit.startTime);
+                setIfPresent('endTime', edit.endTime);
                 const res = await fetch(`/itinerary/day/${idid}/items/${iiid}/edit?` + params.toString(), { method: 'POST' });
                 if (!res.ok) throw new Error(`儲存項目編輯失敗 (HTTP ${res.status})`);
 
