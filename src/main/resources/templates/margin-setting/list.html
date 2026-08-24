@@ -115,15 +115,18 @@
                         <span class="legacy-badge" th:if="${!m.formulaMode}" title="這組規則還是舊制百分比算法">舊制%</span>
                     </td>
                     <td>
-                        <span class="formula-pill" th:if="${m.tradeFormula != null}" th:text="${m.tradeFormula}"></span>
+                        <!-- 顯示 readableTradeFormula (看得懂的中文變數說明), 不要直接顯示 tradeFormula 原始欄位——
+                             那是存給 FormulaEngine 解析器看的 {VAR_ID} 語法, 直接顯示給使用者看會變成一串
+                             看不懂的大括號 (例如 "{NET_COST}*1.15")。 -->
+                        <span class="formula-pill" th:if="${m.tradeFormula != null}" th:text="${m.readableTradeFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.tradeFormula == null}" th:text="'同業+' + ${m.tradeMarkupPct} + '%（舊制）'"></span>
                     </td>
                     <td>
-                        <span class="formula-pill" th:if="${m.retailFormula != null}" th:text="${m.retailFormula}"></span>
+                        <span class="formula-pill" th:if="${m.retailFormula != null}" th:text="${m.readableRetailFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.retailFormula == null}" th:text="'直售+' + ${m.retailMarkupPct} + '%（舊制）'"></span>
                     </td>
                     <td>
-                        <span class="formula-pill" th:if="${m.rebateFormula != null}" th:text="${m.rebateFormula}"></span>
+                        <span class="formula-pill" th:if="${m.rebateFormula != null}" th:text="${m.readableRebateFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.rebateFormula == null}" th:text="'退傭' + ${m.rebatePct} + '%（舊制）'"></span>
                     </td>
                     <td>

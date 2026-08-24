@@ -1,8 +1,10 @@
 package com.example.UsefulTravel.entity;
 
+import com.example.UsefulTravel.service.FormulaEngine;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 @Entity
 @Table(name = "margin_setting")
@@ -99,12 +101,38 @@ public class MarginSetting {
         return notBlank(tradeFormula) || notBlank(retailFormula) || notBlank(rebateFormula);
     }
 
-    // 給下拉選單/清單用的一行摘要, 公式制顯示公式字串, 舊制% 就顯示百分比, 兩種資料可以混著出現不會壞畫面
+    // 這三個公式欄位可以用到的變數 -> 使用者看得懂的中文說明, 跟 quotation/edit.html「基本報價／同業／
+    // 直售加成」卡片的 VARIABLES 清單一一對應 (這組公式套用生效時, QuotationService.recalculateQuotationPricing()
+    // 傳進去的 formulaVars 就是這五個 key)。只給「唯讀顯示」轉換文字用, 不影響 FormulaEngine 實際計算。
+    private static final Map<String, String> VARIABLE_LABELS = Map.of(
+            "NET_COST", "NNet（總淨成本）",
+            "GROUP_SIZE", "團體人數",
+            "BASIC_PRICE", "基本報價",
+            "TRADE_PRICE", "同業價",
+            "RETAIL_PRICE", "直售價"
+    );
+
+    // 給畫面「唯讀顯示」用的公式文字 (「計算公式管理」清單頁的公式徽章、報價單「選擇計算方式」下拉選單摘要都
+    // 用這幾個, 不要直接顯示 tradeFormula/retailFormula/rebateFormula 這幾個原始欄位——原始欄位是存給
+    // FormulaEngine 算式解析器讀的, 裡面的 {NET_COST} 這種大括號變數語法只有系統看得懂, 直接顯示給使用者看
+    // 會變成一串看不懂的 "{NET_COST}*1.15"。這幾個 readable 版本才是要給人看的, 值是 null 時代表這一層還是
+    // 舊制百分比, 呼叫端要自己判斷 fallback。
+    @Transient
+    public String getReadableTradeFormula() { return FormulaEngine.toReadable(tradeFormula, VARIABLE_LABELS); }
+
+    @Transient
+    public String getReadableRetailFormula() { return FormulaEngine.toReadable(retailFormula, VARIABLE_LABELS); }
+
+    @Transient
+    public String getReadableRebateFormula() { return FormulaEngine.toReadable(rebateFormula, VARIABLE_LABELS); }
+
+    // 給下拉選單/清單用的一行摘要, 公式制顯示「看得懂的公式文字」(不是原始的 {VAR_ID} 語法), 舊制% 就顯示百分比,
+    // 兩種資料可以混著出現不會壞畫面
     @Transient
     public String getSummary() {
-        String trade = notBlank(tradeFormula) ? tradeFormula : ("同業+" + tradeMarkupPct + "%");
-        String retail = notBlank(retailFormula) ? retailFormula : ("直售+" + retailMarkupPct + "%");
-        String rebate = notBlank(rebateFormula) ? rebateFormula : ("退傭" + rebatePct + "%");
+        String trade = notBlank(tradeFormula) ? getReadableTradeFormula() : ("同業+" + tradeMarkupPct + "%");
+        String retail = notBlank(retailFormula) ? getReadableRetailFormula() : ("直售+" + retailMarkupPct + "%");
+        String rebate = notBlank(rebateFormula) ? getReadableRebateFormula() : ("退傭" + rebatePct + "%");
         return name + "（" + trade + " / " + retail + " / " + rebate + "）";
     }
 

@@ -34,6 +34,34 @@ public final class FormulaEngine {
         public FormulaException(String message) { super(message); }
     }
 
+    // 只找 {VAR_ID} 這個型態的 token, 給 toReadable() 用 (不像 TOKEN_PATTERN 那樣還要認數字/運算子/空白,
+    // 這裡只需要抓出大括號包起來的變數名稱, 其餘原樣保留)。
+    private static final Pattern VAR_TOKEN_PATTERN = Pattern.compile("\\{([A-Za-z0-9_]+)\\}");
+
+    /**
+     * 把公式字串裡的 {VAR_ID} 換成對照表裡使用者看得懂的中文說明, 純粹給「唯讀顯示」用——例如「計算公式管理」
+     * 清單頁的公式徽章、報價單「選擇計算方式」下拉選單的規則摘要 (MarginSetting.getSummary())。
+     * 不影響實際計算: evaluate()/validate() 還是吃原始存在資料庫裡的 {VAR_ID} 字串, 只有畫面顯示要看得懂時
+     * 才呼叫這個方法轉換, 使用者不會再看到裸的大括號 (例如 "{NET_COST}*1.15" 會變成 "NNet（總淨成本）*1.15")。
+     * 對照表裡沒有的變數名稱 (理論上不會發生, 除非公式引用了不存在的變數) 就保留變數名稱本身、只是拿掉大括號,
+     * 不會讓畫面顯示壞掉或丟例外。
+     */
+    public static String toReadable(String expression, Map<String, String> variableLabels) {
+        if (expression == null || expression.isBlank()) return expression;
+        Matcher m = VAR_TOKEN_PATTERN.matcher(expression);
+        StringBuilder sb = new StringBuilder();
+        int last = 0;
+        while (m.find()) {
+            sb.append(expression, last, m.start());
+            String varId = m.group(1);
+            String label = variableLabels != null ? variableLabels.get(varId) : null;
+            sb.append(label != null ? label : varId);
+            last = m.end();
+        }
+        sb.append(expression.substring(last));
+        return sb.toString();
+    }
+
     /** 純粹驗證格式 + 變數是否都能算出來, 存檔前檢查用 (拿樣本數字跑一次, 錯了就丟例外)。 */
     public static void validate(String expression, Map<String, BigDecimal> sampleVariables) {
         evaluate(expression, sampleVariables);

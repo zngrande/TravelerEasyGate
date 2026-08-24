@@ -1,0 +1,167 @@
+From e2052a15cf32818c6ad680e577a799183f335a28 Mon Sep 17 00:00:00 2001
+From: Claude <assistant@example.com>
+Date: Mon, 24 Aug 2026 15:47:50 +0000
+Subject: [PATCH] Fix group-tier/quotation-line add buttons false-failure
+ alert; show formulas readably instead of raw {VAR} braces
+
+---
+ .../UsefulTravel/entity/MarginSetting.java    | 36 ++++++++++++++++---
+ .../UsefulTravel/service/FormulaEngine.java   | 28 +++++++++++++++
+ .../service/QuotationService.java             | 17 +++++++--
+ .../templates/margin-setting/list.html        |  9 +++--
+ 4 files changed, 81 insertions(+), 9 deletions(-)
+
+diff --git a/src/main/java/com/example/UsefulTravel/entity/MarginSetting.java b/src/main/java/com/example/UsefulTravel/entity/MarginSetting.java
+index 5e43061..53019e1 100644
+--- a/src/main/java/com/example/UsefulTravel/entity/MarginSetting.java
++++ b/src/main/java/com/example/UsefulTravel/entity/MarginSetting.java
+@@ -1,8 +1,10 @@
+ package com.example.UsefulTravel.entity;
+ 
++import com.example.UsefulTravel.service.FormulaEngine;
+ import jakarta.persistence.*;
+ import java.math.BigDecimal;
+ import java.time.LocalDateTime;
++import java.util.Map;
+ 
+ @Entity
+ @Table(name = "margin_setting")
+@@ -99,12 +101,38 @@ public class MarginSetting {
+         return notBlank(tradeFormula) || notBlank(retailFormula) || notBlank(rebateFormula);
+     }
+ 
+-    // 給下拉選單/清單用的一行摘要, 公式制顯示公式字串, 舊制% 就顯示百分比, 兩種資料可以混著出現不會壞畫面
++    // 這三個公式欄位可以用到的變數 -> 使用者看得懂的中文說明, 跟 quotation/edit.html「基本報價／同業／
++    // 直售加成」卡片的 VARIABLES 清單一一對應 (這組公式套用生效時, QuotationService.recalculateQuotationPricing()
++    // 傳進去的 formulaVars 就是這五個 key)。只給「唯讀顯示」轉換文字用, 不影響 FormulaEngine 實際計算。
++    private static final Map<String, String> VARIABLE_LABELS = Map.of(
++            "NET_COST", "NNet（總淨成本）",
++            "GROUP_SIZE", "團體人數",
++            "BASIC_PRICE", "基本報價",
++            "TRADE_PRICE", "同業價",
++            "RETAIL_PRICE", "直售價"
++    );
++
++    // 給畫面「唯讀顯示」用的公式文字 (「計算公式管理」清單頁的公式徽章、報價單「選擇計算方式」下拉選單摘要都
++    // 用這幾個, 不要直接顯示 tradeFormula/retailFormula/rebateFormula 這幾個原始欄位——原始欄位是存給
++    // FormulaEngine 算式解析器讀的, 裡面的 {NET_COST} 這種大括號變數語法只有系統看得懂, 直接顯示給使用者看
++    // 會變成一串看不懂的 "{NET_COST}*1.15"。這幾個 readable 版本才是要給人看的, 值是 null 時代表這一層還是
++    // 舊制百分比, 呼叫端要自己判斷 fallback。
++    @Transient
++    public String getReadableTradeFormula() { return FormulaEngine.toReadable(tradeFormula, VARIABLE_LABELS); }
++
++    @Transient
++    public String getReadableRetailFormula() { return FormulaEngine.toReadable(retailFormula, VARIABLE_LABELS); }
++
++    @Transient
++    public String getReadableRebateFormula() { return FormulaEngine.toReadable(rebateFormula, VARIABLE_LABELS); }
++
++    // 給下拉選單/清單用的一行摘要, 公式制顯示「看得懂的公式文字」(不是原始的 {VAR_ID} 語法), 舊制% 就顯示百分比,
++    // 兩種資料可以混著出現不會壞畫面
+     @Transient
+     public String getSummary() {
+-        String trade = notBlank(tradeFormula) ? tradeFormula : ("同業+" + tradeMarkupPct + "%");
+-        String retail = notBlank(retailFormula) ? retailFormula : ("直售+" + retailMarkupPct + "%");
+-        String rebate = notBlank(rebateFormula) ? rebateFormula : ("退傭" + rebatePct + "%");
++        String trade = notBlank(tradeFormula) ? getReadableTradeFormula() : ("同業+" + tradeMarkupPct + "%");
++        String retail = notBlank(retailFormula) ? getReadableRetailFormula() : ("直售+" + retailMarkupPct + "%");
++        String rebate = notBlank(rebateFormula) ? getReadableRebateFormula() : ("退傭" + rebatePct + "%");
+         return name + "（" + trade + " / " + retail + " / " + rebate + "）";
+     }
+ 
+diff --git a/src/main/java/com/example/UsefulTravel/service/FormulaEngine.java b/src/main/java/com/example/UsefulTravel/service/FormulaEngine.java
+index 62a990a..a8fe788 100644
+--- a/src/main/java/com/example/UsefulTravel/service/FormulaEngine.java
++++ b/src/main/java/com/example/UsefulTravel/service/FormulaEngine.java
+@@ -34,6 +34,34 @@ public final class FormulaEngine {
+         public FormulaException(String message) { super(message); }
+     }
+ 
++    // 只找 {VAR_ID} 這個型態的 token, 給 toReadable() 用 (不像 TOKEN_PATTERN 那樣還要認數字/運算子/空白,
++    // 這裡只需要抓出大括號包起來的變數名稱, 其餘原樣保留)。
++    private static final Pattern VAR_TOKEN_PATTERN = Pattern.compile("\\{([A-Za-z0-9_]+)\\}");
++
++    /**
++     * 把公式字串裡的 {VAR_ID} 換成對照表裡使用者看得懂的中文說明, 純粹給「唯讀顯示」用——例如「計算公式管理」
++     * 清單頁的公式徽章、報價單「選擇計算方式」下拉選單的規則摘要 (MarginSetting.getSummary())。
++     * 不影響實際計算: evaluate()/validate() 還是吃原始存在資料庫裡的 {VAR_ID} 字串, 只有畫面顯示要看得懂時
++     * 才呼叫這個方法轉換, 使用者不會再看到裸的大括號 (例如 "{NET_COST}*1.15" 會變成 "NNet（總淨成本）*1.15")。
++     * 對照表裡沒有的變數名稱 (理論上不會發生, 除非公式引用了不存在的變數) 就保留變數名稱本身、只是拿掉大括號,
++     * 不會讓畫面顯示壞掉或丟例外。
++     */
++    public static String toReadable(String expression, Map<String, String> variableLabels) {
++        if (expression == null || expression.isBlank()) return expression;
++        Matcher m = VAR_TOKEN_PATTERN.matcher(expression);
++        StringBuilder sb = new StringBuilder();
++        int last = 0;
++        while (m.find()) {
++            sb.append(expression, last, m.start());
++            String varId = m.group(1);
++            String label = variableLabels != null ? variableLabels.get(varId) : null;
++            sb.append(label != null ? label : varId);
++            last = m.end();
++        }
++        sb.append(expression.substring(last));
++        return sb.toString();
++    }
++
+     /** 純粹驗證格式 + 變數是否都能算出來, 存檔前檢查用 (拿樣本數字跑一次, 錯了就丟例外)。 */
+     public static void validate(String expression, Map<String, BigDecimal> sampleVariables) {
+         evaluate(expression, sampleVariables);
+diff --git a/src/main/java/com/example/UsefulTravel/service/QuotationService.java b/src/main/java/com/example/UsefulTravel/service/QuotationService.java
+index 012cb19..7885ebc 100644
+--- a/src/main/java/com/example/UsefulTravel/service/QuotationService.java
++++ b/src/main/java/com/example/UsefulTravel/service/QuotationService.java
+@@ -1033,8 +1033,21 @@ public class QuotationService {
+     private void touchQuotation(Quotation quotation) {
+         quotation.setUpdatedAt(LocalDateTime.now());
+         quotationDAO.save(quotation);
+-        // 成本/加成設定/人數只要有變動, 整單的同業價/直售價都要重新算過, 分攤回每一列
+-        recalculateQuotationPricing(quotation);
++
++        // 成本/加成設定/人數只要有變動, 整單的同業價/直售價都要重新算過, 分攤回每一列。
++        // 這裡刻意包一層 try/catch: 「新增報價項目」「新增人數級距」「編輯項目」這些操作的核心目的是異動
++        // quotation_line / quotation_group_tier 本身, 同業/直售/退傭的「加成結果重新計算」只是連帶要做的
++        // 附加動作——如果目前的實際成本數字剛好讓已存的公式算不出來 (例如公式除以一個目前剛好算出 0 的變數,
++        // 存檔當下用樣本數字驗證是過的, 但樣本數字不等於之後真正的成本數字, 邊界情況還是可能在這裡才炸開),
++        // 不應該讓這個附加計算的例外把整個「新增項目/新增級距」操作一起打成 500、讓使用者看到「操作失敗」但
++        // 其實項目早就存進去了 (要等畫面重新整理才會發現其實成功了)。這裡失敗只記 log、不往外拋——
++        // 跟下面 recalculateGroupTiers() 是同一個模式, 之前只做了後者、這裡少做了一次是這次一併補上的。
++        try {
++            recalculateQuotationPricing(quotation);
++        } catch (RuntimeException e) {
++            LOGGER.error("重新計算報價單同業/直售加成失敗 (QID={})，本次異動的其他部分仍照常生效", quotation.getQID(), e);
++        }
++
+         // 人數級距報價結果也要跟著重新試算 (這次沒有一起改成疊加算法, 維持原本各自獨立的算法)。
+         // 這裡刻意包一層 try/catch: 「新增報價項目」「編輯項目」這些操作的核心目的是動 quotation_line,
+         // 人數級距只是順便重算的「附加」功能——如果 quotation_group_tier 這張表有問題（例如新欄位的
+diff --git a/src/main/resources/templates/margin-setting/list.html b/src/main/resources/templates/margin-setting/list.html
+index dd16bbf..90cc5ae 100644
+--- a/src/main/resources/templates/margin-setting/list.html
++++ b/src/main/resources/templates/margin-setting/list.html
+@@ -115,15 +115,18 @@
+                         <span class="legacy-badge" th:if="${!m.formulaMode}" title="這組規則還是舊制百分比算法">舊制%</span>
+                     </td>
+                     <td>
+-                        <span class="formula-pill" th:if="${m.tradeFormula != null}" th:text="${m.tradeFormula}"></span>
++                        <!-- 顯示 readableTradeFormula (看得懂的中文變數說明), 不要直接顯示 tradeFormula 原始欄位——
++                             那是存給 FormulaEngine 解析器看的 {VAR_ID} 語法, 直接顯示給使用者看會變成一串
++                             看不懂的大括號 (例如 "{NET_COST}*1.15")。 -->
++                        <span class="formula-pill" th:if="${m.tradeFormula != null}" th:text="${m.readableTradeFormula}"></span>
+                         <span class="formula-pill empty" th:if="${m.tradeFormula == null}" th:text="'同業+' + ${m.tradeMarkupPct} + '%（舊制）'"></span>
+                     </td>
+                     <td>
+-                        <span class="formula-pill" th:if="${m.retailFormula != null}" th:text="${m.retailFormula}"></span>
++                        <span class="formula-pill" th:if="${m.retailFormula != null}" th:text="${m.readableRetailFormula}"></span>
+                         <span class="formula-pill empty" th:if="${m.retailFormula == null}" th:text="'直售+' + ${m.retailMarkupPct} + '%（舊制）'"></span>
+                     </td>
+                     <td>
+-                        <span class="formula-pill" th:if="${m.rebateFormula != null}" th:text="${m.rebateFormula}"></span>
++                        <span class="formula-pill" th:if="${m.rebateFormula != null}" th:text="${m.readableRebateFormula}"></span>
+                         <span class="formula-pill empty" th:if="${m.rebateFormula == null}" th:text="'退傭' + ${m.rebatePct} + '%（舊制）'"></span>
+                     </td>
+                     <td>
+-- 
+2.43.0
+

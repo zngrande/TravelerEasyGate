@@ -69,19 +69,24 @@ public class QuotationGroupTier {
     @Column(name = "misc_value_twd")
     private BigDecimal miscValueTwd = BigDecimal.ZERO;
 
-    // NP 計算式 (FormulaEngine 語法, 可用變數 {VARIABLE_COST} {MISC} {BASIC_PRICE}); 留空 = NP 直接等於
-    // 「每人變動成本＋雜項」(不額外調整)
-    @Column(name = "np_formula", length = 500)
-    private String npFormula;
+    // NP 計算式 (FormulaEngine 語法, 可用變數 {VARIABLE_COST} {MISC} {BASIC_PRICE}); 留空字串 = NP 直接等於
+    // 「每人變動成本＋雜項」(不額外調整)。這裡刻意預設空字串、不是 null——實際的資料庫欄位 (至少在部分環境)
+    // 是 NOT NULL、沒有 DEFAULT，之前這裡沒填預設值時是 Java 的 null，`addGroupTier()` 新增級距時如果沒有
+    // 一起帶公式，存檔會直接因為 DB 的 NOT NULL 限制丟例外 (「Column 'np_formula' cannot be null」)、
+    // 連這筆級距本身都新增不成功。空字串跟 null 在這個專案裡的判斷邏輯完全等價 (所有讀取這個欄位的地方都是
+    // `formula == null || formula.isBlank()` 這種寫法，見 QuotationService.evaluateLayer())，所以這裡改成
+    // 空字串不會影響「留空＝套用預設算法」這個語意，只是換一個不會被資料庫拒絕的表示方式。
+    @Column(name = "np_formula", length = 500, nullable = false)
+    private String npFormula = "";
 
     // NP 試算結果快照 (台幣)
     @Column(name = "np_result_twd")
     private BigDecimal npResultTwd = BigDecimal.ZERO;
 
-    // 團費成本計算式 (FormulaEngine 語法, 可用變數 {VARIABLE_COST} {MISC} {BASIC_PRICE} {NP}); 留空 = 團費成本
-    // 直接等於 NP (不額外調整)
-    @Column(name = "team_formula", length = 500)
-    private String teamFormula;
+    // 團費成本計算式 (FormulaEngine 語法, 可用變數 {VARIABLE_COST} {MISC} {BASIC_PRICE} {NP}); 留空字串 = 團費
+    // 成本直接等於 NP (不額外調整)。跟上面 npFormula 同樣的理由, 預設空字串而不是 null。
+    @Column(name = "team_formula", length = 500, nullable = false)
+    private String teamFormula = "";
 
     // 團費成本試算結果快照 (台幣)
     @Column(name = "team_result_twd")
@@ -141,13 +146,17 @@ public class QuotationGroupTier {
     public void setMiscValueTwd(BigDecimal miscValueTwd) { this.miscValueTwd = miscValueTwd; }
 
     public String getNpFormula() { return npFormula; }
-    public void setNpFormula(String npFormula) { this.npFormula = npFormula; }
+    // 這裡刻意把 null 擋掉、一律存空字串——呼叫端 (例如 QuotationService.applyGroupTierFormulaSettings()) 判斷
+    // 「使用者有沒有填公式」用的是它自己另外算好的區域變數, 不是呼叫這個 setter 之後再讀回來判斷, 所以在這裡
+    // 把 null 轉成空字串, 不會影響呼叫端原本「留空＝null」的判斷邏輯, 只是確保最後真正存進這個 entity/資料庫
+    // 的值不會是 null (資料庫欄位是 NOT NULL, 見上面欄位宣告的說明)。
+    public void setNpFormula(String npFormula) { this.npFormula = npFormula == null ? "" : npFormula; }
 
     public BigDecimal getNpResultTwd() { return npResultTwd; }
     public void setNpResultTwd(BigDecimal npResultTwd) { this.npResultTwd = npResultTwd; }
 
     public String getTeamFormula() { return teamFormula; }
-    public void setTeamFormula(String teamFormula) { this.teamFormula = teamFormula; }
+    public void setTeamFormula(String teamFormula) { this.teamFormula = teamFormula == null ? "" : teamFormula; }
 
     public BigDecimal getTeamResultTwd() { return teamResultTwd; }
     public void setTeamResultTwd(BigDecimal teamResultTwd) { this.teamResultTwd = teamResultTwd; }

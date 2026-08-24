@@ -748,7 +748,16 @@
     }
 
     // ---------- 基本報價／同業／直售加成與退傭設定: 公式建構器 (跟 margin-setting/list.html 同一套邏輯) ----------
-    (function () {
+    // 這裡改成具名函式 (不是立即執行的 IIFE): 這個公式建構器的變數/運算子面板、dropzone 拖拉/點擊插入事件,
+    // 只有在「這段 script 執行的當下」抓一次 DOM 元素、綁一次事件——但這個頁面上大部分按鈕 (新增/刪除項目、
+    // 新增/刪除人數級距、切換級距管理方式...) 送出後都是走下面 refreshPageContent() 的 AJAX 局部刷新,
+    // 會把 #pageContent 底下的 DOM 整個換成新的節點, 舊的面板/dropzone 跟著被換掉、事件繫結全部失效,
+    // 但這段 script 本身不會因為內容被換掉而重新執行——不是只有「送出這個公式表單本身」才會出現這個問題
+    // (那個已經用 data-full-redirect="true" 讓瀏覽器整頁換頁閃開了), 而是「隨便按這個頁面上任何一個會觸發
+    // 局部刷新的按鈕」都會讓這張卡片的變數/運算子面板消失、dropzone 也不能再拖拉/點擊插入。改成具名函式後,
+    // 在 refreshPageContent() 換完內容後可以直接再呼叫一次 (見下面 initFormulaBuilders()), 針對新的 DOM
+    // 重新掛一輪, 不用整頁重新整理。
+    function initMarkupFormulaBuilder() {
         // 這張報價單目前已經存的公式 (沒填過就是 null), 用來還原畫面上的 dropzone 內容
         var STORED_FORMULAS = {
             basic:  /*[[${quotation.customBasicFormula}]]*/ null,
@@ -1051,11 +1060,13 @@
         // 保險: 送出表單前再序列化一次, 避免使用者用滑鼠選字之類的方式弄亂了 input 沒同步到
         var formulaForm = document.getElementById('markupFormulaForm');
         if (formulaForm) formulaForm.addEventListener('submit', function () { runAll(); });
-    })();
+    }
 
     // ---------- 同業／直售／退傭「選擇計算方式」下拉選單: 選一條已儲存的規則就隱藏②③④公式建構器
     // (①基本報價公式一律顯示, 不受這顆下拉選單影響); 選「自填」(value="__custom__") 才展開②③④讓使用者自己組公式。
-    // 同步把選到的值寫進 formulaMode/marginSettingId 這兩個真正會送出的 hidden input。 ----------
+    // 同步把選到的值寫進 formulaMode/marginSettingId 這兩個真正會送出的 hidden input。這個函式每次呼叫都是
+    // 重新用 getElementById 查目前 DOM 上的元素, 沒有跨呼叫快取 DOM 參照, 所以不用比照上面/下面兩個公式
+    // 建構器改寫成「初始化」模式, 直接讓 initFormulaBuilders() 每次都呼叫一次就好。 ----------
     function toggleQuotationFormulaMode() {
         var sel = document.getElementById('qFormulaModeSelect');
         var isCustom = !sel || sel.value === '__custom__' || sel.value === '';
@@ -1066,11 +1077,14 @@
         if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
         if (msIdInput) msIdInput.value = isCustom ? '' : sel.value;
     }
-    toggleQuotationFormulaMode();
 
     // ---------- 整團人數級距報價結果: 雜項/NP/團費成本的計算公式建構器 (跟上面①②③④同一套邏輯,
     // 只是可用變數換成「每人變動成本／雜項（全團固定費用）／基本報價／NP」, 而且只有 np/team 兩個 zone) ----------
-    (function () {
+    // 同上, 改成具名函式——這裡尤其重要: 這張卡片本身是 th:if="${canEdit and !groupTiers.isEmpty()}" 條件渲染,
+    // 「新增級距」按下去、從 0 筆變 1 筆時, 這張卡片會是第一次隨著 AJAX 換進來的內容才出現, 如果沒有在
+    // refreshPageContent() 換完內容後重新呼叫這個函式, 剛出現的這張卡片會完全不能用 (沒有變數/運算子面板,
+    // dropzone 也不能拖拉/點擊插入)。
+    function initGroupTierFormulaBuilder() {
         var STORED_FORMULAS = {
             np:   /*[[${!groupTiers.isEmpty()} ? ${groupTiers.get(0).npFormula} : null]]*/ null,
             team: /*[[${!groupTiers.isEmpty()} ? ${groupTiers.get(0).teamFormula} : null]]*/ null
@@ -1317,7 +1331,18 @@
 
         var formulaForm = document.getElementById('groupTierFormulaForm');
         if (formulaForm) formulaForm.addEventListener('submit', function () { runAll(); });
-    })();
+    }
+
+    // 初始載入時, 以及之後每次 refreshPageContent() 用 AJAX 局部刷新換完新的 #pageContent 內容之後,
+    // 都要重新跑一次這三個初始化, 不然這兩張公式建構器卡片會在換完內容後變成完全不能用 (見上面兩個函式定義
+    // 前的說明)。集中成一個函式方便兩個地方 (頁面第一次載入時、下面 refreshPageContent() 的 swap() 換完內容後)
+    // 呼叫同一套邏輯, 不會漏掉哪一個。
+    function initFormulaBuilders() {
+        initMarkupFormulaBuilder();
+        toggleQuotationFormulaMode();
+        initGroupTierFormulaBuilder();
+    }
+    initFormulaBuilders();
 
     (function () {
         let isBusy = false; // 防止操作進行中又觸發下一次送出, 造成畫面互相搶跑
@@ -1344,10 +1369,21 @@
                 restoreBtn = () => { submitBtn.disabled = false; submitBtn.innerHTML = originalHtml; };
             }
 
-            const formData = new FormData(form);
+            // 這裡原本一律用 FormData 送出 (瀏覽器對 FormData 一律用 multipart/form-data 編碼, 不管表單有沒有
+            // 真的要上傳檔案)。這個頁面上的表單其實沒有任何一個真的要上傳檔案——但新版 Tomcat (這個專案用的
+            // 11.x) 對 multipart 請求預設限制最多 10 個 part (不分是不是檔案, 是它們的安全性修正之一), 欄位
+            // 比較多的表單 (例如「新增報價項目」手動輸入那個表單有 11 個欄位) 一送出就會超過這個上限, 整個
+            // 請求直接被 Tomcat 擋下來丟 FileCountLimitExceededException, 連 Spring controller 都還沒進去就
+            //已經失敗了 (這就是「新增到報價單」按下去顯示操作失敗、但畫面重新整理後其實什麼都沒新增成功的
+            // 真正原因——這個特定情況連資料庫都沒寫入, 因為請求根本沒到 controller)。這裡改成: 表單裡如果
+            // 真的有 <input type="file">, 才用 FormData(multipart); 其他純文字/數字/下拉選單的表單一律改用
+            // URLSearchParams (application/x-www-form-urlencoded), 沒有這個 part 數量限制, Spring 的
+            // @RequestParam 綁定方式完全一樣, 不用動後端任何程式碼。
+            const hasFileInput = form.querySelector('input[type="file"]');
+            const body = hasFileInput ? new FormData(form) : new URLSearchParams(new FormData(form));
             let ok = true;
             try {
-                const res = await fetch(form.action, { method: 'POST', body: formData });
+                const res = await fetch(form.action, { method: 'POST', body });
                 if (!res.ok) {
                     ok = false;
                     alert('操作失敗，畫面重新整理後會顯示目前實際狀態，請確認一下。');
@@ -1394,6 +1430,11 @@
             const swap = () => {
                 newContent.classList.add('is-entering');
                 document.getElementById('pageContent').replaceWith(newContent);
+                // 換完 DOM 之後要重新跑一次「基本報價／同業／直售加成」跟「整團人數級距」這兩個公式建構器的
+                // 初始化 (見上面 initFormulaBuilders() 的說明)——不然這兩張卡片換了新內容之後會變成完全不能用
+                // (chip 面板空的、dropzone 不能拖拉/點擊插入、剛新增出現的「整團人數級距」公式卡片也不能用),
+                // 要整頁重新整理才會恢復。
+                initFormulaBuilders();
                 window.scrollTo(0, scrollY);
                 // 下一畫格再拿掉 is-entering, 讓 opacity 0 -> 1 的 CSS transition 有機會播放
                 requestAnimationFrame(() => requestAnimationFrame(() => newContent.classList.remove('is-entering')));

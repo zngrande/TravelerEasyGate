@@ -1033,8 +1033,21 @@ public class QuotationService {
     private void touchQuotation(Quotation quotation) {
         quotation.setUpdatedAt(LocalDateTime.now());
         quotationDAO.save(quotation);
-        // 成本/加成設定/人數只要有變動, 整單的同業價/直售價都要重新算過, 分攤回每一列
-        recalculateQuotationPricing(quotation);
+
+        // 成本/加成設定/人數只要有變動, 整單的同業價/直售價都要重新算過, 分攤回每一列。
+        // 這裡刻意包一層 try/catch: 「新增報價項目」「新增人數級距」「編輯項目」這些操作的核心目的是異動
+        // quotation_line / quotation_group_tier 本身, 同業/直售/退傭的「加成結果重新計算」只是連帶要做的
+        // 附加動作——如果目前的實際成本數字剛好讓已存的公式算不出來 (例如公式除以一個目前剛好算出 0 的變數,
+        // 存檔當下用樣本數字驗證是過的, 但樣本數字不等於之後真正的成本數字, 邊界情況還是可能在這裡才炸開),
+        // 不應該讓這個附加計算的例外把整個「新增項目/新增級距」操作一起打成 500、讓使用者看到「操作失敗」但
+        // 其實項目早就存進去了 (要等畫面重新整理才會發現其實成功了)。這裡失敗只記 log、不往外拋——
+        // 跟下面 recalculateGroupTiers() 是同一個模式, 之前只做了後者、這裡少做了一次是這次一併補上的。
+        try {
+            recalculateQuotationPricing(quotation);
+        } catch (RuntimeException e) {
+            LOGGER.error("重新計算報價單同業/直售加成失敗 (QID={})，本次異動的其他部分仍照常生效", quotation.getQID(), e);
+        }
+
         // 人數級距報價結果也要跟著重新試算 (這次沒有一起改成疊加算法, 維持原本各自獨立的算法)。
         // 這裡刻意包一層 try/catch: 「新增報價項目」「編輯項目」這些操作的核心目的是動 quotation_line,
         // 人數級距只是順便重算的「附加」功能——如果 quotation_group_tier 這張表有問題（例如新欄位的
