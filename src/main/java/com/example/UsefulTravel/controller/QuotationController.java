@@ -549,19 +549,29 @@ public class QuotationController {
         return "redirect:/quotation/" + QID;
     }
 
-    // POST /quotation/{qid}/group-tiers/apply-all → 幣別/額外雜項金額/NP計算式/團費成本計算式,
-    // 一次套用到「所有」人數級距 (不用一個個進去改)。公式欄位存檔前先驗證格式, 跟markup公式建構器同一套規則。
+    // POST /quotation/{qid}/group-tiers/currency → 幣別（全部級距共用）, 跟下面 NP/團費成本計算式分開存,
+    // 選了馬上生效 (畫面上是 onchange 自動送出, 不用按鈕)。
+    @PostMapping("/quotation/{qid}/group-tiers/currency")
+    public String updateGroupTierCurrency(@PathVariable("qid") int QID,
+                                          @RequestParam String currency,
+                                          HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.updateGroupTierCurrency(QID, currency);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/group-tiers/apply-all → NP計算式/團費成本計算式, 一次套用到「所有」人數級距
+    // (不用一個個進去改)。公式欄位存檔前先驗證格式, 跟markup公式建構器同一套規則。
     @PostMapping("/quotation/{qid}/group-tiers/apply-all")
     public String applyGroupTierFormulaSettings(@PathVariable("qid") int QID,
-                                                @RequestParam(required = false) String currency,
-                                                @RequestParam(required = false) BigDecimal miscValue,
                                                 @RequestParam(required = false) String npFormula,
                                                 @RequestParam(required = false) String teamFormula,
                                                 HttpSession session, RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
         try {
-            quotationService.applyGroupTierFormulaSettings(QID, currency, miscValue, npFormula, teamFormula);
+            quotationService.applyGroupTierFormulaSettings(QID, npFormula, teamFormula);
         } catch (FormulaEngine.FormulaException e) {
             redirectAttributes.addFlashAttribute("quotationError", "計算式有誤：" + e.getMessage());
         }

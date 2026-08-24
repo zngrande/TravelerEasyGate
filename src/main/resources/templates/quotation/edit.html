@@ -72,27 +72,6 @@
         .formula-preview .result { font-weight: 700; color: var(--teal-deep); }
         .formula-preview .result.err { color: #dc2626; }
 
-        .summary-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 24px; overflow-x: auto; }
-        .summary-box { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 6px; text-align: center; min-width: 0; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .summary-box .label-row { display: flex; align-items: center; justify-content: center; gap: 4px; margin-bottom: 5px; }
-        .summary-box .label { font-size: 10.5px; color: var(--text-gray); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
-        .summary-box .label-row .label { margin-bottom: 0; }
-        .summary-box .value { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .summary-box.gross .value { color: var(--text-gray); }
-        .summary-box.basic .value { color: var(--text-gray); }
-        .summary-box.cost .value { color: var(--text-dark); }
-        .summary-box.trade .value { color: var(--primary-blue); }
-        .summary-box.retail .value { color: var(--primary-purple); }
-        .summary-box.rebate .value { color: var(--amber); }
-
-        /* 總同業價／總直售價: 按鈕切換顯示「總額」或「利潤」, 純顯示切換, 不會動到加成設定 */
-        .toggle-btn { border: none; background: #f1f5f9; color: var(--text-gray); border-radius: 5px; width: 18px; height: 18px; font-size: 9.5px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .toggle-btn:hover { background: #e2e8f0; }
-        .summary-box [data-view="profit"] { display: none; }
-        .summary-box.showing-profit [data-view="total"] { display: none; }
-        .summary-box.showing-profit [data-view="profit"] { display: inline; }
-        .summary-box.showing-profit .value { color: var(--green) !important; }
-
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13.5px; }
         .table-container { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; overflow-x: auto; }
         th { background: #f8fafc; padding: 12px 14px; font-size: 12.5px; color: var(--text-gray); font-weight: 600; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
@@ -198,7 +177,7 @@
         <div class="card">
             <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 基本報價／同業／直售加成與退傭設定</div>
             <div class="item-note" style="margin-bottom:12px;">
-                NNet（總淨成本）先套用「①基本報價公式」變成基本報價，基本報價再套用「②同業價公式」變成同業價，同業價再套用「③直售價公式」變成直售價——一層疊一層往上加。「④退傭金額公式」一樣可以引用前面已經算出來的價格。基本報價沒有對應的已儲存規則，一律自己填；同業／直售／退傭可以選「已儲存的」直接套用「計算公式管理」裡設定好的規則，或選「自填」自己組公式——建立新版本時會自動帶入上一版的數字；「自填」任一層公式留空就沿用下面括號內顯示的舊制設定。
+                NNet（總淨成本）先套用「①基本報價公式」變成基本報價，基本報價再套用「②同業價公式」變成同業價，同業價再套用「③直售價公式」變成直售價——一層疊一層往上加。「④退傭金額公式」一樣可以引用前面已經算出來的價格。基本報價沒有對應的已儲存規則，一律自己填；同業／直售／退傭可以選「選擇計算方式」下拉選單裡已儲存的規則直接套用，或選「自填」自己組公式——建立新版本時會自動帶入上一版的數字；「自填」任一層公式留空就沿用下面括號內顯示的舊制設定。
             </div>
 
             <!-- data-full-redirect: 這顆表單刻意讓瀏覽器正常換頁 (不走頁面其他表單共用的 AJAX 局部刷新),
@@ -206,36 +185,37 @@
                  script、綁定會失效; 走一般整頁重新整理最單純, 也才能讓公式格式錯誤時的錯誤訊息 (flash 訊息) 正常顯示。 -->
             <form id="markupFormulaForm" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/markup'}" data-full-redirect="true">
 
-                <!-- 同業／直售／退傭三層的「已儲存的／自填」切換。基本報價沒有已儲存規則可選, 不受這個切換影響 -->
+                <!-- 同業／直售／退傭三層的「選擇計算方式」: 一開始是單一顆下拉選單, 列出所有已儲存的計算公式規則 + 一個「自填」選項。
+                     選一條已儲存規則就直接套用「計算公式管理」的設定, 下面②③④公式建構器保持收合; 選「自填」才會展開②③④讓使用者自己組公式。
+                     基本報價沒有已儲存規則可選, 不受這個下拉選單影響, 永遠自己填 (見下方①，跟下拉選單選什麼無關)。 -->
                 <div class="formula-field" id="qModeToggleField">
                     <div class="formula-field-label">
-                        <span class="name">同業／直售／退傭 計算方式</span>
+                        <span class="name">選擇計算方式</span>
+                        <span class="optional">套用「已儲存的」計算公式規則，或選「自填」自己組②③④的公式（①基本報價公式沒有已儲存規則可選，一律自己填）</span>
                     </div>
-                    <div style="display:flex; gap:20px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-                        <label style="display:flex; align-items:center; gap:6px; font-weight:600; font-size:14px; cursor:pointer;">
-                            <input type="radio" name="formulaMode" value="preset" id="qmode-preset"
-                                   th:checked="${quotation.isPresetFormulaModeActive()}"
-                                   th:disabled="${!canEdit}" onchange="toggleQuotationFormulaMode()" /> 已儲存的
-                        </label>
-                        <label style="display:flex; align-items:center; gap:6px; font-weight:600; font-size:14px; cursor:pointer;">
-                            <input type="radio" name="formulaMode" value="custom" id="qmode-custom"
-                                   th:checked="${!quotation.isPresetFormulaModeActive()}"
-                                   th:disabled="${!canEdit}" onchange="toggleQuotationFormulaMode()" /> 自填
-                        </label>
+                    <select id="qFormulaModeSelect" class="form-control" th:disabled="${!canEdit}" style="max-width:420px;" onchange="toggleQuotationFormulaMode()">
+                        <option value="" disabled
+                                th:selected="${quotation.isPresetFormulaModeActive() and (marginSettings == null or marginSettings.?[MSID == quotation.MSID].isEmpty())}">
+                            （原本設定的計算公式規則已不存在，請重新選擇）
+                        </option>
+                        <option th:each="ms : ${marginSettings}"
+                                th:value="${ms.MSID}"
+                                th:selected="${quotation.isPresetFormulaModeActive() and quotation.MSID == ms.MSID}"
+                                th:text="${ms.summary}"></option>
+                        <option value="__custom__" th:selected="${!quotation.isPresetFormulaModeActive()}">自填</option>
+                    </select>
+                    <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.isEmpty()}">
+                        目前還沒有已儲存的計算公式規則，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
                     </div>
+                    <input type="hidden" name="formulaMode" id="qinput-formulaMode" />
+                    <input type="hidden" name="marginSettingId" id="qinput-marginSettingId" />
+                </div>
 
-                    <div id="qPresetSection">
-                        <select name="marginSettingId" id="qMarginSettingSelect" class="form-control" th:disabled="${!canEdit}" style="max-width:420px;">
-                            <option value="">請選擇已儲存的計算公式規則</option>
-                            <option th:each="ms : ${marginSettings}"
-                                    th:value="${ms.MSID}"
-                                    th:selected="${quotation.MSID != null and quotation.MSID == ms.MSID}"
-                                    th:text="${ms.summary}"></option>
-                        </select>
-                        <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.isEmpty()}">
-                            目前還沒有已儲存的計算公式規則，請先到「計算公式管理」新增，或改選「自填」。
-                        </div>
-                    </div>
+                <div class="palette">
+                    <div class="palette-label">價格變數 · 點擊或拖曳插入到目前選取的公式欄位</div>
+                    <div class="chip-row" id="qVarChips"></div>
+                    <div class="palette-label">運算子</div>
+                    <div class="chip-row" id="qOpChips"></div>
                 </div>
 
                 <div class="formula-field">
@@ -248,13 +228,6 @@
                 </div>
 
                 <div id="qCustomSection">
-                    <div class="palette">
-                        <div class="palette-label">價格變數 · 點擊或拖曳插入到目前選取的公式欄位</div>
-                        <div class="chip-row" id="qVarChips"></div>
-                        <div class="palette-label">運算子</div>
-                        <div class="chip-row" id="qOpChips"></div>
-                    </div>
-
                     <div class="formula-field">
                         <div class="formula-field-label">
                             <span class="name">② 同業價公式</span>
@@ -292,165 +265,6 @@
             </form>
         </div>
 
-
-        <!-- 總覽: 總同業價／總直售價旁邊有個小切換鈕, 可以切換顯示「總額」或「利潤」, 純顯示切換不影響加成設定 -->
-        <div class="summary-grid">
-            <div class="summary-box gross"><div class="label">Net（總成本）</div><div class="value" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('grossCost'), 0, 'COMMA', 0, 'POINT')}"></div></div>
-            <div class="summary-box cost"><div class="label">NNet（總淨成本）</div><div class="value" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('netCost'), 0, 'COMMA', 0, 'POINT')}"></div></div>
-            <div class="summary-box basic"><div class="label">基本報價</div><div class="value" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('basicPrice'), 0, 'COMMA', 0, 'POINT')}"></div></div>
-
-            <div class="summary-box trade">
-                <div class="label-row">
-                    <span class="label" data-view="total">總同業價</span>
-                    <span class="label" data-view="profit">利潤（同業）</span>
-                    <button type="button" class="toggle-btn" onclick="toggleView(this)" title="切換顯示總額／利潤"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
-                </div>
-                <div class="value" data-view="total" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('tradePrice'), 0, 'COMMA', 0, 'POINT')}"></div>
-                <div class="value" data-view="profit" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('profitTrade'), 0, 'COMMA', 0, 'POINT')}"></div>
-            </div>
-
-            <div class="summary-box retail">
-                <div class="label-row">
-                    <span class="label" data-view="total">總直售價</span>
-                    <span class="label" data-view="profit">利潤（直售）</span>
-                    <button type="button" class="toggle-btn" onclick="toggleView(this)" title="切換顯示總額／利潤"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
-                </div>
-                <div class="value" data-view="total" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('retailPrice'), 0, 'COMMA', 0, 'POINT')}"></div>
-                <div class="value" data-view="profit" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('profitRetail'), 0, 'COMMA', 0, 'POINT')}"></div>
-            </div>
-
-            <div class="summary-box rebate"><div class="label">總退傭</div><div class="value" th:text="'NT$ ' + ${#numbers.formatDecimal(totals.get('rebateAmount'), 0, 'COMMA', 0, 'POINT')}"></div></div>
-        </div>
-
-        <!-- 整團人數級距報價結果: 依現有成本 (固定+變動) 自動試算各級距的每人售價, 這才是實際要給同業的報價表 -->
-        <div class="card">
-            <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 整團人數級距報價結果</div>
-            <div class="item-note" style="margin-bottom:16px;">
-                依「報價項目明細」目前的成本（固定成本＋變動成本）自動試算各級距的每人售價。固定成本以「級距下限」人數分攤（保守估算，避免真的只湊到最低人數時不夠 cover）。
-                同業/直售價直接用 NNet 乘上「基本報價／同業／直售加成與退傭設定」卡片裡的同業/直售加成%數計算，不會經過「基本報價」這一層（跟上面總覽的算法不完全一樣，僅供級距試算參考）。
-                下面每一欄都是系統自動算出來的，金額本身不能手動輸入——要調整結果請回到下面的「報價項目明細」調整成本，或到上面的加成設定調整。
-                「雜項（全團固定費用）」＝自動加總「報價項目明細」裡所有「全團固定」項目在該級距代表人數下的成本（如果項目在「區間價錢管理」設定了人數級距，會依代表人數自動判斷單價），加上下面手動填的「額外雜項金額」。
-                「NP」／「團費成本」＝（每人變動成本＋雜項）換算成台幣後，套用可自訂的計算公式——公式可以引用「每人變動成本」「雜項（全團固定費用）」「基本報價」這幾個計算欄位（團費成本另外還能引用「NP」），留空就直接沿用這個和、不額外調整。
-            </div>
-
-            <form th:if="${canEdit}" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/headcount-mode'}"
-                  style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
-                <label class="form-label" style="margin-bottom:0;white-space:nowrap;">雜項的固定成本除以級距的</label>
-                <select name="mode" class="form-control" style="width:auto;min-width:0;padding:6px 8px;font-size:12.5px;" onchange="this.form.requestSubmit()">
-                    <option value="LOWER" th:selected="${quotation.groupTierHeadcountMode == 'LOWER'}">下限人數（保守）</option>
-                    <option value="AVERAGE" th:selected="${quotation.groupTierHeadcountMode == 'AVERAGE'}">平均人數（跟供應商報價單常見算法一致）</option>
-                    <option value="UPPER" th:selected="${quotation.groupTierHeadcountMode == 'UPPER'}">上限人數（最樂觀）</option>
-                </select>
-                <span class="item-note" style="margin:0;">開放區間（例如「32人以上」）沒有平均值/上限可算，一律用下限</span>
-            </form>
-
-            <div class="table-container" th:if="${!groupTiers.isEmpty()}" style="margin-bottom:16px;">
-                <table>
-                    <thead>
-                    <tr>
-                        <th class="num">人數</th>
-                        <th class="num">總成本</th>
-                        <th class="num">每人成本</th>
-                        <th class="num">同業價（每人）</th>
-                        <th class="num">直售價（每人）</th>
-                        <th class="num">毛利率</th>
-                        <th class="num">雜項（全團固定費用）</th>
-                        <th class="num">NP</th>
-                        <th class="num">團費成本</th>
-                        <th th:if="${canEdit}"></th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <tr th:each="tier : ${groupTiers}">
-                        <td class="num" th:text="${tier.minQty} + '–' + (${tier.maxQty != null} ? ${tier.maxQty} : '以上')"></td>
-                        <td class="num" th:text="${#numbers.formatDecimal(tier.totalNetCost, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" th:text="${#numbers.formatDecimal(tier.netCostPerPax, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(tier.tradePricePerPax, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(tier.retailPricePerPax, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--green);" th:text="${#numbers.formatDecimal(tier.marginRatePct, 0, 'COMMA', 1, 'POINT')} + '%'"></td>
-                        <td class="num" th:text="${#numbers.formatDecimal(tier.miscValueTwd, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(tier.npResultTwd, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(tier.teamResultTwd, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td th:if="${canEdit}">
-                            <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/' + ${tier.QGTID} + '/delete'}"
-                                  data-confirm="確定要刪除這個人數級距嗎？">
-                                <button type="submit" style="background:none;border:none;cursor:pointer;color:var(--text-gray);"><i class="fa-solid fa-trash"></i></button>
-                            </form>
-                        </td>
-                    </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div th:if="${groupTiers.isEmpty()}" class="empty-state" style="padding:20px;">
-                還沒有設定任何人數級距，新增一組（例如 15–20 人），系統會依目前的成本自動試算每人售價。
-            </div>
-
-            <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:start;">
-                <form th:if="${canEdit}" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers'}"
-                      style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
-                    <div class="form-group">
-                        <label class="form-label">下限人數</label>
-                        <input type="number" name="minQty" class="form-control" style="width:100px;" min="1" required />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">上限人數（留空＝以上皆同價）</label>
-                        <input type="number" name="maxQty" class="form-control" style="width:170px;" min="1" />
-                    </div>
-                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> 新增級距</button>
-                </form>
-            </div>
-
-            <!-- 雜項/NP/團費成本的計算公式: 幣別/額外雜項金額/NP計算式/團費成本計算式, 送出後一次套用到「所有」級距,
-                 不用一個個進去改。跟「基本報價／同業／直售加成與退傭設定」卡片同一套 dropzone 公式建構器,
-                 這裡的可用變數換成 每人變動成本/雜項/基本報價/NP。data-full-redirect 原因跟markup公式表單一樣:
-                 dropzone 事件是頁面載入時綁一次, AJAX 換內容會失效, 這顆表單刻意整頁換頁。 -->
-            <div th:if="${canEdit and !groupTiers.isEmpty()}" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color);">
-                <div class="palette">
-                    <div class="palette-label">計算欄位 · 點擊或拖曳插入到目前選取的公式欄位</div>
-                    <div class="chip-row" id="gVarChips"></div>
-                    <div class="palette-label">運算子</div>
-                    <div class="chip-row" id="gOpChips"></div>
-                </div>
-
-                <form id="groupTierFormulaForm" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/apply-all'}" data-full-redirect="true">
-                    <div class="form-group" style="margin-bottom:14px;max-width:200px;">
-                        <label class="form-label">幣別（全部級距共用，只影響「額外雜項金額」的換算）</label>
-                        <select name="currency" class="form-control" th:value="${groupTiers.get(0).currency}">
-                            <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'" th:selected="${cur.code == groupTiers.get(0).currency}"></option>
-                        </select>
-                    </div>
-                    <div class="form-group" style="margin-bottom:14px;max-width:260px;">
-                        <label class="form-label">額外雜項金額（車輛等成本已自動加總，這裡是補充，預設0）</label>
-                        <input type="number" step="0.01" name="miscValue" class="form-control" th:value="${groupTiers.get(0).miscValue}" />
-                    </div>
-
-                    <div class="formula-field">
-                        <div class="formula-field-label">
-                            <span class="name">NP 計算式</span>
-                            <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、基本報價・留空＝直接等於「每人變動成本＋雜項」</span>
-                        </div>
-                        <div class="dropzone" id="gzone-np" contenteditable="true" data-placeholder="例：（每人變動成本＋雜項）× 1.1" data-zone-key="np" tabindex="0"></div>
-                        <div class="formula-preview"><span>試算（每人變動成本=10,000／雜項=5,000）＝</span><span class="result" id="gpreview-np">尚未輸入</span></div>
-                    </div>
-
-                    <div class="formula-field">
-                        <div class="formula-field-label">
-                            <span class="name">團費成本計算式</span>
-                            <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、基本報價、NP・留空＝直接等於「NP」</span>
-                        </div>
-                        <div class="dropzone" id="gzone-team" contenteditable="true" data-placeholder="例：NP ÷ 0.88 ＋ 2000" data-zone-key="team" tabindex="0"></div>
-                        <div class="formula-preview"><span>試算＝</span><span class="result" id="gpreview-team">尚未輸入</span></div>
-                    </div>
-
-                    <input type="hidden" name="npFormula" id="ginput-np" />
-                    <input type="hidden" name="teamFormula" id="ginput-team" />
-
-                    <button type="submit" class="btn btn-primary" style="margin-top:6px;"><i class="fa-solid fa-check-double"></i> 套用到全部級距</button>
-                </form>
-            </div>
-        </div>
-
         <!-- 明細表 -->
         <div class="card">
             <div class="card-header"><i class="fa-solid fa-list-ul" style="color: var(--primary-blue);"></i> 報價項目明細</div>
@@ -459,6 +273,7 @@
                 <table>
                     <thead>
                     <tr>
+                        <th th:if="${canEdit}" title="勾選後，這個項目會出現在下面「區間價錢管理」卡片，可以替它設定人數級距價錢">級距</th>
                         <th>項目</th>
                         <th>計費方式</th>
                         <th>幣別 / 匯率</th>
@@ -473,54 +288,130 @@
                         <th class="num">退傭</th>
                         <th class="num">利潤(同業)</th>
                         <th class="num">利潤(直售)</th>
-                        <th th:if="${canEdit}" title="勾選後，這個項目會出現在下面「區間價錢管理」卡片，可以替它設定人數級距價錢">級距</th>
                         <th th:if="${canEdit}"></th>
                     </tr>
                     </thead>
                     <tbody>
-                    <tr th:each="line : ${lines}">
-                        <td class="item-name">
-                            <span class="cat-tag" th:text="${line.category}"></span> <span th:text="${line.itemName}"></span>
-                            <div class="item-note" th:if="${line.note != null and !line.note.isEmpty()}" th:text="${line.note}"></div>
-                        </td>
-                        <td>
-                            <span class="cat-tag" th:text="${line.costType == 'FIXED_GROUP'} ? '全團固定' : '按人頭'"></span>
-                        </td>
-                        <td th:text="${line.currencyCode} + ' / ' + ${line.exchangeRate}"></td>
-                        <td class="num" th:text="${#numbers.formatDecimal(line.unitPrice, 0, 'COMMA', 2, 'POINT')}"></td>
-                        <td class="num" th:text="${line.quantity}"></td>
-                        <td class="num" th:text="${line.focQty > 0} ? ('−' + ${line.focQty}) : '—'"></td>
-                        <td class="num" th:text="${#numbers.formatDecimal(line.grossCost, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" th:text="${#numbers.formatDecimal(line.netCost, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" th:text="${#numbers.formatDecimal(line.basicPrice, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(line.tradePrice, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(line.retailPrice, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--amber);" th:text="${#numbers.formatDecimal(line.rebateAmount, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--green);" th:text="${#numbers.formatDecimal(line.profitTrade, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--green);" th:text="${#numbers.formatDecimal(line.profitRetail, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td th:if="${canEdit}" style="text-align:center;">
-                            <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines/' + ${line.QLID} + '/tier-managed'}">
-                                <input type="checkbox" name="tierManaged" value="true" th:checked="${line.tierManaged}" onchange="this.form.requestSubmit()" title="設定人數級距價錢" />
-                            </form>
-                        </td>
-                        <td th:if="${canEdit}">
-                            <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines/' + ${line.QLID} + '/delete'}"
-                                  data-confirm="確定要刪除這筆報價項目嗎？">
-                                <button type="submit" title="刪除"><i class="fa-solid fa-trash"></i></button>
-                            </form>
-                        </td>
-                    </tr>
+                    <th:block th:each="line : ${lines}">
+                        <tr>
+                            <td th:if="${canEdit}" style="text-align:center;">
+                                <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines/' + ${line.QLID} + '/tier-managed'}">
+                                    <input type="checkbox" name="tierManaged" value="true" th:checked="${line.tierManaged}" onchange="this.form.requestSubmit()" title="設定人數級距價錢" />
+                                </form>
+                            </td>
+                            <td class="item-name">
+                                <span class="cat-tag" th:text="${line.category}"></span> <span th:text="${line.itemName}"></span>
+                                <div class="item-note" th:if="${line.note != null and !line.note.isEmpty()}" th:text="${line.note}"></div>
+                            </td>
+                            <td>
+                                <span class="cat-tag" th:text="${line.costType == 'FIXED_GROUP'} ? '全團固定' : '按人頭'"></span>
+                            </td>
+                            <td th:text="${line.currencyCode} + ' / ' + ${line.exchangeRate}"></td>
+                            <td class="num" th:text="${#numbers.formatDecimal(line.unitPrice, 0, 'COMMA', 2, 'POINT')}"></td>
+                            <td class="num" th:text="${line.quantity}"></td>
+                            <td class="num" th:text="${line.focQty > 0} ? ('−' + ${line.focQty}) : '—'"></td>
+                            <td class="num" th:text="${#numbers.formatDecimal(line.grossCost, 0, 'COMMA', 0, 'POINT')}"></td>
+                            <td class="num" th:text="${#numbers.formatDecimal(line.netCost, 0, 'COMMA', 0, 'POINT')}"></td>
+                            <td class="num" th:text="${#numbers.formatDecimal(line.basicPrice, 0, 'COMMA', 0, 'POINT')}"></td>
+                            <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(line.tradePrice, 0, 'COMMA', 0, 'POINT')}"></td>
+                            <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(line.retailPrice, 0, 'COMMA', 0, 'POINT')}"></td>
+                            <td class="num" style="color:var(--amber);" th:text="${#numbers.formatDecimal(line.rebateAmount, 0, 'COMMA', 0, 'POINT')}"></td>
+                            <td class="num" style="color:var(--green);" th:text="${#numbers.formatDecimal(line.profitTrade, 0, 'COMMA', 0, 'POINT')}"></td>
+                            <td class="num" style="color:var(--green);" th:text="${#numbers.formatDecimal(line.profitRetail, 0, 'COMMA', 0, 'POINT')}"></td>
+                            <td th:if="${canEdit}" style="white-space:nowrap;">
+                                <button type="button" onclick="toggleEditRow(this)" th:attr="data-target='lineEdit' + ${line.QLID}"
+                                        style="background:none;border:none;cursor:pointer;color:var(--text-gray);margin-right:6px;" title="編輯">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                                <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines/' + ${line.QLID} + '/delete'}"
+                                      data-confirm="確定要刪除這筆報價項目嗎？" style="display:inline;">
+                                    <button type="submit" title="刪除"><i class="fa-solid fa-trash"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                        <!-- 行內編輯列: 預設隱藏, 點上面的鉛筆才展開。跟「區間價錢管理」卡片的級距編輯列同一套 toggleEditRow() 邏輯。
+                             欄位跟下面「新增報價項目」表單同一組, 送到既有的 /lines/{qlid}/update (原本就有這個後端 endpoint, 只是畫面上一直沒有 UI 接上去)。
+                             幣率不放在這裡改: recalculateLine() 每次存檔都會依「幣別」重新從幣別管理設定抓最新匯率覆蓋, 手動填的匯率不會生效, 所以這裡改用唯讀文字顯示, 避免誤導。 -->
+                        <tr th:if="${canEdit}" th:id="'lineEdit' + ${line.QLID}" style="display:none;background:#f8fafc;">
+                            <td colspan="16">
+                                <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines/' + ${line.QLID} + '/update'}"
+                                      style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;padding:10px 0;">
+                                    <div class="form-group">
+                                        <label class="form-label">項目名稱</label>
+                                        <input type="text" name="itemName" class="form-control" th:value="${line.itemName}" required style="width:180px;" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">類別</label>
+                                        <select name="category" class="form-control" style="width:150px;">
+                                            <option value="flight" th:selected="${line.category == 'flight'}">flight 機票</option>
+                                            <option value="hotel" th:selected="${line.category == 'hotel'}">hotel 住宿</option>
+                                            <option value="meal" th:selected="${line.category == 'meal'}">meal 餐食</option>
+                                            <option value="attraction" th:selected="${line.category == 'attraction'}">attraction 景點/門票</option>
+                                            <option value="optional" th:selected="${line.category == 'optional'}">optional 自費活動</option>
+                                            <option value="other" th:selected="${line.category == 'other'}">other 其他</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">計費方式</label>
+                                        <select name="costType" class="form-control" style="width:200px;">
+                                            <option value="PER_PAX" th:selected="${line.costType == 'PER_PAX'}">按人頭（單價 × 人數）</option>
+                                            <option value="FIXED_GROUP" th:selected="${line.costType == 'FIXED_GROUP'}">全團固定（不受人數影響，只受數量影響）</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">幣別</label>
+                                        <select name="currencyCode" class="form-control" style="width:150px;">
+                                            <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'" th:selected="${cur.code == line.currencyCode}"></option>
+                                        </select>
+                                        <span class="item-note" style="margin-top:4px;display:block;">目前匯率：<span th:text="${line.exchangeRate}"></span>（存檔後自動依幣別套用最新匯率，不可手動填）</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">單價</label>
+                                        <input type="number" step="0.01" name="unitPrice" class="form-control" th:value="${line.unitPrice}" required style="width:110px;" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">數量</label>
+                                        <input type="number" name="quantity" class="form-control" th:value="${line.quantity}" min="0" required style="width:90px;" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">燃油稅（機票用，選填）</label>
+                                        <input type="number" step="0.01" name="fuelSurcharge" class="form-control" th:value="${line.fuelSurcharge}" style="width:110px;" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">稅金（機票用，選填）</label>
+                                        <input type="number" step="0.01" name="taxAmount" class="form-control" th:value="${line.taxAmount}" style="width:110px;" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">FOC 比例（每 N 人折抵 1 位，0=不適用）</label>
+                                        <input type="number" name="focRatio" class="form-control" th:value="${line.focRatio}" min="0" style="width:110px;" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">是否可退</label>
+                                        <select name="refundable" class="form-control" style="width:100px;">
+                                            <option value="true" th:selected="${line.refundable}">可退</option>
+                                            <option value="false" th:selected="${!line.refundable}">不可退</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="flex:1;min-width:200px;">
+                                        <label class="form-label">備注（選填）</label>
+                                        <input type="text" name="note" class="form-control" th:value="${line.note}" />
+                                    </div>
+                                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-rotate"></i> 儲存</button>
+                                    <button type="button" onclick="toggleEditRow(this)" th:attr="data-target='lineEdit' + ${line.QLID}" class="btn" style="border:1px solid var(--border-color);background:#fff;">取消</button>
+                                </form>
+                            </td>
+                        </tr>
+                    </th:block>
                     </tbody>
                     <tfoot>
                     <tr>
-                        <td colspan="6">合計</td>
+                        <td th:attr="colspan=${canEdit} ? 7 : 6">合計</td>
                         <td class="num" th:text="${#numbers.formatDecimal(totals.get('netCost'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" style="color:var(--primary-blue);" th:text="${#numbers.formatDecimal(totals.get('tradePrice'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" style="color:var(--primary-purple);" th:text="${#numbers.formatDecimal(totals.get('retailPrice'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" style="color:var(--amber);" th:text="${#numbers.formatDecimal(totals.get('rebateAmount'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" style="color:var(--green);" th:text="${#numbers.formatDecimal(totals.get('profitTrade'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" style="color:var(--green);" th:text="${#numbers.formatDecimal(totals.get('profitRetail'), 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td th:if="${canEdit}"></td>
                         <td th:if="${canEdit}"></td>
                     </tr>
                     </tfoot>
@@ -721,16 +612,133 @@
                 <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增到報價單</button>
             </form>
         </div>
+
+        <!-- 整團人數級距報價結果: 依現有成本 (固定+變動) 自動試算各級距的每人售價, 這才是實際要給同業的報價表 -->
+        <div class="card">
+            <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 整團人數級距報價結果</div>
+            <div class="item-note" style="margin-bottom:16px;">
+                依「報價項目明細」目前的成本自動試算各級距的「雜項（全團固定費用）」／「NP」／「團費成本」。
+                下面每一欄都是系統自動算出來的，金額本身不能手動輸入——要調整結果請回到下面的「報價項目明細」調整成本，或到下面的計算公式調整。
+                「雜項（全團固定費用）」＝自動加總「報價項目明細」裡所有「全團固定」項目在該級距代表人數下的成本（如果項目在「區間價錢管理」設定了人數級距，會依代表人數自動判斷單價）。
+                「NP」／「團費成本」＝（每人變動成本＋雜項）換算成台幣後，套用可自訂的計算公式——公式可以引用「每人變動成本」「雜項（全團固定費用）」「全團固定」「NET」「基本報價」這幾個計算欄位（團費成本另外還能引用「NP」），留空就直接沿用這個和、不額外調整。
+                （原本的「總成本／每人成本／同業價／直售價／毛利率」欄位背景仍然照算，只是這個畫面不再顯示——如果需要，之後可以再加回來。）
+            </div>
+
+            <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+                <form th:if="${canEdit}" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/headcount-mode'}"
+                      style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;">
+                    <label class="form-label" style="margin-bottom:0;white-space:nowrap;">雜項的固定成本除以級距的</label>
+                    <select name="mode" class="form-control" style="width:auto;min-width:0;padding:6px 8px;font-size:12.5px;" onchange="this.form.requestSubmit()">
+                        <option value="LOWER" th:selected="${quotation.groupTierHeadcountMode == 'LOWER'}">下限人數（保守）</option>
+                        <option value="AVERAGE" th:selected="${quotation.groupTierHeadcountMode == 'AVERAGE'}">平均人數（跟供應商報價單常見算法一致）</option>
+                        <option value="UPPER" th:selected="${quotation.groupTierHeadcountMode == 'UPPER'}">上限人數（最樂觀）</option>
+                    </select>
+                </form>
+
+                <!-- 幣別: 跟上面的人數模式選單刻意分開送出 (獨立表單各自 onchange 自動送出), 不會互相干擾;
+                     只影響「雜項」自動加總時, 非台幣項目換算成台幣用的匯率。 -->
+                <form th:if="${canEdit and !groupTiers.isEmpty()}" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/currency'}"
+                      style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;">
+                    <label class="form-label" style="margin-bottom:0;white-space:nowrap;">幣別（全部級距共用）</label>
+                    <select name="currency" class="form-control" style="width:auto;min-width:0;padding:6px 8px;font-size:12.5px;" onchange="this.form.requestSubmit()">
+                        <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'" th:selected="${cur.code == groupTiers.get(0).currency}"></option>
+                    </select>
+                </form>
+
+                <span class="item-note" style="margin:0;">開放區間（例如「32人以上」）沒有平均值/上限可算，一律用下限；選了幣別或人數模式就直接重新計算，不用按鈕</span>
+            </div>
+
+            <div class="table-container" th:if="${!groupTiers.isEmpty()}" style="margin-bottom:16px;">
+                <table>
+                    <thead>
+                    <tr>
+                        <th class="num">人數</th>
+                        <th class="num">雜項（全團固定費用）</th>
+                        <th class="num">NP</th>
+                        <th class="num">團費成本</th>
+                        <th th:if="${canEdit}"></th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="tier : ${groupTiers}">
+                        <td class="num" th:text="${tier.minQty} + '–' + (${tier.maxQty != null} ? ${tier.maxQty} : '以上')"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(tier.miscValueTwd, 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(tier.npResultTwd, 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(tier.teamResultTwd, 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td th:if="${canEdit}">
+                            <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/' + ${tier.QGTID} + '/delete'}"
+                                  data-confirm="確定要刪除這個人數級距嗎？">
+                                <button type="submit" style="background:none;border:none;cursor:pointer;color:var(--text-gray);"><i class="fa-solid fa-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div th:if="${groupTiers.isEmpty()}" class="empty-state" style="padding:20px;">
+                還沒有設定任何人數級距，新增一組（例如 15–20 人），系統會依目前的成本自動試算每人售價。
+            </div>
+
+            <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:start;">
+                <form th:if="${canEdit}" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers'}"
+                      style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+                    <div class="form-group">
+                        <label class="form-label">下限人數</label>
+                        <input type="number" name="minQty" class="form-control" style="width:100px;" min="1" required />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">上限人數（留空＝以上皆同價）</label>
+                        <input type="number" name="maxQty" class="form-control" style="width:170px;" min="1" />
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> 新增級距</button>
+                </form>
+            </div>
+
+            <!-- 雜項/NP/團費成本的計算公式: NP計算式/團費成本計算式, 送出後一次套用到「所有」級距, 不用一個個進去改。
+                 跟「基本報價／同業／直售加成與退傭設定」卡片同一套 dropzone 公式建構器, 但變數是完全獨立的另一組
+                 (每人變動成本/雜項/全團固定/NET/基本報價/NP), 不會跟上面卡片的 NNet/團體人數/同業價/直售價 混在一起。
+                 幣別已經移到上面「雜項的固定成本除以級距的」選單後面, 獨立表單、選了就自動送出, 不在這裡。
+                 data-full-redirect 原因跟markup公式表單一樣: dropzone 事件是頁面載入時綁一次, AJAX 換內容會失效,
+                 這顆表單刻意整頁換頁。 -->
+            <div th:if="${canEdit and !groupTiers.isEmpty()}" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color);">
+                <div class="palette">
+                    <div class="palette-label">計算欄位 · 點擊或拖曳插入到目前選取的公式欄位（跟上面加成設定卡片的價格變數完全分開，各自獨立）</div>
+                    <div class="chip-row" id="gVarChips"></div>
+                    <div class="palette-label">運算子</div>
+                    <div class="chip-row" id="gOpChips"></div>
+                </div>
+
+                <form id="groupTierFormulaForm" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/apply-all'}" data-full-redirect="true">
+                    <div class="formula-field">
+                        <div class="formula-field-label">
+                            <span class="name">NP 計算式</span>
+                            <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、全團固定、NET、基本報價・留空＝直接等於「每人變動成本＋雜項」</span>
+                        </div>
+                        <div class="dropzone" id="gzone-np" contenteditable="true" data-placeholder="例：（每人變動成本＋雜項）× 1.1" data-zone-key="np" tabindex="0"></div>
+                        <div class="formula-preview"><span>試算（每人變動成本=10,000／雜項=5,000）＝</span><span class="result" id="gpreview-np">尚未輸入</span></div>
+                    </div>
+
+                    <div class="formula-field">
+                        <div class="formula-field-label">
+                            <span class="name">團費成本計算式</span>
+                            <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、全團固定、NET、基本報價、NP・留空＝直接等於「NP」</span>
+                        </div>
+                        <div class="dropzone" id="gzone-team" contenteditable="true" data-placeholder="例：NP ÷ 0.88 ＋ 2000" data-zone-key="team" tabindex="0"></div>
+                        <div class="formula-preview"><span>試算＝</span><span class="result" id="gpreview-team">尚未輸入</span></div>
+                    </div>
+
+                    <input type="hidden" name="npFormula" id="ginput-np" />
+                    <input type="hidden" name="teamFormula" id="ginput-team" />
+
+                    <button type="submit" class="btn btn-primary" style="margin-top:6px;"><i class="fa-solid fa-check-double"></i> 套用到全部級距</button>
+                </form>
+            </div>
+        </div>
     </div>
 </main>
 
 <script th:inline="javascript">
-    // 總同業價／總直售價方塊: 按鈕切換顯示「總額」或「利潤」, 純顯示切換, 不送出任何表單
-    function toggleView(btn) {
-        const box = btn.closest('.summary-box');
-        if (box) box.classList.toggle('showing-profit');
-    }
-
     // 表格裡的編輯(鉛筆)按鈕: 點一下切換顯示/隱藏對應的編輯列 (「區間價錢管理」卡片的級距編輯列用)
     function toggleEditRow(btn) {
         const targetId = btn.getAttribute('data-target');
@@ -1045,15 +1053,18 @@
         if (formulaForm) formulaForm.addEventListener('submit', function () { runAll(); });
     })();
 
-    // ---------- 同業／直售／退傭「已儲存的／自填」切換: 純顯示切換, 選「已儲存的」時隱藏②③④公式建構器
-    // 跟上面變數 chip 面板 (改用 qMarginSettingSelect 那顆下拉選單), 選「自填」時換回原本的公式建構器 UI ----------
+    // ---------- 同業／直售／退傭「選擇計算方式」下拉選單: 選一條已儲存的規則就隱藏②③④公式建構器
+    // (①基本報價公式一律顯示, 不受這顆下拉選單影響); 選「自填」(value="__custom__") 才展開②③④讓使用者自己組公式。
+    // 同步把選到的值寫進 formulaMode/marginSettingId 這兩個真正會送出的 hidden input。 ----------
     function toggleQuotationFormulaMode() {
-        var presetRadio = document.getElementById('qmode-preset');
-        var isPreset = !!(presetRadio && presetRadio.checked);
-        var presetSection = document.getElementById('qPresetSection');
+        var sel = document.getElementById('qFormulaModeSelect');
+        var isCustom = !sel || sel.value === '__custom__' || sel.value === '';
         var customSection = document.getElementById('qCustomSection');
-        if (presetSection) presetSection.style.display = isPreset ? '' : 'none';
-        if (customSection) customSection.style.display = isPreset ? 'none' : '';
+        if (customSection) customSection.style.display = isCustom ? '' : 'none';
+        var modeInput = document.getElementById('qinput-formulaMode');
+        var msIdInput = document.getElementById('qinput-marginSettingId');
+        if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
+        if (msIdInput) msIdInput.value = isCustom ? '' : sel.value;
     }
     toggleQuotationFormulaMode();
 
@@ -1068,6 +1079,8 @@
         var VARIABLES = [
             { id: 'VARIABLE_COST', label: '每人變動成本', allowIn: ['np', 'team'] },
             { id: 'MISC', label: '雜項（全團固定費用）', allowIn: ['np', 'team'] },
+            { id: 'FIXED_GROUP', label: '全團固定（不含額外雜項，僅自動加總）', allowIn: ['np', 'team'] },
+            { id: 'NET', label: 'NET（每人 Net，原始牌價）', allowIn: ['np', 'team'] },
             { id: 'BASIC_PRICE', label: '基本報價', allowIn: ['np', 'team'] },
             { id: 'NP', label: 'NP', allowIn: ['team'] }
         ];
@@ -1271,7 +1284,7 @@
         }
 
         function runAll() {
-            var sample = { VARIABLE_COST: 10000, MISC: 5000, BASIC_PRICE: 12000 };
+            var sample = { VARIABLE_COST: 10000, MISC: 5000, FIXED_GROUP: 5000, NET: 10000, BASIC_PRICE: 12000 };
 
             var npExpr = serialize(zones.np.el);
             zones.np.input.value = normalizeForSubmit(npExpr);

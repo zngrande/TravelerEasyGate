@@ -4,6 +4,8 @@ import com.example.UsefulTravel.DAO.*;
 import com.example.UsefulTravel.entity.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -31,6 +33,7 @@ import java.util.Map;
 @Service
 public class QuotationService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(QuotationService.class);
     private static final int SCALE = 2;
 
     private final QuotationDAO quotationDAO;
@@ -548,12 +551,12 @@ public class QuotationService {
     }
 
     /**
-     * 幣別／額外雜項金額／NP計算式／團費成本計算式: 一次套用到這張報價單「所有」人數級距, 不用一個個進去改。
-     * 公式欄位驗證比照markup公式建構器的規則 (存檔前用樣本數字跑一次), 格式錯誤直接丟例外讓 controller 擋下來,
-     * 不會存進一半、只有部分級距套用成功的情況。
+     * 幣別（全部級距共用）: 只影響「雜項（全團固定費用）」裡舊制「額外雜項金額」換算成台幣的匯率——
+     * 選了馬上生效 (畫面上是 onchange 自動送出, 不用按鈕)。跟 NP／團費成本計算式分開存, 不會互相干擾
+     * (以前這三個欄位是同一顆表單一起送、一起覆蓋, 現在畫面拆成兩顆各自獨立的表單, 後端也對應拆開,
+     * 避免「只想改幣別」卻不小心把已經填好的 NP／團費成本公式一起洗掉)。
      */
-    public void applyGroupTierFormulaSettings(int QID, String currency, BigDecimal miscValue,
-                                              String npFormula, String teamFormula) {
+    public void updateGroupTierCurrency(int QID, String currency) {
         Quotation quotation = quotationDAO.findById(QID);
         if (quotation == null) return;
         if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
@@ -562,6 +565,29 @@ public class QuotationService {
         if (tiers.isEmpty()) return;
 
         String normalizedCurrency = (currency == null || currency.isBlank()) ? "TWD" : currency.trim().toUpperCase();
+        for (QuotationGroupTier tier : tiers) {
+            tier.setCurrency(normalizedCurrency);
+            quotationGroupTierDAO.save(tier);
+        }
+        touchQuotation(quotation);
+    }
+
+    /**
+     * NP計算式／團費成本計算式: 一次套用到這張報價單「所有」人數級距, 不用一個個進去改。
+     * 公式欄位驗證比照markup公式建構器的規則 (存檔前用樣本數字跑一次), 格式錯誤直接丟例外讓 controller 擋下來,
+     * 不會存進一半、只有部分級距套用成功的情況。
+     * (幣別／額外雜項金額已經跟這個方法分開: 幣別改走 updateGroupTierCurrency(), 額外雜項金額的手動輸入欄位
+     * 已經從畫面上拿掉——雜項現在完全靠「報價項目明細」的全團固定項目自動加總, 舊資料裡如果本來就有存
+     * 手動填的金額, 值還在資料庫裡, 只是沒有畫面能再改了)。
+     */
+    public void applyGroupTierFormulaSettings(int QID, String npFormula, String teamFormula) {
+        Quotation quotation = quotationDAO.findById(QID);
+        if (quotation == null) return;
+        if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
+
+        List<QuotationGroupTier> tiers = quotationGroupTierDAO.findByQuotation(QID);
+        if (tiers.isEmpty()) return;
+
         String normalizedNpFormula = (npFormula == null || npFormula.isBlank()) ? null : npFormula.trim();
         String normalizedTeamFormula = (teamFormula == null || teamFormula.isBlank()) ? null : teamFormula.trim();
 
@@ -569,14 +595,14 @@ public class QuotationService {
         Map<String, BigDecimal> sample = new HashMap<>();
         sample.put("VARIABLE_COST", BigDecimal.valueOf(10000));
         sample.put("MISC", BigDecimal.valueOf(5000));
+        sample.put("FIXED_GROUP", BigDecimal.valueOf(5000));
+        sample.put("NET", BigDecimal.valueOf(10000));
         sample.put("BASIC_PRICE", BigDecimal.valueOf(12000));
         BigDecimal sampleNp = normalizedNpFormula != null ? FormulaEngine.evaluate(normalizedNpFormula, sample) : BigDecimal.valueOf(15000);
         sample.put("NP", sampleNp);
         if (normalizedTeamFormula != null) FormulaEngine.validate(normalizedTeamFormula, sample);
 
         for (QuotationGroupTier tier : tiers) {
-            tier.setCurrency(normalizedCurrency);
-            tier.setMiscValue(miscValue == null ? BigDecimal.ZERO : miscValue);
             tier.setNpFormula(normalizedNpFormula);
             tier.setTeamFormula(normalizedTeamFormula);
             quotationGroupTierDAO.save(tier);
@@ -605,8 +631,11 @@ public class QuotationService {
         BigDecimal basicPricePerPersonTwd = basicPriceTotal
                 .divide(BigDecimal.valueOf(Math.max(quotation.getGroupSize(), 1)), SCALE, RoundingMode.HALF_UP);
 
+        // 「NET」計算式變數: 每人 Net（原始牌價, 完全沒扣 FOC）, 跟每人變動成本同一個精神, 不分級距、所有級距共用
+        BigDecimal grossCostPerPersonTwd = calculateGrossCostPerPersonTwd(quotation, lines);
+
         for (QuotationGroupTier tier : tiers) {
-            applyGroupTierSnapshot(tier, quotation, lines, variableCostPerPersonTwd, basicPricePerPersonTwd);
+            applyGroupTierSnapshot(tier, quotation, lines, variableCostPerPersonTwd, basicPricePerPersonTwd, grossCostPerPersonTwd);
             quotationGroupTierDAO.save(tier);
         }
     }
@@ -626,7 +655,8 @@ public class QuotationService {
      *       {MISC} {BASIC_PRICE}（團費成本另外還多一個 {NP} 可用）。
      */
     private void applyGroupTierSnapshot(QuotationGroupTier tier, Quotation quotation, List<QuotationLine> lines,
-                                        BigDecimal variableCostPerPersonTwd, BigDecimal basicPricePerPersonTwd) {
+                                        BigDecimal variableCostPerPersonTwd, BigDecimal basicPricePerPersonTwd,
+                                        BigDecimal grossCostPerPersonTwd) {
         // ---------- (1) 舊算法: 總成本/每人成本/同業價/直售價/毛利率, 代表人數固定用級距下限 ----------
         int legacyHeadcount = Math.max(tier.getMinQty(), 1);
 
@@ -674,6 +704,8 @@ public class QuotationService {
         Map<String, BigDecimal> tierVars = new java.util.HashMap<>();
         tierVars.put("VARIABLE_COST", variableCostPerPersonTwd);
         tierVars.put("MISC", miscValueTwd);
+        tierVars.put("FIXED_GROUP", autoMiscTwd); // 只有自動加總的「全團固定」項目成本, 不含手動填的「額外雜項金額」(MISC 才含)
+        tierVars.put("NET", grossCostPerPersonTwd); // 每人 Net（原始牌價）, 跟 BASIC_PRICE/MISC 這些變數分開, 供 NP/團費成本計算式參考
         tierVars.put("BASIC_PRICE", basicPricePerPersonTwd);
 
         BigDecimal npResultTwd = evaluateLayer(tier.getNpFormula(), tierVars, () -> baseTwd.setScale(SCALE, RoundingMode.HALF_UP));
@@ -736,6 +768,20 @@ public class QuotationService {
                 .map(line -> nz(line.getNetCost()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return perPaxNetCostTotal
+                .divide(BigDecimal.valueOf(Math.max(quotation.getGroupSize(), 1)), SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 每人「NET」(台幣) —— 給 NP/團費成本計算式用的新變數, 跟 calculateVariableCostPerPersonTwd() 幾乎一樣的算法,
+     * 差別是這裡用 grossCost (Net, 原始牌價, 完全沒扣 FOC 折抵) 而不是 netCost (NNet, 已扣 FOC 的實際成本)。
+     * 只看「按人頭」項目, 加總後除以「目前團體人數」(不分級距、所有級距共用, 跟每人變動成本同一個精神)。
+     */
+    private BigDecimal calculateGrossCostPerPersonTwd(Quotation quotation, List<QuotationLine> lines) {
+        BigDecimal perPaxGrossCostTotal = lines.stream()
+                .filter(line -> !"FIXED_GROUP".equals(line.getCostType()))
+                .map(line -> nz(line.getGrossCost()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return perPaxGrossCostTotal
                 .divide(BigDecimal.valueOf(Math.max(quotation.getGroupSize(), 1)), SCALE, RoundingMode.HALF_UP);
     }
 
@@ -989,8 +1035,16 @@ public class QuotationService {
         quotationDAO.save(quotation);
         // 成本/加成設定/人數只要有變動, 整單的同業價/直售價都要重新算過, 分攤回每一列
         recalculateQuotationPricing(quotation);
-        // 人數級距報價結果也要跟著重新試算 (這次沒有一起改成疊加算法, 維持原本各自獨立的算法)
-        recalculateGroupTiers(quotation);
+        // 人數級距報價結果也要跟著重新試算 (這次沒有一起改成疊加算法, 維持原本各自獨立的算法)。
+        // 這裡刻意包一層 try/catch: 「新增報價項目」「編輯項目」這些操作的核心目的是動 quotation_line,
+        // 人數級距只是順便重算的「附加」功能——如果 quotation_group_tier 這張表有問題（例如新欄位的
+        // migration 還沒跑、欄位對不上），不應該讓這個附加計算的例外把整個「新增項目」操作一起打掉、
+        // 回傳 500 讓使用者以為新增失敗（但其實項目已經存進去了）。這裡失敗只記 log、不往外拋。
+        try {
+            recalculateGroupTiers(quotation);
+        } catch (RuntimeException e) {
+            LOGGER.error("重新試算人數級距報價結果失敗 (QID={})，本次異動的其他部分仍照常生效", quotation.getQID(), e);
+        }
     }
 
     // ------------------------------------------------------------
