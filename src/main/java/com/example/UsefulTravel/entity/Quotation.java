@@ -24,8 +24,24 @@ public class Quotation {
     @Column(name = "MSID")
     private Integer MSID;
 
+    // 基本報價／同業／直售加成與退傭設定的模式: "preset" = 套用 MSID 指到的「計算公式管理」已儲存規則
+    // (只影響同業/直售/退傭三層, 基本報價沒有對應的已儲存規則, 一律自己填); "custom" = 這張報價單自己填
+    // (沿用下面 custom_*_formula / *_markup_mode / *_markup_value 這幾組舊欄位)。
+    // 欄位本身沿用 migration_formula_pricing.sql 當時就建立好、DB 預設值是 'preset'、但一直沒接上畫面/邏輯的
+    // formula_mode —— 因為 MSID 過去從來沒有被設定過, 這裡讀出來就算是 'preset' 也一定要另外檢查
+    // MSID != null 才能真的套用已儲存規則, 否則舊資料 (MSID 一定是 null) 會被誤判成「已儲存規則」而算不出價錢,
+    // 詳見 QuotationService#resolveActivePreset()。
+    @Column(name = "formula_mode")
+    private String formulaMode = "preset";
+
     @Column(name = "group_size")
     private int groupSize = 1;
+
+    // 「整團人數級距報價結果」卡片的 NP／團費成本試算, 「雜項（全團固定費用）」要除以哪個代表人數:
+    // LOWER=級距下限(保守) / AVERAGE=級距平均值 / UPPER=級距上限(樂觀)。開放區間 (沒有上限) 沒有平均值/上限
+    // 可算, 一律退回用下限, 見 QuotationService#representativeHeadcountFor()。
+    @Column(name = "group_tier_headcount_mode")
+    private String groupTierHeadcountMode = "LOWER";
 
     // 完整鏈路 (需求文件最新版):
     //   Net 總成本 (原始牌價, 單價×數量) → NNet 總淨成本 (扣 FOC/折讓/返利)
@@ -125,8 +141,22 @@ public class Quotation {
     public Integer getMSID() { return MSID; }
     public void setMSID(Integer MSID) { this.MSID = MSID; }
 
+    public String getFormulaMode() { return formulaMode; }
+    public void setFormulaMode(String formulaMode) { this.formulaMode = formulaMode; }
+
+    // 「已儲存的」是不是真的生效中 —— 除了 formula_mode 要是 "preset", 還要真的有選一組規則 (MSID != null),
+    // 避免舊資料 (formula_mode 欄位 DB 預設值是 'preset', 但 MSID 一直是 null) 被誤判。畫面上的「已儲存的／自填」
+    // 切換鈕、QuotationService 的計算邏輯都共用這個判斷, 只寫一次避免兩邊邏輯兜不起來。
+    @Transient
+    public boolean isPresetFormulaModeActive() {
+        return "preset".equals(formulaMode) && MSID != null;
+    }
+
     public int getGroupSize() { return groupSize; }
     public void setGroupSize(int groupSize) { this.groupSize = groupSize; }
+
+    public String getGroupTierHeadcountMode() { return groupTierHeadcountMode; }
+    public void setGroupTierHeadcountMode(String groupTierHeadcountMode) { this.groupTierHeadcountMode = groupTierHeadcountMode; }
 
     public String getBasicMarkupMode() { return basicMarkupMode; }
     public void setBasicMarkupMode(String basicMarkupMode) { this.basicMarkupMode = basicMarkupMode; }

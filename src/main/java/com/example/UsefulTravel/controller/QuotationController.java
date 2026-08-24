@@ -2,6 +2,7 @@ package com.example.UsefulTravel.controller;
 
 import com.example.UsefulTravel.DAO.CurrencyDAO;
 import com.example.UsefulTravel.DAO.ItineraryDAO;
+import com.example.UsefulTravel.DAO.MarginSettingDAO;
 import com.example.UsefulTravel.DAO.TravelComponentDAO;
 import com.example.UsefulTravel.entity.Itinerary;
 import com.example.UsefulTravel.entity.ItineraryDay;
@@ -40,18 +41,20 @@ public class QuotationController {
     private final CurrencyDAO currencyDAO;
     private final TravelComponentDAO travelComponentDAO;
     private final PermissionService permissionService;
+    private final MarginSettingDAO marginSettingDAO;
 
     @Autowired
     public QuotationController(QuotationService quotationService, ItineraryDAO itineraryDAO,
-                                ItineraryService itineraryService,
-                                CurrencyDAO currencyDAO, TravelComponentDAO travelComponentDAO,
-                                PermissionService permissionService) {
+                               ItineraryService itineraryService,
+                               CurrencyDAO currencyDAO, TravelComponentDAO travelComponentDAO,
+                               PermissionService permissionService, MarginSettingDAO marginSettingDAO) {
         this.quotationService = quotationService;
         this.itineraryDAO = itineraryDAO;
         this.itineraryService = itineraryService;
         this.currencyDAO = currencyDAO;
         this.travelComponentDAO = travelComponentDAO;
         this.permissionService = permissionService;
+        this.marginSettingDAO = marginSettingDAO;
     }
 
     /** 報價相關的寫入動作 (新增版本/新增明細/上鎖/確認...) 都要有「製作/調整報價」權限 (ADMIN 或 QUOTER)。 */
@@ -78,8 +81,8 @@ public class QuotationController {
     // 同業/直售加成跟退傭%的初始值改成直接帶入同一個行程上一版報價單的數字, 不再需要選「加成規則」範本
     @PostMapping("/itinerary/{id}/quotations/new")
     public String create(@PathVariable("id") int ITID,
-                          @RequestParam(defaultValue = "1") int groupSize,
-                          HttpSession session) {
+                         @RequestParam(defaultValue = "1") int groupSize,
+                         HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null) return "redirect:/login";
@@ -169,10 +172,10 @@ public class QuotationController {
     // POST /quotation/{qid}/quick-edit/items/{iiid}/price → 幫某個景點/餐廳/飯店項目填價錢
     @PostMapping("/quotation/{qid}/quick-edit/items/{iiid}/price")
     public ResponseEntity<String> updateItemPrice(@PathVariable("qid") int QID, @PathVariable("iiid") int IIID,
-                                   @RequestParam String itemName,
-                                   @RequestParam(defaultValue = "other") String category,
-                                   @RequestParam BigDecimal unitPrice,
-                                   HttpSession session) {
+                                                  @RequestParam String itemName,
+                                                  @RequestParam(defaultValue = "other") String category,
+                                                  @RequestParam BigDecimal unitPrice,
+                                                  HttpSession session) {
         if (session.getAttribute("AID") == null) return ResponseEntity.status(401).body("尚未登入");
         if (!canQuote(session)) return ResponseEntity.status(403).body("沒有報價權限");
         try {
@@ -215,6 +218,8 @@ public class QuotationController {
         model.addAttribute("currencies", currencyDAO.findAvailable(AID));
         model.addAttribute("components", travelComponentDAO.findByAgency(AID));
         model.addAttribute("priceTierTemplates", quotationService.listTemplates(AID));
+        // 「基本報價／同業／直售加成與退傭設定」卡片「已儲存的」選項用: 這間旅行社在「計算公式管理」存的規則清單
+        model.addAttribute("marginSettings", marginSettingDAO.findByAgency(AID));
 
         // 每一筆明細各自的級距清單, 給畫面上「這個項目有沒有設定區間價錢」用
         Map<Integer, List<com.example.UsefulTravel.entity.QuotationLineTier>> tiersByLine = new LinkedHashMap<>();
@@ -235,9 +240,9 @@ public class QuotationController {
     // POST /quotation/{qid}/settings → 調整團體人數 / 有效期限 (會觸發整張報價單重新計算 FOC)
     @PostMapping("/quotation/{qid}/settings")
     public String updateSettings(@PathVariable("qid") int QID,
-                                  @RequestParam int groupSize,
-                                  @RequestParam(required = false) String expiresAt,
-                                  HttpSession session) {
+                                 @RequestParam int groupSize,
+                                 @RequestParam(required = false) String expiresAt,
+                                 HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
@@ -255,20 +260,20 @@ public class QuotationController {
     // POST /quotation/{qid}/lines → 手動新增一筆報價項目
     @PostMapping("/quotation/{qid}/lines")
     public String addLine(@PathVariable("qid") int QID,
-                           @RequestParam(required = false) Integer componentId,
-                           @RequestParam String itemName,
-                           @RequestParam(defaultValue = "other") String category,
-                           @RequestParam(defaultValue = "PER_PAX") String costType,
-                           @RequestParam(defaultValue = "TWD") String currencyCode,
-                           @RequestParam BigDecimal unitPrice,
-                           @RequestParam(defaultValue = "1") int quantity,
-                           @RequestParam(required = false, defaultValue = "0") BigDecimal fuelSurcharge,
-                           @RequestParam(required = false, defaultValue = "0") BigDecimal taxAmount,
-                           @RequestParam(required = false, defaultValue = "0") int focRatio,
-                           @RequestParam(required = false, defaultValue = "true") boolean refundable,
-                           @RequestParam(required = false) String note,
-                           @RequestParam(required = false, defaultValue = "edit") String back,
-                           HttpSession session) {
+                          @RequestParam(required = false) Integer componentId,
+                          @RequestParam String itemName,
+                          @RequestParam(defaultValue = "other") String category,
+                          @RequestParam(defaultValue = "PER_PAX") String costType,
+                          @RequestParam(defaultValue = "TWD") String currencyCode,
+                          @RequestParam BigDecimal unitPrice,
+                          @RequestParam(defaultValue = "1") int quantity,
+                          @RequestParam(required = false, defaultValue = "0") BigDecimal fuelSurcharge,
+                          @RequestParam(required = false, defaultValue = "0") BigDecimal taxAmount,
+                          @RequestParam(required = false, defaultValue = "0") int focRatio,
+                          @RequestParam(required = false, defaultValue = "true") boolean refundable,
+                          @RequestParam(required = false) String note,
+                          @RequestParam(required = false, defaultValue = "edit") String back,
+                          HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return redirectBack(QID, back);
 
@@ -280,11 +285,11 @@ public class QuotationController {
     // POST /quotation/{qid}/lines/from-component → 從元件庫快速掛一筆 (帶入元件的預設單價/幣別)
     @PostMapping("/quotation/{qid}/lines/from-component")
     public String addLineFromComponent(@PathVariable("qid") int QID,
-                                        @RequestParam int componentId,
-                                        @RequestParam(defaultValue = "1") int quantity,
-                                        @RequestParam(required = false, defaultValue = "0") int focRatio,
-                                        @RequestParam(required = false) String note,
-                                        HttpSession session) {
+                                       @RequestParam int componentId,
+                                       @RequestParam(defaultValue = "1") int quantity,
+                                       @RequestParam(required = false, defaultValue = "0") int focRatio,
+                                       @RequestParam(required = false) String note,
+                                       HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
 
@@ -295,19 +300,19 @@ public class QuotationController {
     // POST /quotation/{qid}/lines/{qlid}/update → 編輯報價項目
     @PostMapping("/quotation/{qid}/lines/{qlid}/update")
     public String updateLine(@PathVariable("qid") int QID,
-                              @PathVariable("qlid") int QLID,
-                              @RequestParam String itemName,
-                              @RequestParam(defaultValue = "other") String category,
-                              @RequestParam(defaultValue = "PER_PAX") String costType,
-                              @RequestParam(defaultValue = "TWD") String currencyCode,
-                              @RequestParam BigDecimal unitPrice,
-                              @RequestParam(defaultValue = "1") int quantity,
-                              @RequestParam(required = false, defaultValue = "0") BigDecimal fuelSurcharge,
-                              @RequestParam(required = false, defaultValue = "0") BigDecimal taxAmount,
-                              @RequestParam(required = false, defaultValue = "0") int focRatio,
-                              @RequestParam(required = false, defaultValue = "true") boolean refundable,
-                              @RequestParam(required = false) String note,
-                              HttpSession session) {
+                             @PathVariable("qlid") int QLID,
+                             @RequestParam String itemName,
+                             @RequestParam(defaultValue = "other") String category,
+                             @RequestParam(defaultValue = "PER_PAX") String costType,
+                             @RequestParam(defaultValue = "TWD") String currencyCode,
+                             @RequestParam BigDecimal unitPrice,
+                             @RequestParam(defaultValue = "1") int quantity,
+                             @RequestParam(required = false, defaultValue = "0") BigDecimal fuelSurcharge,
+                             @RequestParam(required = false, defaultValue = "0") BigDecimal taxAmount,
+                             @RequestParam(required = false, defaultValue = "0") int focRatio,
+                             @RequestParam(required = false, defaultValue = "true") boolean refundable,
+                             @RequestParam(required = false) String note,
+                             HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
 
@@ -319,8 +324,8 @@ public class QuotationController {
     // POST /quotation/{qid}/lines/{qlid}/delete
     @PostMapping("/quotation/{qid}/lines/{qlid}/delete")
     public String deleteLine(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
-                              @RequestParam(required = false, defaultValue = "edit") String back,
-                              HttpSession session) {
+                             @RequestParam(required = false, defaultValue = "edit") String back,
+                             HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return redirectBack(QID, back);
         quotationService.deleteLine(QLID);
@@ -377,10 +382,10 @@ public class QuotationController {
     // POST /quotation/{qid}/lines/{qlid}/tiers → 新增一條級距 (min~max 對應價錢)
     @PostMapping("/quotation/{qid}/lines/{qlid}/tiers")
     public String addTier(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
-                           @RequestParam int minQty,
-                           @RequestParam(required = false) Integer maxQty,
-                           @RequestParam BigDecimal price,
-                           HttpSession session) {
+                          @RequestParam int minQty,
+                          @RequestParam(required = false) Integer maxQty,
+                          @RequestParam BigDecimal price,
+                          HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
         quotationService.addTier(QLID, minQty, maxQty, price);
@@ -390,17 +395,42 @@ public class QuotationController {
     // POST /quotation/{qid}/lines/{qlid}/tiers/{qltid}/delete
     @PostMapping("/quotation/{qid}/lines/{qlid}/tiers/{qltid}/delete")
     public String deleteTier(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
-                              @PathVariable("qltid") int QLTID, HttpSession session) {
+                             @PathVariable("qltid") int QLTID, HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
         quotationService.deleteTier(QLTID);
         return "redirect:/quotation/" + QID;
     }
 
+    // POST /quotation/{qid}/lines/{qlid}/tiers/{qltid}/update → 編輯一條既有的級距 (下限/上限/價錢)
+    @PostMapping("/quotation/{qid}/lines/{qlid}/tiers/{qltid}/update")
+    public String updateTier(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
+                             @PathVariable("qltid") int QLTID,
+                             @RequestParam int minQty,
+                             @RequestParam(required = false) Integer maxQty,
+                             @RequestParam BigDecimal price,
+                             HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.updateTier(QLTID, minQty, maxQty, price);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/lines/{qlid}/tier-managed → 勾選/取消「這個項目要不要出現在區間價錢管理卡片」
+    @PostMapping("/quotation/{qid}/lines/{qlid}/tier-managed")
+    public String updateLineTierManaged(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
+                                        @RequestParam(required = false, defaultValue = "false") boolean tierManaged,
+                                        HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.updateLineTierManaged(QLID, tierManaged);
+        return "redirect:/quotation/" + QID;
+    }
+
     // POST /quotation/{qid}/lines/{qlid}/tiers/save-template → 把這個項目目前的級距存成範本
     @PostMapping("/quotation/{qid}/lines/{qlid}/tiers/save-template")
     public ResponseEntity<String> saveTierTemplate(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
-                                    @RequestParam String templateName, HttpSession session) {
+                                                   @RequestParam String templateName, HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null) return ResponseEntity.status(401).body("尚未登入");
@@ -417,7 +447,7 @@ public class QuotationController {
     // POST /quotation/{qid}/lines/{qlid}/tiers/apply-template → 套用一組已存的範本 (整組取代原本的級距)
     @PostMapping("/quotation/{qid}/lines/{qlid}/tiers/apply-template")
     public String applyTierTemplate(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
-                                     @RequestParam int templateId, HttpSession session) {
+                                    @RequestParam int templateId, HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
         quotationService.applyTemplateToLine(QLID, templateId);
@@ -432,22 +462,28 @@ public class QuotationController {
     // 用 flash 訊息帶回錯誤原因 (這顆表單畫面上有標記 data-full-redirect, 是整頁換頁而不是 AJAX 局部刷新, flash 訊息才顯示得出來)。
     @PostMapping("/quotation/{qid}/markup")
     public String updateMarkup(@PathVariable("qid") int QID,
-                                @RequestParam(required = false) String basicMarkupMode,
-                                @RequestParam(required = false) java.math.BigDecimal basicMarkupValue,
-                                @RequestParam(required = false) String tradeMarkupMode,
-                                @RequestParam(required = false) java.math.BigDecimal tradeMarkupValue,
-                                @RequestParam(required = false) String retailMarkupMode,
-                                @RequestParam(required = false) java.math.BigDecimal retailMarkupValue,
-                                @RequestParam(required = false) String rebateMode,
-                                @RequestParam(required = false) java.math.BigDecimal rebatePct,
-                                @RequestParam(required = false) String basicFormula,
-                                @RequestParam(required = false) String tradeFormula,
-                                @RequestParam(required = false) String retailFormula,
-                                @RequestParam(required = false) String rebateFormula,
-                                HttpSession session, RedirectAttributes redirectAttributes) {
+                               @RequestParam(required = false) String basicMarkupMode,
+                               @RequestParam(required = false) java.math.BigDecimal basicMarkupValue,
+                               @RequestParam(required = false) String tradeMarkupMode,
+                               @RequestParam(required = false) java.math.BigDecimal tradeMarkupValue,
+                               @RequestParam(required = false) String retailMarkupMode,
+                               @RequestParam(required = false) java.math.BigDecimal retailMarkupValue,
+                               @RequestParam(required = false) String rebateMode,
+                               @RequestParam(required = false) java.math.BigDecimal rebatePct,
+                               @RequestParam(required = false) String basicFormula,
+                               @RequestParam(required = false) String tradeFormula,
+                               @RequestParam(required = false) String retailFormula,
+                               @RequestParam(required = false) String rebateFormula,
+                               @RequestParam(required = false) String formulaMode,
+                               @RequestParam(required = false) Integer marginSettingId,
+                               HttpSession session, RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
 
+        // 「已儲存的」模式下, 同業/直售/退傭三層改成套用選定的 MarginSetting, 不驗證這次表單一起送過來的
+        // trade/retail/rebate 公式欄位 (這三個 dropzone 在「已儲存的」模式下畫面上是隱藏的, 內容視同沒填);
+        // 基本報價欄位不受影響, 一律照舊驗證。
+        boolean presetMode = "preset".equals(formulaMode);
         try {
             Map<String, BigDecimal> sample = new HashMap<>();
             sample.put("NET_COST", BigDecimal.valueOf(100000));
@@ -455,13 +491,15 @@ public class QuotationController {
             BigDecimal sampleBasic = (basicFormula != null && !basicFormula.isBlank())
                     ? FormulaEngine.evaluate(basicFormula, sample) : sample.get("NET_COST");
             sample.put("BASIC_PRICE", sampleBasic);
-            BigDecimal sampleTrade = (tradeFormula != null && !tradeFormula.isBlank())
-                    ? FormulaEngine.evaluate(tradeFormula, sample) : sampleBasic;
-            sample.put("TRADE_PRICE", sampleTrade);
-            BigDecimal sampleRetail = (retailFormula != null && !retailFormula.isBlank())
-                    ? FormulaEngine.evaluate(retailFormula, sample) : sampleTrade;
-            sample.put("RETAIL_PRICE", sampleRetail);
-            if (rebateFormula != null && !rebateFormula.isBlank()) FormulaEngine.validate(rebateFormula, sample);
+            if (!presetMode) {
+                BigDecimal sampleTrade = (tradeFormula != null && !tradeFormula.isBlank())
+                        ? FormulaEngine.evaluate(tradeFormula, sample) : sampleBasic;
+                sample.put("TRADE_PRICE", sampleTrade);
+                BigDecimal sampleRetail = (retailFormula != null && !retailFormula.isBlank())
+                        ? FormulaEngine.evaluate(retailFormula, sample) : sampleTrade;
+                sample.put("RETAIL_PRICE", sampleRetail);
+                if (rebateFormula != null && !rebateFormula.isBlank()) FormulaEngine.validate(rebateFormula, sample);
+            }
         } catch (FormulaEngine.FormulaException e) {
             redirectAttributes.addFlashAttribute("quotationError", "公式有誤：" + e.getMessage());
             return "redirect:/quotation/" + QID;
@@ -469,7 +507,8 @@ public class QuotationController {
 
         quotationService.updateMarkupSettings(QID, basicMarkupMode, basicMarkupValue,
                 tradeMarkupMode, tradeMarkupValue, retailMarkupMode, retailMarkupValue, rebateMode, rebatePct,
-                basicFormula, tradeFormula, retailFormula, rebateFormula);
+                basicFormula, presetMode ? null : tradeFormula, presetMode ? null : retailFormula,
+                presetMode ? null : rebateFormula, formulaMode, marginSettingId);
         return "redirect:/quotation/" + QID;
     }
 
@@ -480,9 +519,9 @@ public class QuotationController {
     // POST /quotation/{qid}/group-tiers → 新增一個人數級距, 金額不用填, 系統依現有成本自動試算
     @PostMapping("/quotation/{qid}/group-tiers")
     public String addGroupTier(@PathVariable("qid") int QID,
-                                @RequestParam int minQty,
-                                @RequestParam(required = false) Integer maxQty,
-                                HttpSession session) {
+                               @RequestParam int minQty,
+                               @RequestParam(required = false) Integer maxQty,
+                               HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
         quotationService.addGroupTier(QID, minQty, maxQty);
@@ -492,10 +531,40 @@ public class QuotationController {
     // POST /quotation/{qid}/group-tiers/{qgtid}/delete
     @PostMapping("/quotation/{qid}/group-tiers/{qgtid}/delete")
     public String deleteGroupTier(@PathVariable("qid") int QID, @PathVariable("qgtid") int QGTID,
-                                   HttpSession session) {
+                                  HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
         quotationService.deleteGroupTier(QGTID);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/group-tiers/headcount-mode → 「雜項的固定成本除以級距的」下限/平均/上限人數切換
+    @PostMapping("/quotation/{qid}/group-tiers/headcount-mode")
+    public String updateGroupTierHeadcountMode(@PathVariable("qid") int QID,
+                                               @RequestParam String mode,
+                                               HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        quotationService.updateGroupTierHeadcountMode(QID, mode);
+        return "redirect:/quotation/" + QID;
+    }
+
+    // POST /quotation/{qid}/group-tiers/apply-all → 幣別/額外雜項金額/NP計算式/團費成本計算式,
+    // 一次套用到「所有」人數級距 (不用一個個進去改)。公式欄位存檔前先驗證格式, 跟markup公式建構器同一套規則。
+    @PostMapping("/quotation/{qid}/group-tiers/apply-all")
+    public String applyGroupTierFormulaSettings(@PathVariable("qid") int QID,
+                                                @RequestParam(required = false) String currency,
+                                                @RequestParam(required = false) BigDecimal miscValue,
+                                                @RequestParam(required = false) String npFormula,
+                                                @RequestParam(required = false) String teamFormula,
+                                                HttpSession session, RedirectAttributes redirectAttributes) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        try {
+            quotationService.applyGroupTierFormulaSettings(QID, currency, miscValue, npFormula, teamFormula);
+        } catch (FormulaEngine.FormulaException e) {
+            redirectAttributes.addFlashAttribute("quotationError", "計算式有誤：" + e.getMessage());
+        }
         return "redirect:/quotation/" + QID;
     }
 }

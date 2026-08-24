@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,13 +41,14 @@ public class QuotationService {
     private final PriceTierTemplateDAO priceTierTemplateDAO;
     private final PriceTierTemplateRowDAO priceTierTemplateRowDAO;
     private final QuotationGroupTierDAO quotationGroupTierDAO;
+    private final MarginSettingDAO marginSettingDAO;
 
     @Autowired
     public QuotationService(QuotationDAO quotationDAO, QuotationLineDAO quotationLineDAO,
-                             CurrencyDAO currencyDAO,
-                             TravelComponentDAO travelComponentDAO, QuotationLineTierDAO quotationLineTierDAO,
-                             PriceTierTemplateDAO priceTierTemplateDAO, PriceTierTemplateRowDAO priceTierTemplateRowDAO,
-                             QuotationGroupTierDAO quotationGroupTierDAO) {
+                            CurrencyDAO currencyDAO,
+                            TravelComponentDAO travelComponentDAO, QuotationLineTierDAO quotationLineTierDAO,
+                            PriceTierTemplateDAO priceTierTemplateDAO, PriceTierTemplateRowDAO priceTierTemplateRowDAO,
+                            QuotationGroupTierDAO quotationGroupTierDAO, MarginSettingDAO marginSettingDAO) {
         this.quotationDAO = quotationDAO;
         this.quotationLineDAO = quotationLineDAO;
         this.currencyDAO = currencyDAO;
@@ -55,6 +57,7 @@ public class QuotationService {
         this.priceTierTemplateDAO = priceTierTemplateDAO;
         this.priceTierTemplateRowDAO = priceTierTemplateRowDAO;
         this.quotationGroupTierDAO = quotationGroupTierDAO;
+        this.marginSettingDAO = marginSettingDAO;
     }
 
     // ------------------------------------------------------------
@@ -153,9 +156,9 @@ public class QuotationService {
      * 當作初始值 (前端仍可覆寫)。加入後立刻套用計算引擎算出淨成本/同業價/直售價/利潤並存檔。
      */
     public QuotationLine addLine(int QID, Integer CPID, String itemName, String category, String costType,
-                                  String currencyCode, BigDecimal unitPrice, int quantity,
-                                  BigDecimal fuelSurcharge, BigDecimal taxAmount,
-                                  int focRatio, Boolean refundable, String note) {
+                                 String currencyCode, BigDecimal unitPrice, int quantity,
+                                 BigDecimal fuelSurcharge, BigDecimal taxAmount,
+                                 int focRatio, Boolean refundable, String note) {
         Quotation quotation = quotationDAO.findById(QID);
         if (quotation == null) throw new IllegalArgumentException("報價單不存在");
         if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
@@ -207,8 +210,8 @@ public class QuotationService {
     }
 
     public void updateLine(int QLID, String itemName, String category, String costType, String currencyCode,
-                            BigDecimal unitPrice, int quantity, BigDecimal fuelSurcharge, BigDecimal taxAmount,
-                            int focRatio, boolean refundable, String note) {
+                           BigDecimal unitPrice, int quantity, BigDecimal fuelSurcharge, BigDecimal taxAmount,
+                           int focRatio, boolean refundable, String note) {
         QuotationLine line = quotationLineDAO.findById(QLID);
         if (line == null) throw new IllegalArgumentException("找不到報價項目");
         Quotation quotation = quotationDAO.findById(line.getQID());
@@ -316,13 +319,20 @@ public class QuotationService {
      * 每張報價單獨立設定, 不依賴加成規則範本。mode 只接受 "PERCENT" 或 "AMOUNT", 其他值一律視為 PERCENT。
      * 每一組 mode/value 都是可選的 (null = 這次不改這一層)。
      * 公式參數是空字串代表「清空這一層的公式, 改回沿用上面的舊制 mode/value 當 fallback」; null 代表這次不動這一層的公式。
+     *
+     * formulaMode/marginSettingId: 「已儲存的／自填」切換——formulaMode="preset" 且 marginSettingId 有效時,
+     * 同業/直售/退傭三層改成套用該筆「計算公式管理」規則 (MarginSetting), 不再吃這張報價單自己的
+     * trade/retail/rebate 那幾組欄位 (但欄位本身不會被清掉, 只是暫時不生效, 之後改回「自填」就會繼續沿用)。
+     * 基本報價沒有對應的已儲存規則, 不受這個切換影響, 一律用這張報價單自己的 basicMarkupMode/Value
+     * 或 customBasicFormula。formulaMode 傳 null 代表這次不改切換狀態。
      */
     public void updateMarkupSettings(int QID, String basicMarkupMode, BigDecimal basicMarkupValue,
-                                      String tradeMarkupMode, BigDecimal tradeMarkupValue,
-                                      String retailMarkupMode, BigDecimal retailMarkupValue,
-                                      String rebateMode, BigDecimal rebatePct,
-                                      String basicFormula, String tradeFormula,
-                                      String retailFormula, String rebateFormula) {
+                                     String tradeMarkupMode, BigDecimal tradeMarkupValue,
+                                     String retailMarkupMode, BigDecimal retailMarkupValue,
+                                     String rebateMode, BigDecimal rebatePct,
+                                     String basicFormula, String tradeFormula,
+                                     String retailFormula, String rebateFormula,
+                                     String formulaMode, Integer marginSettingId) {
         Quotation quotation = quotationDAO.findById(QID);
         if (quotation == null) return;
         if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
@@ -348,8 +358,33 @@ public class QuotationService {
         if (retailFormula != null) quotation.setCustomRetailFormula(retailFormula.isBlank() ? null : retailFormula.trim());
         if (rebateFormula != null) quotation.setCustomRebateFormula(rebateFormula.isBlank() ? null : rebateFormula.trim());
 
+        if ("preset".equals(formulaMode)) {
+            // 選「已儲存的」但沒選規則、或選了別間旅行社的規則 (被竄改的表單參數), 一律當作沒有真的生效,
+            // 沿用 Quotation.isPresetFormulaModeActive() 同一套「formula_mode=preset 但 MSID=null 就當自填」的容錯規則,
+            // 不擋下整次儲存, 只是這次「已儲存的」選不成功而已。
+            MarginSetting picked = marginSettingId != null ? marginSettingDAO.findById(marginSettingId) : null;
+            if (picked != null && picked.getAID() == quotation.getAID()) {
+                quotation.setMSID(picked.getMSID());
+            } else {
+                quotation.setMSID(null);
+            }
+            quotation.setFormulaMode("preset");
+        } else if ("custom".equals(formulaMode)) {
+            quotation.setFormulaMode("custom");
+        }
+        // formulaMode 是其他值 (含 null) 代表這次沒有要改切換狀態, 維持原本存的 formula_mode/MSID 不動
+
         quotationDAO.save(quotation);
         recalculateAll(QID);
+    }
+
+    /**
+     * 「已儲存的／自填」切換真正生效時 (quotation.isPresetFormulaModeActive()), 找出對應的 MarginSetting；
+     * 沒生效 (自填, 或選了已儲存但規則被刪掉了) 就回傳 null, 呼叫端統一 fallback 回這張報價單自己的欄位。
+     */
+    private MarginSetting resolveActivePreset(Quotation quotation) {
+        if (!quotation.isPresetFormulaModeActive()) return null;
+        return marginSettingDAO.findById(quotation.getMSID());
     }
 
     // ------------------------------------------------------------
@@ -391,6 +426,36 @@ public class QuotationService {
             quotationLineDAO.save(line);
             touchQuotation(quotation);
         }
+    }
+
+    /** 編輯一條既有的級距 (下限/上限/價錢)。 */
+    public void updateTier(int QLTID, int minQty, Integer maxQty, BigDecimal price) {
+        QuotationLineTier tier = quotationLineTierDAO.findById(QLTID);
+        if (tier == null) throw new IllegalArgumentException("找不到這條級距");
+        QuotationLine line = quotationLineDAO.findById(tier.getQLID());
+        if (line == null) throw new IllegalArgumentException("找不到報價項目");
+        Quotation quotation = quotationDAO.findById(line.getQID());
+        if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
+
+        tier.setMinQty(minQty);
+        tier.setMaxQty(maxQty);
+        tier.setPrice(price == null ? BigDecimal.ZERO : price);
+        quotationLineTierDAO.save(tier);
+
+        recalculateLine(line, quotation);
+        quotationLineDAO.save(line);
+        touchQuotation(quotation);
+    }
+
+    /** 「區間價錢管理」卡片是否顯示這個項目——單純畫面篩選用的 flag, 跟這個項目本身有沒有級距資料是分開的。 */
+    public void updateLineTierManaged(int QLID, boolean tierManaged) {
+        QuotationLine line = quotationLineDAO.findById(QLID);
+        if (line == null) return;
+        Quotation quotation = quotationDAO.findById(line.getQID());
+        if (quotation != null && !quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
+        line.setTierManaged(tierManaged);
+        quotationLineDAO.save(line);
+        // 純粹是顯示用的 flag, 不影響任何金額計算, 不需要觸發 touchQuotation() 整單重算
     }
 
     /** 把某個項目目前的級距整組存成範本, 之後開新報價單可以直接套用, 不用每次重新輸入。 */
@@ -472,6 +537,53 @@ public class QuotationService {
         if (quotation != null) touchQuotation(quotation);
     }
 
+    /** 「雜項的固定成本除以級距的」下限/平均/上限人數切換, 全部級距共用同一個設定 (掛在報價單上, 不是掛在單一級距)。 */
+    public void updateGroupTierHeadcountMode(int QID, String mode) {
+        Quotation quotation = quotationDAO.findById(QID);
+        if (quotation == null) return;
+        if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
+        quotation.setGroupTierHeadcountMode(("AVERAGE".equals(mode) || "UPPER".equals(mode)) ? mode : "LOWER");
+        quotationDAO.save(quotation);
+        touchQuotation(quotation);
+    }
+
+    /**
+     * 幣別／額外雜項金額／NP計算式／團費成本計算式: 一次套用到這張報價單「所有」人數級距, 不用一個個進去改。
+     * 公式欄位驗證比照markup公式建構器的規則 (存檔前用樣本數字跑一次), 格式錯誤直接丟例外讓 controller 擋下來,
+     * 不會存進一半、只有部分級距套用成功的情況。
+     */
+    public void applyGroupTierFormulaSettings(int QID, String currency, BigDecimal miscValue,
+                                              String npFormula, String teamFormula) {
+        Quotation quotation = quotationDAO.findById(QID);
+        if (quotation == null) return;
+        if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
+
+        List<QuotationGroupTier> tiers = quotationGroupTierDAO.findByQuotation(QID);
+        if (tiers.isEmpty()) return;
+
+        String normalizedCurrency = (currency == null || currency.isBlank()) ? "TWD" : currency.trim().toUpperCase();
+        String normalizedNpFormula = (npFormula == null || npFormula.isBlank()) ? null : npFormula.trim();
+        String normalizedTeamFormula = (teamFormula == null || teamFormula.isBlank()) ? null : teamFormula.trim();
+
+        // 存檔前先用樣本數字驗證兩條公式格式合不合法 (格式錯就整批擋下來, 不會有部分級距套用成功、部分沒套到)
+        Map<String, BigDecimal> sample = new HashMap<>();
+        sample.put("VARIABLE_COST", BigDecimal.valueOf(10000));
+        sample.put("MISC", BigDecimal.valueOf(5000));
+        sample.put("BASIC_PRICE", BigDecimal.valueOf(12000));
+        BigDecimal sampleNp = normalizedNpFormula != null ? FormulaEngine.evaluate(normalizedNpFormula, sample) : BigDecimal.valueOf(15000);
+        sample.put("NP", sampleNp);
+        if (normalizedTeamFormula != null) FormulaEngine.validate(normalizedTeamFormula, sample);
+
+        for (QuotationGroupTier tier : tiers) {
+            tier.setCurrency(normalizedCurrency);
+            tier.setMiscValue(miscValue == null ? BigDecimal.ZERO : miscValue);
+            tier.setNpFormula(normalizedNpFormula);
+            tier.setTeamFormula(normalizedTeamFormula);
+            quotationGroupTierDAO.save(tier);
+        }
+        touchQuotation(quotation);
+    }
+
     /**
      * 重新計算這張報價單底下「所有」人數級距的結果快照。
      * 在 touchQuotation() 裡統一呼叫, 只要報價單的成本/加成設定/人數有任何變動,
@@ -483,32 +595,57 @@ public class QuotationService {
 
         List<QuotationLine> lines = quotationLineDAO.findByQuotation(quotation.getQID());
 
+        // 每人變動成本「不分級距、每個級距共用同一個值」, 只需要算一次, 不用放進迴圈裡每個級距重算一次
+        BigDecimal variableCostPerPersonTwd = calculateVariableCostPerPersonTwd(quotation, lines);
+        // 基本報價「每人」(用整單目前團體人數換算, 不分級距——跟每人變動成本同一個精神): 這張報價單目前的
+        // 基本報價總額 (由 recalculateQuotationPricing() 分攤回每一列的 basicPrice 加總回來) 除以目前團體人數。
+        // touchQuotation() 保證 recalculateQuotationPricing() 一定先跑過才會跑到這裡, 所以這裡讀到的
+        // line.getBasicPrice() 一定是最新的。
+        BigDecimal basicPriceTotal = lines.stream().map(line -> nz(line.getBasicPrice())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal basicPricePerPersonTwd = basicPriceTotal
+                .divide(BigDecimal.valueOf(Math.max(quotation.getGroupSize(), 1)), SCALE, RoundingMode.HALF_UP);
+
         for (QuotationGroupTier tier : tiers) {
-            applyGroupTierSnapshot(tier, quotation, lines);
+            applyGroupTierSnapshot(tier, quotation, lines, variableCostPerPersonTwd, basicPricePerPersonTwd);
             quotationGroupTierDAO.save(tier);
         }
     }
 
     /**
-     * 算出單一個人數級距的結果, 寫回 tier 物件的快照欄位。
-     * 代表人數 = 級距下限 (min_qty) —— 保守作法, 就算真的只湊到下限人數, 固定成本也要 cover 得住。
-     * 同業/直售加成直接沿用這張報價單自己的設定 (跟「同業／直售加成設定」卡片同一組數字),
-     * 這裡維持「各自獨立從成本算」的舊算法, 沒有跟著改成疊加式。
+     * 算出單一個人數級距的結果, 寫回 tier 物件的快照欄位。這裡其實是兩組互相獨立、並存的算法:
+     *
+     *   (1) 總成本／每人成本／同業價（每人）／直售價（每人）／毛利率 —— 舊算法, 代表人數固定用「級距下限」
+     *       (保守估算), 同業/直售加成直接乘這張報價單 (或套用中的已儲存規則) 的加成%, 沒有經過「基本報價」
+     *       這一層, 純供級距試算參考。
+     *   (2) 雜項（全團固定費用）／NP／團費成本 —— 對照供應商報價單常見算法的新算法：
+     *       代表人數依 quotation.groupTierHeadcountMode (下限/平均/上限, 開放區間一律退回下限) 決定；
+     *       雜項＝這個代表人數下「全團固定」項目的成本加總（換算台幣, 如果項目有掛區間價錢會依代表人數自動
+     *       判斷單價）＋手動填的「額外雜項金額」換算成台幣；
+     *       NP＝（每人變動成本＋雜項）套用 NP 計算式 (留空＝不調整, 直接等於這個和)；
+     *       團費成本＝同一個基礎套用團費成本計算式 (留空＝直接等於 NP)，計算式可以引用 {VARIABLE_COST}
+     *       {MISC} {BASIC_PRICE}（團費成本另外還多一個 {NP} 可用）。
      */
-    private void applyGroupTierSnapshot(QuotationGroupTier tier, Quotation quotation, List<QuotationLine> lines) {
-        int representativeHeadcount = Math.max(tier.getMinQty(), 1);
+    private void applyGroupTierSnapshot(QuotationGroupTier tier, Quotation quotation, List<QuotationLine> lines,
+                                        BigDecimal variableCostPerPersonTwd, BigDecimal basicPricePerPersonTwd) {
+        // ---------- (1) 舊算法: 總成本/每人成本/同業價/直售價/毛利率, 代表人數固定用級距下限 ----------
+        int legacyHeadcount = Math.max(tier.getMinQty(), 1);
 
-        BigDecimal totalNetCost = calculateTotalNetCostForHeadcount(quotation, lines, representativeHeadcount);
+        BigDecimal totalNetCost = calculateTotalNetCostForHeadcount(quotation, lines, legacyHeadcount);
         tier.setTotalNetCost(totalNetCost);
 
         BigDecimal netCostPerPax = totalNetCost
-                .divide(BigDecimal.valueOf(representativeHeadcount), SCALE, RoundingMode.HALF_UP);
+                .divide(BigDecimal.valueOf(legacyHeadcount), SCALE, RoundingMode.HALF_UP);
         tier.setNetCostPerPax(netCostPerPax);
 
-        BigDecimal tradePricePerPax = applyMarkup(netCostPerPax, quotation.getTradeMarkupMode(), quotation.getTradeMarkupValue());
+        MarginSetting preset = resolveActivePreset(quotation);
+        BigDecimal tradePricePerPax = preset != null
+                ? applyMarkup(netCostPerPax, "PERCENT", preset.getTradeMarkupPct())
+                : applyMarkup(netCostPerPax, quotation.getTradeMarkupMode(), quotation.getTradeMarkupValue());
         tier.setTradePricePerPax(tradePricePerPax);
 
-        BigDecimal retailPricePerPax = applyMarkup(netCostPerPax, quotation.getRetailMarkupMode(), quotation.getRetailMarkupValue());
+        BigDecimal retailPricePerPax = preset != null
+                ? applyMarkup(netCostPerPax, "PERCENT", preset.getRetailMarkupPct())
+                : applyMarkup(netCostPerPax, quotation.getRetailMarkupMode(), quotation.getRetailMarkupValue());
         tier.setRetailPricePerPax(retailPricePerPax);
 
         // 毛利率 = (直售價 − 成本) ÷ 直售價 (以「每人」為單位算, 跟總價算出來的比例一樣)
@@ -520,6 +657,93 @@ public class QuotationService {
                     .setScale(2, RoundingMode.HALF_UP);
         }
         tier.setMarginRatePct(marginRatePct);
+
+        // ---------- (2) 新算法: 雜項/NP/團費成本, 代表人數依 groupTierHeadcountMode 決定 ----------
+        int representativeHeadcount = representativeHeadcountFor(tier, quotation.getGroupTierHeadcountMode());
+
+        tier.setVariableCostPerPersonTwd(variableCostPerPersonTwd);
+
+        BigDecimal autoMiscTwd = calculateFixedGroupCostForHeadcount(quotation, lines, representativeHeadcount);
+        BigDecimal miscExchangeRate = resolveGroupTierCurrencyRate(quotation, tier.getCurrency());
+        BigDecimal manualMiscTwd = nz(tier.getMiscValue()).multiply(miscExchangeRate);
+        BigDecimal miscValueTwd = autoMiscTwd.add(manualMiscTwd).setScale(SCALE, RoundingMode.HALF_UP);
+        tier.setMiscValueTwd(miscValueTwd);
+
+        BigDecimal baseTwd = variableCostPerPersonTwd.add(miscValueTwd);
+
+        Map<String, BigDecimal> tierVars = new java.util.HashMap<>();
+        tierVars.put("VARIABLE_COST", variableCostPerPersonTwd);
+        tierVars.put("MISC", miscValueTwd);
+        tierVars.put("BASIC_PRICE", basicPricePerPersonTwd);
+
+        BigDecimal npResultTwd = evaluateLayer(tier.getNpFormula(), tierVars, () -> baseTwd.setScale(SCALE, RoundingMode.HALF_UP));
+        tier.setNpResultTwd(npResultTwd);
+
+        tierVars.put("NP", npResultTwd);
+        BigDecimal teamResultTwd = evaluateLayer(tier.getTeamFormula(), tierVars, () -> npResultTwd);
+        tier.setTeamResultTwd(teamResultTwd);
+    }
+
+    /**
+     * 「雜項（全團固定費用）／NP／團費成本」代表人數: 依 mode 決定要用級距的下限、平均、還是上限。
+     * 開放區間 (max_qty 是 null, 「N人以上」這種) 沒有平均值/上限可算, 一律退回下限——跟 mode 選什麼無關。
+     */
+    private int representativeHeadcountFor(QuotationGroupTier tier, String mode) {
+        int min = Math.max(tier.getMinQty(), 1);
+        Integer max = tier.getMaxQty();
+        if (max == null) return min; // 開放區間一律用下限
+        if ("UPPER".equals(mode)) return Math.max(max, min);
+        if ("AVERAGE".equals(mode)) return Math.max((min + max) / 2, min);
+        return min; // 預設/"LOWER"
+    }
+
+    /**
+     * 假設整團有 N 人, 只加總「全團固定」項目在這個代表人數下的成本 (換算台幣) ——
+     * 跟 calculateTotalNetCostForHeadcount() 的 FIXED_GROUP 分支同一套邏輯 (數量不受 N 影響, 但如果項目本身
+     * 掛了區間價錢 quotation_line_tier, 一樣依 N 判斷要用哪一段的單價, 例如遊覽車依人數自動判斷車輛大小),
+     * 只是這裡只看 FIXED_GROUP, 不含 PER_PAX (那個是「每人變動成本」的範疇, 見 calculateVariableCostPerPersonTwd)。
+     */
+    private BigDecimal calculateFixedGroupCostForHeadcount(Quotation quotation, List<QuotationLine> lines, int N) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (QuotationLine line : lines) {
+            if (!"FIXED_GROUP".equals(line.getCostType())) continue;
+
+            BigDecimal exchangeRate = line.getExchangeRate() != null && line.getExchangeRate().compareTo(BigDecimal.ZERO) > 0
+                    ? line.getExchangeRate() : BigDecimal.ONE;
+
+            BigDecimal resolvedUnitPrice = nz(line.getUnitPrice());
+            List<QuotationLineTier> lineTiers = quotationLineTierDAO.findByLine(line.getQLID());
+            QuotationLineTier matched = lineTiers.stream().filter(t -> t.matches(N)).findFirst().orElse(null);
+            if (matched != null) resolvedUnitPrice = nz(matched.getPrice());
+
+            BigDecimal perUnitCost = resolvedUnitPrice.add(nz(line.getFuelSurcharge())).add(nz(line.getTaxAmount()));
+            BigDecimal lineCost = perUnitCost
+                    .multiply(BigDecimal.valueOf(Math.max(line.getQuantity(), 0)))
+                    .multiply(exchangeRate)
+                    .setScale(SCALE, RoundingMode.HALF_UP);
+            total = total.add(lineCost);
+        }
+        return total;
+    }
+
+    /**
+     * 每人變動成本 (台幣) —— 只看「報價項目明細」裡「按人頭」項目的 NNet (已經是換算好台幣、扣過 FOC 的
+     * 最終成本), 加總後除以「目前團體人數」(不是代表人數, 這個值不分級距、所有級距共用)。
+     */
+    private BigDecimal calculateVariableCostPerPersonTwd(Quotation quotation, List<QuotationLine> lines) {
+        BigDecimal perPaxNetCostTotal = lines.stream()
+                .filter(line -> !"FIXED_GROUP".equals(line.getCostType()))
+                .map(line -> nz(line.getNetCost()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return perPaxNetCostTotal
+                .divide(BigDecimal.valueOf(Math.max(quotation.getGroupSize(), 1)), SCALE, RoundingMode.HALF_UP);
+    }
+
+    /** 「額外雜項金額」換算台幣用的匯率: TWD／留空 = 1 (不轉換), 其他幣別查該旅行社的幣別管理設定。 */
+    private BigDecimal resolveGroupTierCurrencyRate(Quotation quotation, String currencyCode) {
+        if (currencyCode == null || currencyCode.isBlank() || "TWD".equalsIgnoreCase(currencyCode)) return BigDecimal.ONE;
+        Currency currency = currencyDAO.findByCode(currencyCode, quotation.getAID());
+        return currency != null ? currency.getRateToTwd() : BigDecimal.ONE;
     }
 
     /**
@@ -660,21 +884,36 @@ public class QuotationService {
         formulaVars.put("NET_COST", netCostTotal);
         formulaVars.put("GROUP_SIZE", BigDecimal.valueOf(quotation.getGroupSize()));
 
+        // 基本報價沒有對應的「已儲存規則」(MarginSetting 沒有 basic 這一層), 一律用這張報價單自己的設定
         BigDecimal basicPriceTotal = evaluateLayer(quotation.getCustomBasicFormula(), formulaVars,
                 () -> applyMarkup(netCostTotal, quotation.getBasicMarkupMode(), quotation.getBasicMarkupValue()));
         formulaVars.put("BASIC_PRICE", basicPriceTotal);
 
-        BigDecimal tradePriceTotal = evaluateLayer(quotation.getCustomTradeFormula(), formulaVars,
+        // 同業/直售/退傭: 「已儲存的／自填」切換生效時 (isPresetFormulaModeActive()) 改吃 MarginSetting 的公式/百分比,
+        // 沒生效就跟以前一樣完全吃這張報價單自己的 custom_*_formula / *_markup_mode / *_markup_value / rebate_*
+        MarginSetting preset = resolveActivePreset(quotation);
+
+        BigDecimal tradePriceTotal = preset != null
+                ? evaluateLayer(preset.getTradeFormula(), formulaVars,
+                () -> applyMarkup(basicPriceTotal, "PERCENT", preset.getTradeMarkupPct()))
+                : evaluateLayer(quotation.getCustomTradeFormula(), formulaVars,
                 () -> applyMarkup(basicPriceTotal, quotation.getTradeMarkupMode(), quotation.getTradeMarkupValue()));
         formulaVars.put("TRADE_PRICE", tradePriceTotal);
 
-        BigDecimal retailPriceTotal = evaluateLayer(quotation.getCustomRetailFormula(), formulaVars,
+        BigDecimal retailPriceTotal = preset != null
+                ? evaluateLayer(preset.getRetailFormula(), formulaVars,
+                () -> applyMarkup(tradePriceTotal, "PERCENT", preset.getRetailMarkupPct()))
+                : evaluateLayer(quotation.getCustomRetailFormula(), formulaVars,
                 () -> applyMarkup(tradePriceTotal, quotation.getRetailMarkupMode(), quotation.getRetailMarkupValue()));
         formulaVars.put("RETAIL_PRICE", retailPriceTotal);
 
-        // 退傭金額: 有填④公式就直接算; 沒填的話 fallback 回舊制 —— mode=PERCENT 時是「同業價 × 退傭%」,
-        // mode=AMOUNT 時直接是填的那個固定金額 (不是「加」在同業價上, 是退傭本身)
-        BigDecimal rebateAmountTotal = evaluateLayer(quotation.getCustomRebateFormula(), formulaVars,
+        // 退傭金額: 有填④公式 (已儲存規則的 rebate_formula, 或這張報價單自己的 custom_rebate_formula) 就直接算;
+        // 沒填的話 fallback 回舊制 —— 已儲存規則一律是「同業價 × 退傭%」(MarginSetting 沒有 AMOUNT 模式);
+        // 自填時 mode=PERCENT 是「同業價 × 退傭%」, mode=AMOUNT 直接是填的那個固定金額 (不是「加」在同業價上, 是退傭本身)
+        BigDecimal rebateAmountTotal = preset != null
+                ? evaluateLayer(preset.getRebateFormula(), formulaVars,
+                () -> tradePriceTotal.multiply(pct(preset.getRebatePct())).setScale(SCALE, RoundingMode.HALF_UP))
+                : evaluateLayer(quotation.getCustomRebateFormula(), formulaVars,
                 () -> "AMOUNT".equals(quotation.getRebateMode())
                         ? nz(quotation.getRebatePct())
                         : tradePriceTotal.multiply(pct(quotation.getRebatePct())).setScale(SCALE, RoundingMode.HALF_UP));

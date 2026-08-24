@@ -49,6 +49,49 @@ public class QuotationGroupTier {
     @Column(name = "margin_rate_pct")
     private BigDecimal marginRatePct = BigDecimal.ZERO;
 
+    // ------------------------------------------------------------
+    // 雜項（全團固定費用）／NP／團費成本: 另一套算法, 跟上面 net_cost_per_pax/trade_price_per_pax/
+    // retail_price_per_pax 這組（直接乘同業/直售加成%）並存、互不影響——這組是「每人變動成本＋雜項」換算成
+    // 台幣後、再套用可自訂的計算公式，對照供應商報價單常見的算法。詳細計算方式見
+    // QuotationService#applyGroupTierSnapshot()。
+    // ------------------------------------------------------------
+
+    // 這個級距試算用的幣別 (只影響「額外雜項金額」的換算; 明細項目本身的成本已經是換算好台幣的 NNet,
+    // 不會再被這個幣別二次換算)。TWD 或留空 = 不轉換。
+    @Column(name = "currency")
+    private String currency = "TWD";
+
+    // 手動加上去的補充雜項金額 (原始幣別, 換算成台幣前的數字), 例如明細表沒建的臨時雜支。預設 0。
+    @Column(name = "misc_value")
+    private BigDecimal miscValue = BigDecimal.ZERO;
+
+    // 雜項（全團固定費用）換算成台幣後的快照 = 自動加總的全團固定項目成本(在這個級距代表人數下) + misc_value 換算成台幣
+    @Column(name = "misc_value_twd")
+    private BigDecimal miscValueTwd = BigDecimal.ZERO;
+
+    // NP 計算式 (FormulaEngine 語法, 可用變數 {VARIABLE_COST} {MISC} {BASIC_PRICE}); 留空 = NP 直接等於
+    // 「每人變動成本＋雜項」(不額外調整)
+    @Column(name = "np_formula", length = 500)
+    private String npFormula;
+
+    // NP 試算結果快照 (台幣)
+    @Column(name = "np_result_twd")
+    private BigDecimal npResultTwd = BigDecimal.ZERO;
+
+    // 團費成本計算式 (FormulaEngine 語法, 可用變數 {VARIABLE_COST} {MISC} {BASIC_PRICE} {NP}); 留空 = 團費成本
+    // 直接等於 NP (不額外調整)
+    @Column(name = "team_formula", length = 500)
+    private String teamFormula;
+
+    // 團費成本試算結果快照 (台幣)
+    @Column(name = "team_result_twd")
+    private BigDecimal teamResultTwd = BigDecimal.ZERO;
+
+    // 每人變動成本快照 (台幣) —— 只看「報價項目明細」裡按人頭項目的 NNet, 除以目前團體人數,
+    // 不分級距, 這張報價單底下所有級距共用同一個值 (跟 net_cost_per_pax 不是同一套算法, 那個是分級距各自算的)
+    @Column(name = "variable_cost_per_person_twd")
+    private BigDecimal variableCostPerPersonTwd = BigDecimal.ZERO;
+
     public QuotationGroupTier() {}
 
     public QuotationGroupTier(int QID, int minQty, Integer maxQty, int sortOrder) {
@@ -87,4 +130,28 @@ public class QuotationGroupTier {
 
     public BigDecimal getMarginRatePct() { return marginRatePct; }
     public void setMarginRatePct(BigDecimal marginRatePct) { this.marginRatePct = marginRatePct; }
+
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
+
+    public BigDecimal getMiscValue() { return miscValue; }
+    public void setMiscValue(BigDecimal miscValue) { this.miscValue = miscValue; }
+
+    public BigDecimal getMiscValueTwd() { return miscValueTwd; }
+    public void setMiscValueTwd(BigDecimal miscValueTwd) { this.miscValueTwd = miscValueTwd; }
+
+    public String getNpFormula() { return npFormula; }
+    public void setNpFormula(String npFormula) { this.npFormula = npFormula; }
+
+    public BigDecimal getNpResultTwd() { return npResultTwd; }
+    public void setNpResultTwd(BigDecimal npResultTwd) { this.npResultTwd = npResultTwd; }
+
+    public String getTeamFormula() { return teamFormula; }
+    public void setTeamFormula(String teamFormula) { this.teamFormula = teamFormula; }
+
+    public BigDecimal getTeamResultTwd() { return teamResultTwd; }
+    public void setTeamResultTwd(BigDecimal teamResultTwd) { this.teamResultTwd = teamResultTwd; }
+
+    public BigDecimal getVariableCostPerPersonTwd() { return variableCostPerPersonTwd; }
+    public void setVariableCostPerPersonTwd(BigDecimal variableCostPerPersonTwd) { this.variableCostPerPersonTwd = variableCostPerPersonTwd; }
 }

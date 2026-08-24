@@ -58,6 +58,12 @@ public class QuotationLine {
     @Column(name = "refundable")
     private boolean refundable = true;
 
+    // 這個項目要不要出現在「區間價錢管理」卡片裡 (勾選之後才能替它設定人數級距價錢);
+    // 沒勾選不代表這個項目不能有級距 (級距本身掛在 QuotationLineTier, 跟這個 flag 是分開的資料),
+    // 純粹是畫面篩選用, 避免每個項目都要顯示一個空的級距編輯區塊、卡片太長。
+    @Column(name = "tier_managed")
+    private boolean tierManaged = false;
+
     // ---- 以下皆為計算引擎產出的凍結快照 (台幣) ----
     @Column(name = "gross_cost")
     private BigDecimal grossCost = BigDecimal.ZERO;    // Net 總成本: 原始牌價金額 (單價×數量, 完全沒調整過, 還沒扣 FOC)
@@ -141,6 +147,9 @@ public class QuotationLine {
 
     public boolean isRefundable() { return refundable; }
     public void setRefundable(boolean refundable) { this.refundable = refundable; }
+
+    public boolean isTierManaged() { return tierManaged; }
+    public void setTierManaged(boolean tierManaged) { this.tierManaged = tierManaged; }
 
     public BigDecimal getGrossCost() { return grossCost; }
     public void setGrossCost(BigDecimal grossCost) { this.grossCost = grossCost; }
