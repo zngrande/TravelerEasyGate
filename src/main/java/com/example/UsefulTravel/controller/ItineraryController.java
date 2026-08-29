@@ -62,9 +62,75 @@ public class ItineraryController {
 
     // GET /itinerary/new → 建立行程表單
     @GetMapping("/new")
-    public String newForm(HttpSession session) {
+    public String newForm(HttpSession session, Model model) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
+        // editMode 一定要明確帶 false (而不是讓它在 model 裡完全不存在), 因為 itinerary/new.html
+        // 這份範本被「建立行程」「編輯行程基本資料」共用, 樣板裡到處都會用 ${editMode} 判斷要顯示哪一種
+        // 版面 (標題/按鈕/是否隱藏航班區塊等), 沒有明確給值的話, 樣板引擎對 boolean 取反 (th:unless) 遇到
+        // null 容易出問題。
+        model.addAttribute("editMode", false);
+        model.addAttribute("editItineraryId", 0);
         return "itinerary/new";
+    }
+
+    // GET /itinerary/{id}/edit-basic → 編輯行程基本資料 (共用「建立新行程」同一份表單, editMode=true)
+    // 使用者要求: 名稱/國家/地區/天數/出發日期都要能改, 存檔後不會重新安排行程 (每天已經排好的內容不動),
+    // 也不會動到已經加入看板的去程/回程班機項目, 所以這裡不用像 create() 一樣還要處理一大串班機欄位。
+    @GetMapping("/{id}/edit-basic")
+    public String editBasicForm(@PathVariable("id") int ITID, HttpSession session, Model model,
+                                 org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+        String err = checkEditPermission(session, ITID);
+        if (err != null) {
+            if (session.getAttribute("AID") == null) return "redirect:/login";
+            redirectAttributes.addFlashAttribute("deleteError", err);
+            return "redirect:/agency/dashboard";
+        }
+        Itinerary itinerary = itineraryService.getItinerary(ITID);
+        model.addAttribute("editMode", true);
+        model.addAttribute("editItineraryId", ITID);
+        model.addAttribute("itinerary", itinerary);
+
+        // 使用者要求: 編輯基本資料把天數改少時要真的刪除多出來的天, 送出表單前要先跳出確認對話框告知
+        // 「第X天有N個行程項目」。把每一天目前的項目數量整理成 "天數:項目數" 的字串塞進頁面 (格式例如
+        // "1:3,2:0,3:5"), 讓前端 JS 不用另外打 API 就能在使用者送出表單當下判斷哪幾天有內容。
+        StringBuilder dayItemCounts = new StringBuilder();
+        for (com.example.UsefulTravel.entity.ItineraryDay day : itineraryService.getDays(ITID)) {
+            if (dayItemCounts.length() > 0) dayItemCounts.append(",");
+            dayItemCounts.append(day.getDayNumber()).append(":").append(itineraryService.getItems(day.getIDID()).size());
+        }
+        model.addAttribute("dayItemCounts", dayItemCounts.toString());
+
+        return "itinerary/new";
+    }
+
+    // POST /itinerary/{id}/edit-basic → 儲存行程基本資料編輯
+    // 天數變多時, ItineraryService.updateBasicInfo() 只會在最後面補空白的新天數, 不會動既有天數的內容;
+    // 天數變少或不變則完全不動既有天數 (不刪除), 避免誤刪已經排好的資料。
+    @PostMapping("/{id}/edit-basic")
+    public String updateBasic(@PathVariable("id") int ITID,
+                               @RequestParam String title,
+                               @RequestParam String country,
+                               @RequestParam(required = false) String region,
+                               @RequestParam int daysCount,
+                               @RequestParam(required = false) String startDate,
+                               HttpSession session,
+                               org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+        String err = checkEditPermission(session, ITID);
+        if (err != null) {
+            if (session.getAttribute("AID") == null) return "redirect:/login";
+            redirectAttributes.addFlashAttribute("deleteError", err);
+            return "redirect:/agency/dashboard";
+        }
+
+        LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
+        try {
+            itineraryService.updateBasicInfo(ITID, title, country, region, daysCount, parsedDate);
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("deleteError",
+                    "儲存失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString()));
+            return "redirect:/itinerary/" + ITID + "/edit-basic";
+        }
+        return "redirect:/itinerary/" + ITID + "/board";
     }
 
     // POST /itinerary/new → 建立行程 + 自動產生 Day1~DayN 骨架 (空白行程, 使用者自己手動排)
@@ -274,6 +340,23 @@ public class ItineraryController {
         return "redirect:/agency/dashboard";
     }
 
+    // DELETE /itinerary/day/{IDID} → 刪除整天 (Day 分頁旁邊的刪除按鈕), 後面的天數會自動往前遞補一位
+    @DeleteMapping("/day/{IDID}")
+    @ResponseBody
+    public void deleteDay(@PathVariable int IDID) {
+        itineraryService.deleteDay(IDID);
+    }
+
+    // POST /itinerary/{id}/add-day → 看板天數旁邊「+」直接加一天空白天 (加在最後面)
+    @PostMapping("/{id}/add-day")
+    @ResponseBody
+    public ResponseEntity<?> addDay(@PathVariable("id") int ITID, HttpSession session) {
+        String err = checkEditPermission(session, ITID);
+        if (err != null) return ResponseEntity.status(403).body(err);
+        itineraryService.addBlankDay(ITID);
+        return ResponseEntity.ok().build();
+    }
+
     // POST /itinerary/{id}/delete → 刪除整個行程
     @PostMapping("/{id}/delete")
     public String delete(@PathVariable("id") int ITID, HttpSession session, org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
@@ -346,6 +429,14 @@ public class ItineraryController {
         itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
                 itemType, fromLocation, fromAddress, toLocation, toAddress, transportMethod, commuteDuration,
                 startTime, endTime, commuteDurationMin);
+    }
+
+    // POST /itinerary/day/{IDID}/items/{IIID}/toggle-image-export → 切換某張圖片要不要匯出企劃書
+    // (同一個景點/餐廳可能綁定多張照片，預設全部輸出，點一下排除，再點一下取消排除)
+    @PostMapping("/day/{IDID}/items/{IIID}/toggle-image-export")
+    @ResponseBody
+    public void toggleItemImageExport(@PathVariable int IIID, @RequestParam int IAID) {
+        itineraryService.toggleItemImageExport(IIID, IAID);
     }
 
     // POST /itinerary/day/{IDID}/auto-arrange → 自動整理這一天 (預設: 餐廳/住宿排到最後面)

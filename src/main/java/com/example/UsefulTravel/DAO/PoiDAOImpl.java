@@ -105,6 +105,11 @@ public class PoiDAOImpl implements PoiDAO {
 
     @Override
     public List<Poi> searchByKeyword(Integer AID, String keyword, String category) {
+        return searchByKeyword(AID, keyword, category, null);
+    }
+
+    @Override
+    public List<Poi> searchByKeyword(Integer AID, String keyword, String category, String location) {
         StringBuilder jpql = new StringBuilder(
                 "SELECT p FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE);
         if (keyword != null && !keyword.isBlank()) {
@@ -112,6 +117,9 @@ public class PoiDAOImpl implements PoiDAO {
         }
         if (category != null && !category.isBlank()) {
             jpql.append("AND p.category = :category ");
+        }
+        if (location != null && !location.isBlank()) {
+            jpql.append("AND (p.country LIKE :loc OR p.city LIKE :loc) ");
         }
         jpql.append("ORDER BY p.PID DESC");
 
@@ -122,6 +130,9 @@ public class PoiDAOImpl implements PoiDAO {
         }
         if (category != null && !category.isBlank()) {
             query.setParameter("category", category);
+        }
+        if (location != null && !location.isBlank()) {
+            query.setParameter("loc", "%" + location + "%");
         }
         return query.getResultList();
     }

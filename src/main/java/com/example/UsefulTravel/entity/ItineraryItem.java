@@ -85,6 +85,14 @@ public class ItineraryItem {
                                          // (startTime/endTime), 行程時間表會優先用那兩個, 這個欄位只在兩者都沒填時
                                          // 當作估算的通勤時長 (見 board.html renderTimeline() 的說明)
 
+    // 使用者要求: 圖片預設「全部輸出」(縮圖預設都要有綠框/打勾), 使用者可以點掉某幾張排除, 不想要每次
+    // 都要手動一張一張點選才會輸出。存的是「使用者排除掉的圖片」(image_asset.IAID, 逗號分隔字串)，
+    // 而不是「使用者選了哪幾張」——這樣沒有互動過的項目 (excludedImageIds 是 null/空字串) 自然就是
+    // 「全部輸出」的預設狀態，不需要額外判斷「有沒有選過」。那張圖片如果之後被刪除/換綁到別的 POI，
+    // 之後查詢這個 POI 綁定的圖片清單裡就不會再出現這個 IAID，等於自動失去意義，不會出錯。
+    @Column(name = "excluded_image_ids", length = 500)
+    private String excludedImageIds;
+
     public ItineraryItem() {}
 
     public ItineraryItem(int IDID, Integer PID, String itemType, String customName, int sortOrder) {
@@ -162,4 +170,25 @@ public class ItineraryItem {
     public void setCommuteDuration(String commuteDuration) { this.commuteDuration = commuteDuration; }
     public Integer getCommuteDurationMin() { return commuteDurationMin; }
     public void setCommuteDurationMin(Integer commuteDurationMin) { this.commuteDurationMin = commuteDurationMin; }
+
+    public String getExcludedImageIds() { return excludedImageIds; }
+    public void setExcludedImageIds(String excludedImageIds) { this.excludedImageIds = excludedImageIds; }
+
+    /** 把逗號分隔的 excludedImageIds 字串解析成 Set&lt;Integer&gt;，格式錯誤的片段直接跳過忽略。
+     *  ExportService/TemplateMergeService/ItineraryService 共用同一份解析邏輯，只寫一次。 */
+    @Transient
+    public java.util.Set<Integer> getExcludedImageIdSet() {
+        java.util.LinkedHashSet<Integer> set = new java.util.LinkedHashSet<>();
+        if (excludedImageIds == null || excludedImageIds.isBlank()) return set;
+        for (String token : excludedImageIds.split(",")) {
+            token = token.trim();
+            if (token.isEmpty()) continue;
+            try {
+                set.add(Integer.parseInt(token));
+            } catch (NumberFormatException ignored) {
+                // 忽略格式錯誤的片段, 不影響其他正常的 ID
+            }
+        }
+        return set;
+    }
 }

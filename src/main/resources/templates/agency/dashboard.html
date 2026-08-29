@@ -189,6 +189,8 @@
                     <div class="actions">
                         <a th:href="@{'/itinerary/' + ${it.ITID} + '/board'}" class="btn-text">編輯行程</a>
 
+                        <a th:href="@{'/itinerary/' + ${it.ITID} + '/edit-basic'}" class="btn-text" style="color:#2563eb;">編輯基本資料</a>
+
                         <a th:href="@{'/itinerary/' + ${it.ITID} + '/quick-quote'}" class="btn-text" style="color:#8b5cf6;">編輯報價</a>
 
                         <form method="post" th:action="@{'/itinerary/' + ${it.ITID} + '/delete'}" style="margin:0;"

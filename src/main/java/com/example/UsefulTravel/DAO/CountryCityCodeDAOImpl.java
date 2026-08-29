@@ -47,7 +47,7 @@ public class CountryCityCodeDAOImpl implements CountryCityCodeDAO {
         if (type != null && !type.isBlank()) {
             jpql.append("AND c.type = :type ");
         }
-        jpql.append("ORDER BY c.type ASC, c.name ASC");
+        jpql.append("ORDER BY CASE WHEN c.type = 'country' THEN 0 ELSE 1 END ASC, c.name ASC");
 
         TypedQuery<CountryCityCode> query = em.createQuery(jpql.toString(), CountryCityCode.class);
         if (keyword != null && !keyword.isBlank()) {
@@ -56,7 +56,7 @@ public class CountryCityCodeDAOImpl implements CountryCityCodeDAO {
         if (type != null && !type.isBlank()) {
             query.setParameter("type", type);
         }
-        return query.setMaxResults(20).getResultList();
+        return query.setMaxResults(100).getResultList();
     }
 
     @Override

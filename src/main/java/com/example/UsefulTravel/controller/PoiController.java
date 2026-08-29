@@ -35,13 +35,15 @@ public class PoiController {
     @GetMapping
     public String list(@RequestParam(required = false) String keyword,
                         @RequestParam(required = false) String category,
+                        @RequestParam(required = false) String location,
                         HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
 
-        model.addAttribute("pois", poiService.search(AID, keyword, category));
+        model.addAttribute("pois", poiService.search(AID, keyword, category, location));
         model.addAttribute("keyword", keyword);
         model.addAttribute("category", category);
+        model.addAttribute("location", location);
         return "poi/list";
     }
 
@@ -283,7 +285,8 @@ public class PoiController {
     }
 
     // POST /poi/{id}/delete → 刪除景點
-    // 共用庫的景點「刪除」不會真的刪掉 (其他旅行社還要看得到), 只會記一筆隱藏紀錄, 讓這間旅行社之後看不到它
+    // 使用者要求：共用庫的景點/餐廳（AID=NULL）不能被任何旅行社刪除（也不再提供「隱藏」這個替代動作），
+    // 一律擋下並顯示錯誤訊息，只有這間旅行社自己新增的景點（AID = 自己的 AID）才能真的刪除。
     @PostMapping("/{id}/delete")
     public String delete(@PathVariable("id") int PID, HttpSession session,
                           org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
@@ -293,12 +296,15 @@ public class PoiController {
         if (poi == null) return "redirect:/poi";
         if (poi.getAID() != null && !poi.getAID().equals(AID)) return "redirect:/poi";
 
+        if (poi.getAID() == null) {
+            String category = poi.getCategory() != null ? poi.getCategory() : "景點/餐廳";
+            redirectAttributes.addFlashAttribute("deleteError",
+                    "「" + poi.getName() + "」為共用" + category + "，無法刪除");
+            return "redirect:/poi";
+        }
+
         try {
-            if (poi.getAID() == null) {
-                poiService.hideSharedPoi(AID, PID);
-            } else {
-                poiService.delete(PID);
-            }
+            poiService.delete(PID);
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("deleteError",
                     "刪除失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString()));

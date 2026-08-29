@@ -178,16 +178,22 @@ public class TemplateMergeService {
                     // 只取這份行程所屬旅行社自己上傳的照片, 共用景點底下別間旅行社的照片不能混進來
                     List<ImageAsset> assets = imageAssetDAO.findByPoi(item.getPID(), itinerary.getAID());
                     if (!assets.isEmpty()) {
-                        ImageAsset asset = assets.get(0);
-                        try {
-                            byte[] bytes = imageStorageService.load(asset.getFilePath());
-                            int pictureType = (asset.getContentType() != null && asset.getContentType().contains("png"))
-                                    ? XWPFDocument.PICTURE_TYPE_PNG : XWPFDocument.PICTURE_TYPE_JPEG;
-                            images.add(new ImageData(bytes, pictureType,
-                                    asset.getOriginalFilename() != null ? asset.getOriginalFilename() : "photo",
-                                    name));
-                        } catch (Exception ignored) {
-                            // 單張圖片讀取失敗不擋整份文件
+                        // 使用者要求圖片預設全部輸出 (看板上縮圖預設都有綠框), 使用者可以點掉某幾張排除
+                        // (itinerary_item.excludedImageIds)——沒被排除的全部收進 images, 每張各自成一筆
+                        // ImageData, 集合是空的 (沒有互動過) 就等於全部輸出。
+                        java.util.Set<Integer> excludedImageIds = item.getExcludedImageIdSet();
+                        for (ImageAsset asset : assets) {
+                            if (excludedImageIds.contains(asset.getIAID())) continue;
+                            try {
+                                byte[] bytes = imageStorageService.load(asset.getFilePath());
+                                int pictureType = (asset.getContentType() != null && asset.getContentType().contains("png"))
+                                        ? XWPFDocument.PICTURE_TYPE_PNG : XWPFDocument.PICTURE_TYPE_JPEG;
+                                images.add(new ImageData(bytes, pictureType,
+                                        asset.getOriginalFilename() != null ? asset.getOriginalFilename() : "photo",
+                                        name));
+                            } catch (Exception ignored) {
+                                // 單張圖片讀取失敗不擋整份文件, 跳過這張繼續下一張
+                            }
                         }
                     }
                 }

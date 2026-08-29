@@ -149,12 +149,54 @@
             transition: all 0.15s;
         }
         .day-tab:hover { background: #f1f5f9; color: var(--text-dark); border-color: #cbd5e1; }
+        /* Day 分頁改用 div 而不是 button (裡面要再放一個獨立可點擊的刪除小叉叉, button 裡面巢狀 button/
+           有 onclick 的 span 不符合 HTML 規範, 也容易在部分瀏覽器上有點擊判定問題), display:inline-flex
+           讓 Day 文字跟後面的叉叉可以並排。 */
+        .day-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .day-tab .day-tab-delete {
+            display: none;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            color: #94a3b8;
+            background: rgba(148,163,184,0.15);
+        }
+        .day-tab:hover .day-tab-delete { display: inline-flex; }
+        .day-tab .day-tab-delete:hover { background: #ef4444; color: #fff; }
+        .day-tab.active .day-tab-delete { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.2); }
+        .day-tab.active .day-tab-delete:hover { background: #ef4444; color: #fff; }
         .day-tab.active {
             background: var(--primary-blue);
             color: #fff;
             border-color: var(--primary-blue);
             box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
         }
+        /* 天數旁邊的「+」直接加一天按鈕, 樣式跟 .day-tab 呼應但用虛線框跟主色系區分, 一眼看得出是「新增」而不是切換分頁 */
+        .btn-add-day {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #fff;
+            border: 1px dashed #93c5fd;
+            color: var(--primary-blue);
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+        .btn-add-day:hover { background: #eff6ff; border-color: var(--primary-blue); }
+        .btn-add-day:disabled { opacity: 0.5; cursor: not-allowed; }
 
         /* 三欄版面：左(縮小至 240px) | 中(自適應) | 右(擴大至 460px)
            三欄的高度都改成「填滿 board-body 剩餘可用高度」再各自內部捲動, 不再用 calc(100vh - 固定數字) 用猜的,
@@ -784,6 +826,43 @@
             justify-content: center;
         }
         .bigmap-close:hover { background: rgba(15,23,42,0.85); }
+
+        /* 個別行程項目編輯表單裡的圖片縮圖: 點選標記為「匯出企劃書要用哪一張」, 選中的顯示綠色邊框 +
+           右上角打勾圖示, 呼應需求「有選取的會有綠色邊框跟右上角有打勾圖示」。 */
+        .image-thumb-wrap {
+            position: relative;
+            width: 56px;
+            height: 56px;
+            cursor: pointer;
+            border-radius: 6px;
+        }
+        .image-thumb-wrap img {
+            width: 56px;
+            height: 56px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 2px solid var(--border-color);
+            display: block;
+            box-sizing: border-box;
+        }
+        .image-thumb-wrap:hover img { border-color: #93c5fd; }
+        .image-thumb-wrap .image-thumb-check {
+            display: none;
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #16a34a;
+            color: #fff;
+            font-size: 10px;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 0 2px #fff;
+        }
+        .image-thumb-wrap.selected img { border-color: #16a34a; }
+        .image-thumb-wrap.selected .image-thumb-check { display: flex; }
     </style>
 </head>
 <body>
@@ -797,6 +876,9 @@
     <header class="top-navbar">
         <div class="navbar-title">
             <i class="fa-solid fa-chalkboard" style="color: var(--primary-blue);"></i> 行程排版看板
+            <span th:if="${itinerary != null and itinerary.title != null and !itinerary.title.isBlank()}"
+                  th:text="'－ ' + ${itinerary.title}"
+                  style="font-weight:500;color:var(--text-gray);font-size:15px;margin-left:6px;"></span>
         </div>
         <div class="nav-actions">
             <button type="button" id="saveEditsBtn" onclick="saveAllChanges()" disabled
@@ -807,6 +889,9 @@
                     style="font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid var(--border-color);background:#fff;color:#334155;cursor:default;margin-right:6px;opacity:0.5;">
                 <i class="fa-solid fa-arrow-rotate-left"></i> 上一步
             </button>
+            <a th:href="@{'/itinerary/' + ${itineraryId} + '/edit-basic'}" class="btn-nav">
+                <i class="fa-solid fa-pen-to-square"></i> 編輯基本資料
+            </a>
             <a th:href="@{'/itinerary/' + ${itineraryId} + '/quotations'}" class="btn-nav comp">
                 <i class="fa-solid fa-file-invoice-dollar"></i> 報價單
             </a>
@@ -848,11 +933,19 @@
 
         <!-- 頂部標準 Day Tabs 列 -->
         <div class="day-tabs-wrapper" id="dayTabsWrapper">
-            <button th:each="day, iter : ${days}"
+            <div th:each="day, iter : ${days}"
                     class="day-tab" th:classappend="${iter.index == 0} ? ' active' : ''"
-                    th:text="'Day ' + ${day.dayNumber}"
                     th:attr="onclick=|switchDay(${day.IDID})|,data-idid=${day.IDID}"
                     th:id="'tab-' + ${day.IDID}">
+                <span class="day-tab-label" th:text="'Day ' + ${day.dayNumber}"></span>
+                <span th:if="${days.size() > 1}" class="day-tab-delete"
+                      th:attr="onclick=|event.stopPropagation(); deleteDayDirect(${day.IDID}, ${day.dayNumber}); return false;|"
+                      title="刪除這一天">
+                    <i class="fa-solid fa-xmark"></i>
+                </span>
+            </div>
+            <button type="button" class="btn-add-day" id="addDayBtn" onclick="addDayDirect()" title="直接加一天（加在最後面，空白天，需要另外手動排內容）">
+                <i class="fa-solid fa-plus"></i>
             </button>
             <select class="btn-nav" style="margin-left:auto;background:#ecfdf5;border-color:#a7f3d0;color:#047857;cursor:pointer;"
                     onchange="autoArrangeItinerary(this.value)">
@@ -1056,6 +1149,48 @@
         }
 
         window.location.reload();
+    }
+
+    // 天數旁邊的「+」: 直接在最後面加一天空白天 (不影響既有天數的內容/排序), 存檔後直接整頁重新整理讓新的
+    // Day 分頁跟 dayCitiesContainer 等其他依賴天數的地方都拿到最新資料, 作法比照上面 lock/unlock 的 fetch + reload。
+    function addDayDirect() {
+        const btn = document.getElementById('addDayBtn');
+        if (btn) btn.disabled = true;
+        fetch(`/itinerary/${itineraryId}/add-day`, { method: 'POST' })
+            .then(res => {
+                if (!res.ok) {
+                    return res.text().then(msg => { throw new Error(msg); });
+                }
+                window.location.reload();
+            })
+            .catch(err => {
+                alert('新增天數失敗：' + err.message);
+                if (btn) btn.disabled = false;
+            });
+    }
+
+    // Day 分頁上的小叉叉: 刪除整天 (連同底下所有已排的行程項目)。先即時查一次這天目前有幾個項目,
+    // 有內容的話警告訊息裡要講清楚「第X天有N個行程項目, 一併會被刪除」, 讓使用者不會誤刪還有排東西的天。
+    // 刪除成功後面的天數會自動往前遞補一位 (見 ItineraryService.deleteDay()), 直接重整頁面拿最新結果。
+    function deleteDayDirect(idid, dayNumber) {
+        const dayLabel = '第 ' + dayNumber + ' 天';
+        fetch(`/itinerary/day/${idid}/items`)
+            .then(res => res.ok ? res.json() : [])
+            .catch(() => [])
+            .then(items => {
+                const count = (items || []).length;
+                const msg = count > 0
+                    ? `確定要刪除${dayLabel}嗎？${dayLabel}目前有 ${count} 個行程項目，一併會被刪除，此動作無法復原。`
+                    : `確定要刪除${dayLabel}嗎？此動作無法復原。`;
+                if (!confirm(msg)) return;
+
+                fetch(`/itinerary/day/${idid}`, { method: 'DELETE' })
+                    .then(res => {
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        window.location.reload();
+                    })
+                    .catch(err => alert('刪除這一天失敗：' + err.message));
+            });
     }
 
     // 頂部「完成行程」按鈕: 把這個行程的狀態改成 completed, 首頁「進行中行程」統計會變成「已完成行程」
@@ -1294,6 +1429,16 @@
             if ((dayCache[idid].items || []).some(it => it.IIID === iiid)) return Number(idid);
         }
         return currentDayId;
+    }
+
+    // 給「選擇匯出照片」用: 從目前已經抓過的各天快取裡找出這個項目的資料本體 (拿它的 PID, 也方便切換
+    // 圖片排除狀態後直接更新快取裡的 excludedImageIds, 不用整天重新打 API)。找不到就回傳 null。
+    function findItemByIiid(iiid) {
+        for (const idid of Object.keys(dayCache)) {
+            const found = (dayCache[idid].items || []).find(it => it.IIID === iiid);
+            if (found) return found;
+        }
+        return null;
     }
 
     function switchDay(idid) {
@@ -1568,7 +1713,7 @@
             list.appendChild(editForm);
             if (item.PID != null) {
                 // 要在 appendChild 之後才能抓到表單裡的元素, 不然 getElementById 找不到 (元素還沒真的接上網頁)
-                loadItemImages(item.PID, item.IIID);
+                loadItemImages(item.PID, item.IIID, idid, item.excludedImageIds);
                 loadItemDescription(item.PID, item.IIID);
             }
 
@@ -2431,17 +2576,38 @@
         }
     }
 
-    // 抓這個景點目前綁定的圖片, 顯示縮圖在編輯表單裡; 順便掛上傳按鈕的事件
-    async function loadItemImages(pid, iiid) {
+    // 抓這個景點目前綁定的圖片, 顯示縮圖在編輯表單裡; 順便掛上傳按鈕的事件。
+    // 使用者要求: 圖片預設全部輸出 (縮圖預設都要有綠框+打勾), 使用者可以點掉某幾張排除, 不用每次都要
+    // 手動一張一張點選才會輸出。excludedImageIds 是「使用者排除掉的圖片」逗號分隔字串 (itinerary_item.
+    // excluded_image_ids)——沒有這個 IAID 就是「會輸出」(綠框+打勾), 點一下加進排除清單、再點一下移除。
+    async function loadItemImages(pid, iiid, idid, excludedImageIds) {
         const thumbsEl = document.getElementById('edit-images-thumbs-' + iiid);
         const uploadInput = document.getElementById('edit-image-upload-' + iiid);
         if (!thumbsEl) return;
 
+        function parseExcluded(csv) {
+            return new Set((csv || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).map(Number));
+        }
+
+        function renderThumbs(images, excludedSet) {
+            if (images.length === 0) {
+                thumbsEl.innerHTML = '<span style="font-size:11px;color:#94a3b8;">還沒有綁定圖片</span>';
+                return;
+            }
+            thumbsEl.innerHTML = images.map(function (img) {
+                const isSelected = !excludedSet.has(Number(img.IAID)); // 沒被排除 = 會輸出 = 顯示綠框/打勾
+                return '<div class="image-thumb-wrap' + (isSelected ? ' selected' : '') + '" data-iaid="' + img.IAID + '"'
+                    + ' onclick="toggleItemImageExport(' + idid + ', ' + iiid + ', ' + img.IAID + ')"'
+                    + ' title="預設會匯出企劃書，點一下可以排除這張、再點一次取消排除">'
+                    + '<img src="/images/' + img.IAID + '/file" />'
+                    + '<span class="image-thumb-check"><i class="fa-solid fa-check"></i></span>'
+                    + '</div>';
+            }).join('');
+        }
+
         try {
             const images = await fetch(`/images/by-poi/${pid}`).then(r => r.json());
-            thumbsEl.innerHTML = images.length === 0
-                ? '<span style="font-size:11px;color:#94a3b8;">還沒有綁定圖片</span>'
-                : images.map(img => `<img src="/images/${img.IAID}/file" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--border-color);" />`).join('');
+            renderThumbs(images, parseExcluded(excludedImageIds));
         } catch (e) {
             thumbsEl.innerHTML = '<span style="font-size:11px;color:#ef4444;">圖片載入失敗</span>';
         }
@@ -2463,11 +2629,31 @@
                         if (result.errors && result.errors.length > 0) {
                             alert('部分圖片上傳失敗：\n' + result.errors.join('\n'));
                         }
-                        return loadItemImages(pid, iiid); // 上傳完重新載入縮圖 (不管有沒有部分失敗, 都重新整理看目前實際狀態)
+                        // 上傳完重新載入縮圖 (不管有沒有部分失敗, 都重新整理看目前實際狀態), 保留原本的排除設定
+                        // (新上傳的圖片沒有被排除過, 預設就是會輸出, 一開起就有綠框)
+                        return loadItemImages(pid, iiid, idid, excludedImageIds);
                     })
                     .catch(err => { thumbsEl.innerHTML = '<span style="font-size:11px;color:#ef4444;">上傳失敗</span>'; alert('上傳圖片失敗：' + err.message); });
             };
         }
+    }
+
+    // 點選/取消點選某張圖片要不要匯出企劃書。這個動作是點了就直接存檔 (不是暫存機制的一部分, 邏輯比照
+    // 既有的「上傳圖片」也是選了就直接送出), 不需要另外按「儲存編輯」才生效。預設 (沒點過) 是全部輸出,
+    // 第一次點是把這張加進排除清單 (取消綠框), 再點一次移回輸出 (變回綠框)。
+    function toggleItemImageExport(idid, iiid, iaid) {
+        fetch(`/itinerary/day/${idid}/items/${iiid}/toggle-image-export?IAID=${iaid}`, { method: 'POST' })
+            .then(res => {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const item = findItemByIiid(iiid);
+                if (item) {
+                    const excludedSet = new Set((item.excludedImageIds || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).map(Number));
+                    if (!excludedSet.delete(Number(iaid))) excludedSet.add(Number(iaid));
+                    item.excludedImageIds = Array.from(excludedSet).join(','); // 同步更新快取, 下次重畫這個項目時勾選狀態才會對
+                    loadItemImages(item.PID, iiid, idid, item.excludedImageIds);
+                }
+            })
+            .catch(err => alert('設定圖片是否輸出失敗：' + err.message));
     }
 
     function removeItem(idid, iiid) {
@@ -2501,7 +2687,10 @@
                 // 畫面上的「Day N」數字先即時換成新順序方便預覽, 實際存檔一樣要等按「儲存編輯」
                 pendingDayOrder.forEach((idid, i) => {
                     const tabEl = document.getElementById('tab-' + idid);
-                    if (tabEl) tabEl.textContent = 'Day ' + (i + 1);
+                    if (tabEl) {
+                        const labelEl = tabEl.querySelector('.day-tab-label');
+                        if (labelEl) labelEl.textContent = 'Day ' + (i + 1); // 只換文字用的 span, 不動到旁邊的刪除叉叉
+                    }
                 });
                 markDirty();
             }

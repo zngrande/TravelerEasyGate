@@ -116,6 +116,48 @@
         }
         .btn-search:hover { background: #1d4ed8; }
 
+        /* 「國家 / 城市」篩選欄位的自動完成建議清單, 樣式沿用 itinerary/new.html 機場欄位那套
+           (打字跳出建議、點擊填入), 資料來源改成 /reference/country-city/autocomplete, 同時支援打
+           中文名稱或代碼 (例如打 JP 也找得到「日本」)。 */
+        .cc-autocomplete-wrap { position: relative; flex: 1.4; }
+        .cc-suggest-list {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .cc-suggest-list.open { display: block; }
+        .cc-suggest-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .cc-suggest-item:hover { background: #eff6ff; }
+        .cc-suggest-item .cc-suggest-code {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            background: #eff6ff;
+            padding: 1px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        .cc-suggest-item .cc-suggest-type {
+            font-size: 11px;
+            color: var(--text-gray);
+        }
+
         /* 資料表格 */
         .table-container {
             background: #fff;
@@ -239,6 +281,14 @@
     <div class="search-card">
         <form class="search-form" method="get" th:action="@{/poi}">
             <input type="text" name="keyword" class="search-input" placeholder="搜尋景點名稱、原文地名、國家或城市..." th:value="${keyword}" />
+            <!-- 「國家 / 城市」篩選: 打字或輸入國家城市代碼即時顯示建議清單, 樣式/互動方式比照
+                 itinerary/new.html 機場欄位那套, 資料來源是 country_city_code 參考表 (打「JP」也找得到「日本」)。
+                 選了建議項目後把「顯示名稱」填回輸入框, 送出時後端會拿這個名稱去比對 poi.country/poi.city。 -->
+            <div class="cc-autocomplete-wrap">
+                <input type="text" name="location" id="locationInput" class="search-input" style="width:100%;"
+                       placeholder="輸入國家/城市名稱或代碼..." th:value="${location}" autocomplete="off" />
+                <div class="cc-suggest-list" id="locationSuggestList"></div>
+            </div>
             <select name="category" class="search-select">
                 <option value="">全部類型</option>
                 <option value="景點" th:selected="${category == '景點'}">景點</option>
@@ -323,6 +373,72 @@
         </div>
     </div>
 </main>
+
+<script>
+    // 「國家 / 城市」篩選欄位自動完成: 打字或輸入國家城市代碼即時顯示建議清單, 資料來源是
+    // /reference/country-city/autocomplete (不帶 type 參數, 國家/城市都一起比對, 同時支援比對
+    // 顯示名稱跟代碼, 例如打「JP」也找得到「日本」), 邏輯比照 itinerary/new.html 機場欄位的
+    // setupAirportAutocomplete()。選了建議項目後把「顯示名稱」填回輸入框, 送出表單時後端會拿這個
+    // 名稱去比對 poi.country/poi.city (LIKE 比對, 見 PoiDAOImpl.searchByKeyword 的 location 參數)。
+    document.addEventListener('DOMContentLoaded', function () {
+        const input = document.getElementById('locationInput');
+        const list = document.getElementById('locationSuggestList');
+        if (!input || !list) return;
+
+        let debounceTimer = null;
+
+        input.addEventListener('input', function () {
+            const keyword = input.value.trim();
+            clearTimeout(debounceTimer);
+            if (!keyword) { closeList(); return; }
+            debounceTimer = setTimeout(function () { fetchSuggestions(keyword); }, 200);
+        });
+
+        input.addEventListener('blur', function () {
+            setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+
+        function fetchSuggestions(keyword) {
+            fetch('/reference/country-city/autocomplete?keyword=' + encodeURIComponent(keyword))
+                .then(function (res) { return res.ok ? res.json() : []; })
+                .then(renderList)
+                .catch(closeList);
+        }
+
+        function renderList(items) {
+            if (!items || items.length === 0) { closeList(); return; }
+            list.innerHTML = '';
+            items.forEach(function (item) {
+                const row = document.createElement('div');
+                row.className = 'cc-suggest-item';
+
+                const left = document.createElement('span');
+                const typeLabel = item.type === 'country' ? '國家' : (item.type === 'city' ? '城市' : item.type);
+                left.innerHTML = item.name + ' <span class="cc-suggest-type">（' + typeLabel + '）</span>';
+
+                const codeSpan = document.createElement('span');
+                codeSpan.className = 'cc-suggest-code';
+                codeSpan.textContent = item.code || '';
+
+                row.appendChild(left);
+                if (item.code) row.appendChild(codeSpan);
+
+                row.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    input.value = item.name;
+                    closeList();
+                });
+                list.appendChild(row);
+            });
+            list.classList.add('open');
+        }
+
+        function closeList() {
+            list.classList.remove('open');
+            list.innerHTML = '';
+        }
+    });
+</script>
 
 </body>
 </html>

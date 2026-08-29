@@ -40,4 +40,11 @@ public class ItineraryDayDAOImpl implements ItineraryDayDAO {
                 .setParameter("itid", ITID)
                 .getResultList();
     }
+
+    @Override
+    @Transactional
+    public void deleteById(int IDID) {
+        ItineraryDay day = em.find(ItineraryDay.class, IDID);
+        if (day != null) em.remove(day);
+    }
 }

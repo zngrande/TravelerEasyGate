@@ -319,6 +319,20 @@
             background: #f1f5f9;
             border-radius: 8px;
         }
+
+        /* 錯誤警告區塊 (編輯行程基本資料儲存失敗時顯示), 樣式跟 poi/list.html 等其他頁面一致 */
+        .alert-error {
+            background: #fef2f2;
+            color: #991b1b;
+            padding: 12px 18px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 13.5px;
+            border: 1px solid #fecaca;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
     </style>
 </head>
 <body>
@@ -328,20 +342,35 @@
 <main class="main-content">
     <div class="page-header">
         <div class="page-title">
-            <i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 建立新行程規劃
+            <i class="fa-solid" th:classappend="${editMode} ? 'fa-pen-to-square' : 'fa-plus-circle'" style="color: var(--primary-blue);"></i>
+            <span th:text="${editMode} ? '編輯行程基本資料' : '建立新行程規劃'"></span>
         </div>
-        <a th:href="@{/agency/dashboard}" style="color: var(--text-gray); font-size: 14px; font-weight: 500;">
-            <i class="fa-solid fa-arrow-left"></i> 回行程列表
+        <a th:href="${editMode} ? @{'/itinerary/' + ${editItineraryId} + '/board'} : @{/agency/dashboard}"
+           style="color: var(--text-gray); font-size: 14px; font-weight: 500;">
+            <i class="fa-solid fa-arrow-left"></i>
+            <span th:text="${editMode} ? '回行程看板' : '回行程列表'"></span>
         </a>
     </div>
 
     <div class="card">
-        <p class="card-desc">請輸入行程基本資訊，完成後將自動建立專屬看板供您自由編排每日景點、餐飲與住宿。</p>
+        <div th:if="${deleteError}" class="alert-error">
+            <i class="fa-solid fa-circle-exclamation"></i>
+            <span th:text="${deleteError}"></span>
+        </div>
+        <p class="card-desc" th:text="${editMode}
+                ? '修改行程的基本資訊（名稱／目的地／天數／出發日期）。行程內已經排好的每日景點、餐飲、住宿都不會被重新安排；如果把天數改多，只會在最後面補上空白的新天數；如果把天數改少，會刪除最後面多出來的天數（連同裡面已經排的內容），送出前會再次跳出確認；已經加入看板的去程/回程班機項目也不會被更動。'
+                : '請輸入行程基本資訊，完成後將自動建立專屬看板供您自由編排每日景點、餐飲與住宿。'"></p>
 
-        <form th:action="@{/itinerary/new}" method="POST">
+        <form th:action="${editMode} ? @{'/itinerary/' + ${editItineraryId} + '/edit-basic'} : @{/itinerary/new}" method="POST"
+              th:attr="data-edit-mode=${editMode},
+                       data-initial-country=${itinerary != null ? itinerary.country : ''},
+                       data-initial-region=${itinerary != null ? itinerary.region : ''},
+                       data-original-days-count=${itinerary != null ? itinerary.daysCount : 0},
+                       data-day-item-counts=${dayItemCounts != null ? dayItemCounts : ''}">
             <div class="form-group">
                 <label class="form-label">行程名稱 / 團名</label>
-                <input type="text" name="title" class="form-control" placeholder="例：東京璀璨五日遊 (富士山・迪士尼)" required />
+                <input type="text" name="title" class="form-control" placeholder="例：東京璀璨五日遊 (富士山・迪士尼)"
+                       th:value="${itinerary != null ? itinerary.title : ''}" required />
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -366,11 +395,16 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">預計天數</label>
-                    <input type="number" name="daysCount" id="daysCountInput" class="form-control" min="1" max="30" value="5" required />
+                    <input type="number" name="daysCount" id="daysCountInput" class="form-control" min="1" max="30"
+                           th:value="${itinerary != null ? itinerary.daysCount : 5}" required />
+                    <div th:if="${editMode}" style="font-size:12px;color:var(--text-gray);margin-top:6px;">
+                        改成比原本更多的天數，會在最後面補上空白的新天數；改少會刪除最後面多出來的天數（送出前會再次確認）。
+                    </div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">出發日期 (選填)</label>
-                    <input type="date" name="startDate" class="form-control" />
+                    <input type="date" name="startDate" class="form-control"
+                           th:value="${itinerary != null and itinerary.startDate != null ? itinerary.startDate : ''}" />
                 </div>
             </div>
             <!-- 行程重點資訊 (選填): 去程/回程班機機場+時間、逐天城市指定。
@@ -381,7 +415,18 @@
                  「逐天城市指定」區塊 (依「預計天數」動態產生, 只列出已選的「地區/城市」) —— 「AI 安排行程」
                  排某一天時只會從這一天指定的城市底下的景點/餐廳/飯店挑選, 不會混進別的城市, 也不會因為某天
                  沒指定城市 (通常是班機/轉機日) 而誤排一整天觀光行程。 -->
-            <div class="context-card">
+            <!-- 編輯行程基本資料時, 去程/回程班機、逐天城市指定這個區塊不開放編輯 (使用者要求「行程不用重新
+                 安排」, 這些欄位只有建立行程當下會被拿去產生交通項目/篩選 AI 候選景點, 編輯基本資料時完全
+                 不會呼叫 attachFlightItems/重新排程, 已經加入看板的班機項目/每天排定的景點會維持原樣不動)。
+                 改成用 style="display:none" 隱藏、而不是整段拿掉 (th:if 移除節點), 這樣底下這些欄位的既有
+                 JS (addLeg/removeLeg/renderDayCitiesRows...) 還是能正常初始化跑完, 不會因為找不到節點而報錯。 -->
+            <div class="context-card" th:if="${editMode}" style="background:#eff6ff;border-color:#bfdbfe;">
+                <div class="context-section-label"><i class="fa-solid fa-circle-info" style="color: var(--primary-blue);"></i> 去程/回程班機、逐天城市指定</div>
+                <div class="context-hint" style="margin-bottom:0;">
+                    編輯基本資料不會重新安排行程，已經加入看板的去程/回程班機項目、每天排定的景點都會維持原樣不動。如果需要調整班機資訊或重新指定某天要去的城市，請直接回到看板上編輯。
+                </div>
+            </div>
+            <div class="context-card" th:style="${editMode} ? 'display:none;' : ''">
                 <div class="context-section-label"><i class="fa-solid fa-plane-departure" style="color: var(--primary-blue);"></i> 行程重點資訊（選填）</div>
                 <div class="context-hint">
                     填寫去程/回程班機的機場與時間，「第幾天」可指定這段班機要排在第幾天（例如第二天才搭夜間跨國班機），不填預設去程排第1天、回程排最後一天；如果有轉機或跨日行程可以用「+新增航段」加更多航段，並分別填不同天。下方「逐天城市指定」會依填寫的天數自動列出每一天，選好這天要去的城市後，「AI 安排行程」只會從這個城市的景點/餐廳/飯店裡挑選；班機當天的行程日 (例如去程第1天、回程最後一天) 會自動略過不需指定。全部欄位皆為選填。
@@ -477,14 +522,17 @@
             </div>
 
             <div class="btn-row">
-                <button type="submit" class="btn-submit">
+                <button type="submit" class="btn-submit" th:unless="${editMode}">
                     <i class="fa-solid fa-check"></i> 建立行程並進入看板
                 </button>
-                <button type="submit" formaction="/itinerary/new/ai" class="btn-ai-plan">
+                <button type="submit" formaction="/itinerary/new/ai" class="btn-ai-plan" th:unless="${editMode}">
                     <i class="fa-solid fa-wand-magic-sparkles"></i> AI 安排行程
                 </button>
+                <button type="submit" class="btn-submit" th:if="${editMode}" style="flex:1;">
+                    <i class="fa-solid fa-floppy-disk"></i> 儲存編輯
+                </button>
             </div>
-            <p class="ai-plan-hint">
+            <p class="ai-plan-hint" th:unless="${editMode}">
                 「AI 安排行程」會從公司景點資料庫裡篩選出符合目的地國家/地區的景點、餐廳、飯店，
                 依填寫的天數自動安排好每一天的行程初稿，進入看板後仍可以自由調整。
                 如果資料庫裡還沒有符合的景點，會建立空白行程並提示您手動編排。
@@ -890,6 +938,47 @@
         }
         onCountryChanged([]); // 初始狀態: 國家還沒選, 地區欄位先停用
 
+        // 編輯行程基本資料 (editMode): 表單一開始就要帶入這個行程目前已經存的國家/地區, 不能讓使用者
+        // 一打開編輯頁面就看到空白、以為原本的目的地不見了。Itinerary.country/region 存的是「顯示名稱」
+        // 字串 (跟這個多選元件送出的格式一樣, 用「、」分隔), 沒有存 code, 所以要反查 country_city_code
+        // 清單才能找到對應的 code 填回 chips。找不到對應 (例如資料庫裡的名稱跟參考表對不起來) 就維持
+        // 空白, 不會擋住使用者送出表單 (國家還是必填, 使用者可以自己重新選)。
+        const editFormEl = document.querySelector('form[data-edit-mode]');
+        if (editFormEl && editFormEl.dataset.editMode === 'true') {
+            const initialCountryNames = (editFormEl.dataset.initialCountry || '')
+                .split(/[、,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+            const initialRegionNames = (editFormEl.dataset.initialRegion || '')
+                .split(/[、,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+
+            if (initialCountryNames.length) {
+                loadCcCountries().then(function (ccCountries) {
+                    const matchedCountries = ccCountries
+                        .filter(function (c) { return initialCountryNames.indexOf(c.name) !== -1; })
+                        .map(function (c) { return { value: c.code, label: c.name }; });
+                    if (!matchedCountries.length) return;
+
+                    countryMs.setSelected(matchedCountries);
+                    onCountryChanged(matchedCountries);
+
+                    if (!initialRegionNames.length) {
+                        if (typeof renderDayCitiesRows === 'function') renderDayCitiesRows();
+                        return;
+                    }
+                    const countryCodes = matchedCountries.map(function (c) { return c.value; });
+                    fetch('/reference/country-city/cities?countryCodes=' + encodeURIComponent(countryCodes.join(',')))
+                        .then(function (r) { return r.ok ? r.json() : []; })
+                        .then(function (ccCities) {
+                            const matchedRegions = ccCities
+                                .filter(function (c) { return initialRegionNames.indexOf(c.name) !== -1; })
+                                .map(function (c) { return { value: c.code, label: c.name, countryCode: c.countryCode }; });
+                            if (matchedRegions.length) regionMs.setSelected(matchedRegions);
+                            if (typeof renderDayCitiesRows === 'function') renderDayCitiesRows();
+                        })
+                        .catch(function () { /* 查不到就維持已選好的國家, 地區留空讓使用者自己選 */ });
+                });
+            }
+        }
+
         // ------------------------------------------------------------
         // Patch 27: 逐天城市指定, 取代原本的「行程說明」自由文字欄位。
         // 依「預計天數」動態產生 Day1~DayN 每一列, 每列是一個 ms-wrap 多選元件, 選項固定就是「地區/城市」
@@ -1077,6 +1166,39 @@
                     e.preventDefault();
                     alert('請至少選擇一個目的地國家');
                     document.getElementById('countrySearchInput').focus();
+                    return;
+                }
+
+                // 編輯行程基本資料、把天數改少時: 後端現在會真的刪除最後面多出來的天 (連同裡面已經排的
+                // 內容), 這裡要先跳出確認對話框, 而且要講清楚「第X天有N個行程項目」讓使用者知道會刪到
+                // 什麼, 不是隨口按確定就沒了。data-original-days-count / data-day-item-counts 是後端
+                // 在 GET 編輯頁面時就整理好塞進來的 (格式 "天數:項目數,天數:項目數,..."), 不用再打一次 API。
+                if (formEl.dataset.editMode === 'true') {
+                    const originalDaysCount = parseInt(formEl.dataset.originalDaysCount || '0', 10);
+                    const newDaysCount = parseInt(document.getElementById('daysCountInput').value, 10);
+                    if (newDaysCount > 0 && newDaysCount < originalDaysCount) {
+                        const itemCountsByDay = {};
+                        (formEl.dataset.dayItemCounts || '').split(',').forEach(function (pair) {
+                            const parts = pair.split(':');
+                            if (parts.length === 2) itemCountsByDay[parseInt(parts[0], 10)] = parseInt(parts[1], 10);
+                        });
+
+                        const removedDayLines = [];
+                        let anyHasItems = false;
+                        for (let d = newDaysCount + 1; d <= originalDaysCount; d++) {
+                            const count = itemCountsByDay[d] || 0;
+                            if (count > 0) anyHasItems = true;
+                            removedDayLines.push('第 ' + d + ' 天' + (count > 0 ? '（有 ' + count + ' 個行程項目）' : '（空白）'));
+                        }
+
+                        const warningPrefix = anyHasItems ? '⚠️ 注意，裡面有已經排好的行程內容！\n\n' : '';
+                        const msg = '確定要把天數從 ' + originalDaysCount + ' 天改成 ' + newDaysCount + ' 天嗎？\n\n'
+                            + warningPrefix + '將會刪除：\n' + removedDayLines.join('\n')
+                            + '\n\n此動作無法復原。';
+                        if (!confirm(msg)) {
+                            e.preventDefault();
+                        }
+                    }
                 }
             });
         }

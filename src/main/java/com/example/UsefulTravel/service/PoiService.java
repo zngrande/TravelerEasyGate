@@ -99,6 +99,11 @@ public class PoiService {
         return poiDAO.searchByKeyword(AID, keyword, category);
     }
 
+    // poi/list.html「國家 / 城市」自動完成篩選欄位用: 在 keyword/category 的基礎上再多一個 location 條件
+    public List<Poi> search(int AID, String keyword, String category, String location) {
+        return poiDAO.searchByKeyword(AID, keyword, category, location);
+    }
+
     /**
      * 刪除 POI 前, 先解除所有指向它的外鍵參照 (行程項目、AI 解析暫存項目),
      * 不然 itinerary_item.PID / ai_parsed_item.matched_pid 這兩個外鍵沒設 CASCADE 會直接擋住刪除。

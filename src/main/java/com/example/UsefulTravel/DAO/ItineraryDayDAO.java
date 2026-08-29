@@ -8,4 +8,5 @@ public interface ItineraryDayDAO {
     void save(ItineraryDay day);
     ItineraryDay findById(int IDID);
     List<ItineraryDay> findByItinerary(int ITID);
+    void deleteById(int IDID);
 }

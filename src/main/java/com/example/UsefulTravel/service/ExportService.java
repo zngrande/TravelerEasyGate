@@ -195,9 +195,10 @@ public class ExportService {
                     noteRun.setFontSize(10);
                 }
 
-                // 圖片: 這個項目連結的 POI 如果有綁定圖片資源庫的照片, 插入第一張
+                // 圖片: 這個項目連結的 POI 如果有綁定圖片資源庫的照片, 預設全部輸出, 使用者在看板上
+                // 點掉的 (item.getExcludedImageIdSet()) 排除不輸出
                 if (options.includeImages && item.getPID() != null) {
-                    insertItemImage(doc, item.getPID(), AID);
+                    insertItemImage(doc, item.getPID(), AID, item.getExcludedImageIdSet());
                 }
 
                 // 拉車距離: 依勾選決定要不要顯示
@@ -230,28 +231,33 @@ public class ExportService {
      * 把這一天的景點連線地圖 (Google Static Maps) 插入企劃書, 沒設定 API key 或沒有座標資料就跳過
      */
     /**
-     * 插入這個項目連結的 POI 綁定的第一張圖片資源庫照片 (沒有綁定圖片就跳過)
+     * 插入這個項目連結的 POI 綁定的圖片資源庫照片。使用者要求圖片預設全部輸出 (看板上縮圖預設都有綠框),
+     * 使用者可以點掉某幾張排除——excludedImageIds 是使用者排除掉的 image_asset.IAID 集合, 沒被排除的
+     * 全部依序插入 (一張一張各自成一個段落), 集合是空的 (沒有互動過) 就是全部輸出。
      */
-    private void insertItemImage(XWPFDocument doc, int PID, int AID) {
+    private void insertItemImage(XWPFDocument doc, int PID, int AID, java.util.Set<Integer> excludedImageIds) {
         // 只取這份行程所屬旅行社自己上傳的照片, 不要把別間旅行社綁在同一個共用景點上的照片印進企劃書
         List<com.example.UsefulTravel.entity.ImageAsset> images = imageAssetDAO.findByPoi(PID, AID);
         if (images.isEmpty()) return;
 
-        try {
-            com.example.UsefulTravel.entity.ImageAsset image = images.get(0);
-            byte[] imageBytes = imageStorageService.load(image.getFilePath());
+        for (com.example.UsefulTravel.entity.ImageAsset image : images) {
+            if (excludedImageIds != null && excludedImageIds.contains(image.getIAID())) continue;
 
-            int pictureType = (image.getContentType() != null && image.getContentType().contains("png"))
-                    ? XWPFDocument.PICTURE_TYPE_PNG : XWPFDocument.PICTURE_TYPE_JPEG;
+            try {
+                byte[] imageBytes = imageStorageService.load(image.getFilePath());
 
-            XWPFParagraph imgP = doc.createParagraph();
-            imgP.setIndentationLeft(500);
-            XWPFRun imgRun = imgP.createRun();
-            imgRun.addPicture(new ByteArrayInputStream(imageBytes), pictureType,
-                    image.getOriginalFilename() != null ? image.getOriginalFilename() : "photo",
-                    Units.toEMU(200), Units.toEMU(130));
-        } catch (Exception e) {
-            // 圖片讀取失敗不影響整份企劃書產出, 靜默跳過
+                int pictureType = (image.getContentType() != null && image.getContentType().contains("png"))
+                        ? XWPFDocument.PICTURE_TYPE_PNG : XWPFDocument.PICTURE_TYPE_JPEG;
+
+                XWPFParagraph imgP = doc.createParagraph();
+                imgP.setIndentationLeft(500);
+                XWPFRun imgRun = imgP.createRun();
+                imgRun.addPicture(new ByteArrayInputStream(imageBytes), pictureType,
+                        image.getOriginalFilename() != null ? image.getOriginalFilename() : "photo",
+                        Units.toEMU(200), Units.toEMU(130));
+            } catch (Exception e) {
+                // 單張圖片讀取失敗不影響其他張/整份企劃書產出, 靜默跳過這一張繼續下一張
+            }
         }
     }
 

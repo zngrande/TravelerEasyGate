@@ -7,12 +7,15 @@ import com.example.UsefulTravel.DAO.ItineraryDayDAO;
 import com.example.UsefulTravel.DAO.ItineraryItemDAO;
 import com.example.UsefulTravel.DAO.ItineraryItemOptionDAO;
 import com.example.UsefulTravel.DAO.PoiDAO;
+import com.example.UsefulTravel.DAO.QuotationDAO;
+import com.example.UsefulTravel.DAO.QuotationLineDAO;
 import com.example.UsefulTravel.DAO.RouteSegmentDAO;
 import com.example.UsefulTravel.entity.Itinerary;
 import com.example.UsefulTravel.entity.ItineraryDay;
 import com.example.UsefulTravel.entity.ItineraryItem;
 import com.example.UsefulTravel.entity.ItineraryItemOption;
 import com.example.UsefulTravel.entity.Poi;
+import com.example.UsefulTravel.entity.Quotation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +53,8 @@ public class ItineraryService {
     private final AnthropicClient anthropicClient;
     private final ObjectMapper objectMapper;
     private final CountryCityCodeDAO countryCityCodeDAO;
+    private final QuotationDAO quotationDAO;
+    private final QuotationLineDAO quotationLineDAO;
 
     @Autowired
     public ItineraryService(ItineraryDAO itineraryDAO, ItineraryDayDAO itineraryDayDAO,
@@ -57,7 +62,8 @@ public class ItineraryService {
                             RouteSegmentDAO routeSegmentDAO,
                             RouteService routeService, PoiDAO poiDAO, AiImportDAO aiImportDAO,
                             GoogleMapsClient googleMapsClient, AnthropicClient anthropicClient,
-                            ObjectMapper objectMapper, CountryCityCodeDAO countryCityCodeDAO) {
+                            ObjectMapper objectMapper, CountryCityCodeDAO countryCityCodeDAO,
+                            QuotationDAO quotationDAO, QuotationLineDAO quotationLineDAO) {
         this.itineraryDAO = itineraryDAO;
         this.itineraryDayDAO = itineraryDayDAO;
         this.itineraryItemDAO = itineraryItemDAO;
@@ -70,6 +76,8 @@ public class ItineraryService {
         this.anthropicClient = anthropicClient;
         this.objectMapper = objectMapper;
         this.countryCityCodeDAO = countryCityCodeDAO;
+        this.quotationDAO = quotationDAO;
+        this.quotationLineDAO = quotationLineDAO;
     }
 
     /**
@@ -867,12 +875,185 @@ public class ItineraryService {
         return false;
     }
 
+    /**
+     * 個別行程項目「切換某張圖片要不要匯出企劃書」(同一個景點/餐廳可能綁定多張照片)。
+     * 使用者要求圖片預設全部輸出，所以這裡存的是「使用者排除掉的圖片」而不是「選了哪幾張」——
+     * 沒被排除 (excludedImageIds 沒有這個 IAID) 就會匯出，第一次點某張圖片是把它加進排除清單
+     * (從「輸出」變成「不輸出」)，再點一次則是從排除清單移除 (變回「輸出」)。
+     */
+    public void toggleItemImageExport(int IIID, int IAID) {
+        ItineraryItem item = itineraryItemDAO.findById(IIID);
+        if (item == null) return;
+
+        java.util.LinkedHashSet<Integer> excluded = new java.util.LinkedHashSet<>(item.getExcludedImageIdSet());
+        if (!excluded.remove(IAID)) {
+            excluded.add(IAID);
+        }
+        item.setExcludedImageIds(excluded.isEmpty() ? null
+                : excluded.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",")));
+        itineraryItemDAO.save(item);
+    }
+
+    /**
+     * 「編輯行程基本資料」頁面儲存: 只更新行程名稱/國家/地區/天數/出發日期這幾個基本欄位。
+     * 使用者要求「行程不用重新安排」——每一天已經排好的景點/餐飲/住宿完全不動；已經加入看板的去程/回程
+     * 班機項目也完全不動 (這裡不會呼叫 attachFlightItems，天然就「保留」了，不需要額外處理)。
+     * 天數如果改多了，在最後面補上對應數量的空白天 (day_number 依序遞增、沒有任何內容，理由跟
+     * addBlankDay() 一樣，需要使用者自己手動排)。
+     * 天數如果改少了，會真的從最後面刪除多出來的天 (連同底下的項目一起刪掉)——前端在送出表單前已經跳出
+     * 確認對話框告知使用者「第X天有幾個行程項目，確定要刪除嗎」，這裡收到的請求就是使用者已經確認過的,
+     * 不再重複警告。天數不變則什麼都不動。
+     */
+    public void updateBasicInfo(int ITID, String title, String country, String region,
+                                 int daysCount, LocalDate startDate) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) return;
+
+        itinerary.setTitle(title);
+        itinerary.setCountry(country);
+        itinerary.setRegion(region);
+        itinerary.setStartDate(startDate);
+
+        List<ItineraryDay> days = itineraryDayDAO.findByItinerary(ITID);
+        int currentMaxDay = 0;
+        for (ItineraryDay day : days) {
+            if (day.getDayNumber() > currentMaxDay) currentMaxDay = day.getDayNumber();
+        }
+
+        if (daysCount > currentMaxDay) {
+            for (int d = currentMaxDay + 1; d <= daysCount; d++) {
+                LocalDate dayDate = startDate != null ? startDate.plusDays(d - 1) : null;
+                itineraryDayDAO.save(new ItineraryDay(ITID, d, dayDate, null));
+            }
+        } else if (daysCount < currentMaxDay) {
+            // 使用者要求天數改少時要真的刪除多出來的天 (使用者已經在前端確認過); 從最後一天開始刪,
+            // 重用跟看板「刪除這一天」按鈕一樣的 deleteDay() (含清 route_segment、CASCADE 刪除底下項目),
+            // 因為是從尾端刪, deleteDay() 內建的「後面天數往前遞補」邏輯不會找到任何東西可以遞補, 不影響結果。
+            for (ItineraryDay day : days) {
+                if (day.getDayNumber() > daysCount) {
+                    deleteDay(day.getIDID());
+                }
+            }
+        }
+
+        // deleteDay()/上面新增空白天都已經各自把 itinerary 存過一次, 這裡重新抓最新的 itinerary 物件
+        // 再做最後的欄位設定, 避免拿到已經過期的物件蓋掉 deleteDay() 剛剛存的 daysCount/endDate。
+        itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) return;
+        itinerary.setTitle(title);
+        itinerary.setCountry(country);
+        itinerary.setRegion(region);
+        itinerary.setStartDate(startDate);
+
+        int finalDaysCount = daysCount; // 改少的情況下現在真的會刪除, 所以就是使用者填的數字了
+        itinerary.setDaysCount(finalDaysCount);
+
+        if (startDate != null) {
+            itinerary.setEndDate(finalDaysCount > 0 ? startDate.plusDays(finalDaysCount - 1) : startDate);
+        }
+
+        itineraryDAO.save(itinerary);
+    }
+
+    /**
+     * 看板 Day 分頁旁邊的「刪除這一天」: 真的刪除這一天以及底下所有項目 (itinerary_item 對 itinerary_day
+     * 設了 ON DELETE CASCADE, 底下項目/選項會跟著自動清掉), 並把後面的天數依序往前遞補一位 (例如刪掉
+     * Day2, 原本的 Day3/4/5 變成 Day2/3/4), 讓 Day 編號維持連續不留空隙。
+     * 有 startDate 的話, 遞補後的每一天日期也會跟著重新算 (公式跟 createItinerary()/addBlankDay() 一致:
+     * dayDate = startDate + (新的 dayNumber - 1) 天), 讓日期繼續對應「第幾天」；沒有 startDate 就維持 null。
+     * 同步把 itinerary.daysCount -1、重算 endDate。
+     */
+    public void deleteDay(int IDID) {
+        ItineraryDay dayToDelete = itineraryDayDAO.findById(IDID);
+        if (dayToDelete == null) return;
+        int ITID = dayToDelete.getITID();
+        int deletedDayNumber = dayToDelete.getDayNumber();
+
+        // route_segment 對 itinerary_item 的外鍵沒有 ON DELETE CASCADE, 要先清掉這天算過的拉車距離快取,
+        // 不然刪除這天 (連帶 CASCADE 刪除底下的 itinerary_item) 會在這一關被擋住, 跟 deleteItinerary() 一樣的道理。
+        routeSegmentDAO.deleteByDay(IDID);
+        itineraryDayDAO.deleteById(IDID); // CASCADE 帶走底下所有 itinerary_item / itinerary_item_option
+
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        List<ItineraryDay> remainingDays = itineraryDayDAO.findByItinerary(ITID);
+        int maxDayNumber = 0;
+        for (ItineraryDay day : remainingDays) {
+            if (day.getDayNumber() > deletedDayNumber) {
+                int newDayNumber = day.getDayNumber() - 1;
+                day.setDayNumber(newDayNumber);
+                if (itinerary != null && itinerary.getStartDate() != null) {
+                    day.setDayDate(itinerary.getStartDate().plusDays(newDayNumber - 1));
+                }
+                itineraryDayDAO.save(day);
+                if (newDayNumber > maxDayNumber) maxDayNumber = newDayNumber;
+            } else if (day.getDayNumber() > maxDayNumber) {
+                maxDayNumber = day.getDayNumber();
+            }
+        }
+
+        if (itinerary != null) {
+            itinerary.setDaysCount(maxDayNumber);
+            if (itinerary.getStartDate() != null) {
+                itinerary.setEndDate(maxDayNumber > 0
+                        ? itinerary.getStartDate().plusDays(maxDayNumber - 1)
+                        : itinerary.getStartDate());
+            }
+            itineraryDAO.save(itinerary);
+        }
+    }
+
+    /**
+     * 看板「天數旁邊 +」直接加一天空白天：加在最後面 (day_number = 目前最大值 + 1)，不影響既有天數的
+     * 內容/排序，也不會觸發任何自動排程/AI 邏輯——新加的這一天完全空白，需要使用者自己手動排內容。
+     * 有 startDate 的話依序往後推算這天的 dayDate、同步更新 itinerary.endDate；沒有 startDate 就留 null，
+     * 邏輯跟 createItinerary() 建立骨架時一致。同步把 itinerary.daysCount 往上調整，讓「編輯行程基本資料」
+     * 頁面看到的天數跟看板實際天數保持一致。
+     */
+    public ItineraryDay addBlankDay(int ITID) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) return null;
+
+        List<ItineraryDay> days = itineraryDayDAO.findByItinerary(ITID);
+        int maxDayNumber = 0;
+        for (ItineraryDay day : days) {
+            if (day.getDayNumber() > maxDayNumber) maxDayNumber = day.getDayNumber();
+        }
+        int newDayNumber = maxDayNumber + 1;
+
+        LocalDate dayDate = null;
+        if (itinerary.getStartDate() != null) {
+            dayDate = itinerary.getStartDate().plusDays(newDayNumber - 1);
+        }
+
+        ItineraryDay newDay = new ItineraryDay(ITID, newDayNumber, dayDate, null);
+        itineraryDayDAO.save(newDay);
+
+        if (newDayNumber > itinerary.getDaysCount()) {
+            itinerary.setDaysCount(newDayNumber);
+        }
+        if (itinerary.getStartDate() != null) {
+            itinerary.setEndDate(itinerary.getStartDate().plusDays(newDayNumber - 1));
+        }
+        itineraryDAO.save(itinerary);
+
+        return newDay;
+    }
+
     public void deleteItinerary(int ITID) {
         aiImportDAO.clearResultItinerary(ITID); // 先解除外鍵參照, 不然刪除會被擋
         // 同樣道理: route_segment 對 itinerary_item 的外鍵沒設 CASCADE,
         // 要先把這個行程底下每一天算過的拉車距離快取清掉, 不然整串 CASCADE 刪除會在 itinerary_item 這關被擋住
         for (ItineraryDay day : itineraryDayDAO.findByItinerary(ITID)) {
             routeSegmentDAO.deleteByDay(day.getIDID());
+        }
+        // 使用者要求: 這個行程如果已經有報價單 (含「簡易報價單/快速抓價錢」填過的價格), 刪除行程時
+        // 要一併刪掉, 不能留下孤兒的報價資料。quotation/quotation_line 資料庫層級雖然已經設了
+        // ON DELETE CASCADE (db/migration_quotation.sql), 但這個專案過去發生過「migration 沒有真的
+        // 在使用者實際的資料庫上執行過」的情況 (見交付紀錄), 所以這裡不依賴資料庫層級的 cascade 一定有效,
+        // 直接在程式碼層級主動刪除每一版報價單的明細跟主檔, 確保不管資料庫有沒有套用 cascade 都會正確清掉。
+        for (Quotation quotation : quotationDAO.findByItinerary(ITID)) {
+            quotationLineDAO.deleteByQuotation(quotation.getQID());
+            quotationDAO.delete(quotation);
         }
         itineraryDAO.deleteById(ITID);
     }
