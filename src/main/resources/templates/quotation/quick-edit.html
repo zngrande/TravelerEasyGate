@@ -151,8 +151,21 @@
                         <option value="FIXED_GROUP" selected>全團固定一口價</option>
                         <option value="PER_PAX">按人頭計費</option>
                     </select>
+                    <!-- 2026-08-26 修正 (使用者回報「雜費也要有類別的下拉式選單」): 這裡以前是寫死
+                         <input type="hidden" name="category" value="other">, 不管實際新增的是什麼雜費一律存成
+                         other, 跟正式報價頁「新增報價項目」表單的類別選單 (flight/hotel/meal/attraction/optional/other)
+                         對不起來, 明細/報表上這幾筆雜費也永遠分類不出來。改成跟正式報價頁同一組選項的下拉選單,
+                         預設選 other (原本的行為, 使用者可以自己改), 後端 /quotation/{qid}/lines 這個既有的
+                         addLine endpoint 本來就是吃 category 這個一般字串參數, 不用動任何後端程式碼。 -->
+                    <select name="category">
+                        <option value="flight">flight 機票</option>
+                        <option value="hotel">hotel 住宿</option>
+                        <option value="meal">meal 餐食</option>
+                        <option value="attraction">attraction 景點/門票</option>
+                        <option value="optional">optional 自費活動</option>
+                        <option value="other" selected>other 其他</option>
+                    </select>
                     <input type="number" step="0.01" name="unitPrice" placeholder="價錢" required />
-                    <input type="hidden" name="category" value="other" />
                     <input type="hidden" name="quantity" value="1" />
                     <button type="submit"><i class="fa-solid fa-plus"></i> 新增雜費</button>
                 </form>

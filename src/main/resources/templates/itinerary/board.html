@@ -31,6 +31,8 @@
             --tag-hotel-bg: #ccfbf1;
             --tag-transport: #2563eb;
             --tag-transport-bg: #eff6ff;
+            --tag-flight: #0369a1;
+            --tag-flight-bg: #e0f2fe;
             --tag-other: #64748b;
             --tag-other-bg: #f1f5f9;
         }
@@ -341,6 +343,7 @@
         }
         .timeline-node.item-meal .timeline-node-dot { border-color: #f97316; }
         .timeline-node.item-hotel .timeline-node-dot { border-color: #14b8a6; }
+        .timeline-node.item-flight .timeline-node-dot { border-color: #0369a1; }
         .timeline-node.travel .timeline-node-dot { border-color: #94a3b8; }
         .timeline-node.travel.backtrack .timeline-node-dot { border-color: #ef4444; }
 
@@ -356,6 +359,7 @@
         .timeline-node-card.item-meal { border-left: 3px solid #f97316; background: #fffaf5; }
         .timeline-node-card.item-hotel { border-left: 3px solid #14b8a6; background: #f0fdfa; }
         .timeline-node-card.item-transport { border-left: 3px solid #3b82f6; background: #f8faff; }
+        .timeline-node-card.item-flight { border-left: 3px solid #0369a1; background: #f0f9ff; }
         .timeline-node-card.travel { border-left: 3px dashed var(--border-color); background: #f8fafc; }
         .timeline-node-card.travel.backtrack { border-left: 3px dashed #ef4444; background: #fef2f2; }
 
@@ -454,6 +458,7 @@
         .item-icon-wrap.meal { background: var(--tag-meal-bg); color: var(--tag-meal); }
         .item-icon-wrap.hotel { background: var(--tag-hotel-bg); color: var(--tag-hotel); }
         .item-icon-wrap.transport { background: var(--tag-transport-bg); color: var(--tag-transport); }
+        .item-icon-wrap.flight { background: var(--tag-flight-bg); color: var(--tag-flight); }
         .item-icon-wrap.optional { background: #faf5ff; color: #a855f7; }
         .item-icon-wrap.free_time { background: #f1f5f9; color: #64748b; }
 
@@ -469,6 +474,7 @@
         .type-badge.meal { background: var(--tag-meal-bg); color: var(--tag-meal); }
         .type-badge.hotel { background: var(--tag-hotel-bg); color: var(--tag-hotel); }
         .type-badge.transport { background: var(--tag-transport-bg); color: var(--tag-transport); }
+        .type-badge.flight { background: var(--tag-flight-bg); color: var(--tag-flight); }
 
         .item-name { font-size: 14px; font-weight: 600; color: var(--text-dark); }
         .unlinked-tag {
@@ -1331,6 +1337,30 @@
     // 純畫面渲染: 只依賴 dayCache + pendingEdits/pendingDeletes, 不打 API。
     // 有暫存中還沒存檔的排序異動時, routes 改用 computePreviewRoutes() 即時算出的預估值, 不是舊的
     // (拖曳前) 存檔資料, 這樣拖曳完立刻就能看到距離/時間跟著新順序變動, 不用等按「儲存編輯」。
+    // 這幾個項目類別的顯示對照表, 跟判斷「這個項目是不是班機/一般交通」的小工具, 提到到 renderDay 外面
+    // (top-level, 不是 renderDay 內部的區域變數), 讓 renderTimeline 也能共用同一套判斷, 不用重複定義一次。
+    const typeLabel = { attraction: '景點', meal: '餐廳', hotel: '住宿', transport: '交通', optional: '自費', free_time: '自由活動' };
+    const typeIcon = { attraction: '🏞️', meal: '🍴', hotel: '🛏️', transport: '🚌', optional: '🎟️', free_time: '☕' };
+
+    // 「航班」只是同一個 item_type=transport 底下的顯示層級區分, 不是新的類別/編輯選項——
+    // 建立新行程時「行程重點資訊」填的去程/回程班機才會有 transportMethod === '飛機' (見
+    // attachFlightLegsAcrossDays), 使用者事後在「編輯」表單把交通工具打成「飛機」也會套用同樣的顯示,
+    // 這裡刻意不額外加欄位判斷, 直接沿用這個既有欄位當標記。編輯表單的類別下拉選單/欄位完全不受影響,
+    // 一律還是顯示/當作「交通」處理 (見 renderDay 裡 typeOptions 那段, 沒有改動)。
+    const isFlightItem = (it) => !!it && it.itemType === 'transport' && it.transportMethod === '飛機';
+    // 「一般交通」(不是班機) 判斷: 兩個點中間如果卡著這種項目, 這一段的距離/時間/走路開車選單要拿掉
+    // (見 renderDay 裡 route-info 的渲染邏輯), 但還是要保留「推薦順路景點」。
+    const isPlainTransportItem = (it) => !!it && it.itemType === 'transport' && it.transportMethod !== '飛機';
+    // 有沒有座標可以拿來算距離/推薦順路景點: 跟後端 RouteService.resolveCoordinates()/
+    // ItineraryService.resolveItemCoordinates() 同一套判斷, 交通/班機項目沒有連結 POI 但有自己的經緯度,
+    // 一般景點/餐廳/住宿則靠 PID 連結 POI 資料庫。
+    const hasRouteCoord = (it) => !!it && ((it.latitude != null && it.longitude != null) || it.PID != null);
+    // 依項目實際顯示用的類別/圖示/文字 — 只影響畫面呈現 (badge、icon), item.itemType 本身不變,
+    // 編輯表單、可否加入景點資料庫等邏輯繼續吃原本的 itemType。
+    const getDisplayType = (it) => isFlightItem(it) ? 'flight' : it.itemType;
+    const getDisplayLabel = (it) => isFlightItem(it) ? '航班' : (typeLabel[it.itemType] || it.itemType);
+    const getDisplayIcon = (it) => isFlightItem(it) ? '✈️' : (typeIcon[it.itemType] || '📍');
+
     function renderDay(idid) {
         const items = buildDisplayItems(idid);
         const hasPendingOrder = !!pendingItemOrder[idid];
@@ -1375,12 +1405,11 @@
             }
         }
 
-        const typeLabel = { attraction: '景點', meal: '餐廳', hotel: '住宿', transport: '交通', optional: '自費', free_time: '自由活動' };
-        const typeIcon = { attraction: '🏞️', meal: '🍴', hotel: '🛏️', transport: '✈️', optional: '🎟️', free_time: '☕' };
         const poiEligibleTypes = ['attraction', 'meal', 'hotel'];
 
         // 算出每個項目對應地圖上的標記 (只有「有座標」且「沒關掉顯示地圖」的項目才會真的出現在地圖上, 跟後端邏輯一致):
-        // 住宿類型固定用床的 emoji、不佔字母代號, 其餘類型依序排 A/B/C... (跟 renderMap()/Static Maps API 的邏輯一致)
+        // 住宿類型固定用床的 emoji、班機固定用飛機 emoji, 都不佔字母代號, 其餘類型依序排 A/B/C...
+        // (跟 renderMap()/Static Maps API 的邏輯一致)
         const mapLabels = {};
         let mapLabelIndex = 0;
         items.forEach(it => {
@@ -1388,6 +1417,8 @@
             if (hasCoord && it.showOnMap !== false) {
                 if (it.itemType === 'hotel') {
                     mapLabels[it.IIID] = '🛏️';
+                } else if (isFlightItem(it)) {
+                    mapLabels[it.IIID] = '✈️';
                 } else {
                     mapLabels[it.IIID] = String.fromCharCode(65 + Math.min(mapLabelIndex, 25));
                     mapLabelIndex++;
@@ -1426,19 +1457,20 @@
                 : '';
             const mapLabel = mapLabels[item.IIID];
             const isHotelLabel = mapLabel === '🛏️';
+            const isFlightLabel = mapLabel === '✈️';
             const mapLabelBadge = mapLabel
-                ? `<span onclick="focusMapMarker(${idid}, ${item.IIID})" title="點擊在地圖上定位這個點 (對應 ${isHotelLabel ? '床' : mapLabel} 點)" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:${isHotelLabel ? HOTEL_MARKER_COLOR : STANDARD_MARKER_COLOR};color:#fff;font-size:11px;font-weight:700;flex-shrink:0;">${mapLabel}</span>`
+                ? `<span onclick="focusMapMarker(${idid}, ${item.IIID})" title="點擊在地圖上定位這個點 (對應 ${isHotelLabel ? '床' : mapLabel} 點)" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:${isHotelLabel ? HOTEL_MARKER_COLOR : (isFlightLabel ? FLIGHT_MARKER_COLOR : STANDARD_MARKER_COLOR)};color:#fff;font-size:11px;font-weight:700;flex-shrink:0;">${mapLabel}</span>`
                 : '';
 
             li.innerHTML = `
                 <div class="item-row-left">
                     ${mapLabelBadge}
-                    <div class="item-icon-wrap ${item.itemType}">
-                        ${typeIcon[item.itemType] || '📍'}
+                    <div class="item-icon-wrap ${getDisplayType(item)}">
+                        ${getDisplayIcon(item)}
                     </div>
                     <div>
                         <div style="display:flex; align-items:center; gap:6px;">
-                            <span class="type-badge ${item.itemType}">${typeLabel[item.itemType] || item.itemType}</span>
+                            <span class="type-badge ${getDisplayType(item)}">${getDisplayLabel(item)}</span>
                             ${nameHtml}
                         </div>
                         <div style="margin-top:2px;">${timeBadge}${subText}</div>
@@ -1446,9 +1478,9 @@
                 </div>
                 <div class="item-row-right">
                     ${canAddToPoi ? `<button class="btn-action add-poi" onclick="addToPoiDatabase(${idid}, ${item.IIID})">＋ 加入景點資料庫</button>` : ''}
-                    <button class="btn-action maptoggle ${showOnMapChecked ? '' : 'off'}" onclick="toggleShowOnMap(${idid}, ${item.IIID})" title="${showOnMapChecked ? '目前顯示在地圖上，點擊隱藏' : '目前沒有顯示在地圖上，點擊顯示'}">
+                    ${item.itemType !== 'transport' ? `<button class="btn-action maptoggle ${showOnMapChecked ? '' : 'off'}" onclick="toggleShowOnMap(${idid}, ${item.IIID})" title="${showOnMapChecked ? '目前顯示在地圖上，點擊隱藏' : '目前沒有顯示在地圖上，點擊顯示'}">
                         <i class="fa-solid fa-map-location-dot"></i>
-                    </button>
+                    </button>` : ''}
                     <button class="btn-action edit" onclick="toggleItemEdit(${item.IIID})">✎ 編輯</button>
                     <button class="btn-action remove" onclick="removeItem(${idid}, ${item.IIID})">移除</button>
                 </div>
@@ -1467,6 +1499,14 @@
             const typeOptions = ['attraction', 'meal', 'hotel', 'transport', 'optional', 'free_time']
                 .map(t => `<option value="${t}" ${item.itemType === t ? 'selected' : ''}>${typeLabel[t]}</option>`).join('');
             const esc = (v) => (v || '').toString().replace(/"/g, '&quot;');
+
+            // 交通項目的起始點/目的地如果本來就空白 (例如剛新增、還沒拖到定位的交通項目), 用「這個項目
+            // 目前前後兩個項目」的名稱當預設建議值帶進輸入框——只是預先帶入畫面顯示, 不會自動存檔,
+            // 使用者確認/微調後按「儲存編輯」才會真的送出; 已經填過值的欄位不覆蓋, 尊重使用者已經打好的內容。
+            const prevItemForTransport = items[index - 1];
+            const nextItemForTransport = items[index + 1];
+            const suggestedFromLocation = item.fromLocation || (prevItemForTransport ? (prevItemForTransport.customName || '') : '');
+            const suggestedToLocation = item.toLocation || (nextItemForTransport ? (nextItemForTransport.customName || '') : '');
 
             editForm.innerHTML = `
                 <label>類別</label>
@@ -1497,18 +1537,20 @@
                 </div>
 
                 <div id="edit-transport-fields-${item.IIID}" style="display:${isTransportType ? 'block' : 'none'};">
+                    <label>名稱 (選填, 留空會依「交通工具：起始點 → 目的地」自動產生)</label>
+                    <input type="text" id="edit-transport-name-${item.IIID}" value="${esc(item.customName)}" placeholder="例如: 前往機場的接駁車" />
                     <label>起始點</label>
-                    <input type="text" id="edit-fromloc-${item.IIID}" value="${esc(item.fromLocation)}" placeholder="例如: 桃園機場" />
+                    <input type="text" id="edit-fromloc-${item.IIID}" value="${esc(suggestedFromLocation)}" placeholder="例如: 桃園機場" />
                     <label>起始地址 (選填, 沒填會依起始點自動帶入)</label>
                     <input type="text" id="edit-fromaddr-${item.IIID}" value="${esc(item.fromAddress)}" placeholder="沒填會自動帶入..." />
                     <label>目的地</label>
-                    <input type="text" id="edit-toloc-${item.IIID}" value="${esc(item.toLocation)}" placeholder="例如: 高雄車站" />
+                    <input type="text" id="edit-toloc-${item.IIID}" value="${esc(suggestedToLocation)}" placeholder="例如: 高雄車站" />
                     <label>目的地地址 (選填, 沒填會依目的地自動帶入)</label>
                     <input type="text" id="edit-toaddr-${item.IIID}" value="${esc(item.toAddress)}" placeholder="沒填會自動帶入..." />
                     <label>交通工具</label>
                     <input type="text" id="edit-transportmethod-${item.IIID}" value="${esc(item.transportMethod)}" placeholder="例如: 高鐵/飛機/遊覽車/計程車" />
-                    <label>通勤時間</label>
-                    <input type="text" id="edit-commuteduration-${item.IIID}" value="${esc(item.commuteDuration)}" placeholder="例如: 約1小時30分" />
+                    <label>通勤時間 (分鐘)</label>
+                    <input type="number" id="edit-commuteduration-${item.IIID}" value="${item.commuteDurationMin ?? ''}" step="5" min="0" placeholder="例如: 90" />
                     <label>出發時間 (選填, 例如班機起飛時間)</label>
                     <input type="time" id="edit-starttime-${item.IIID}" value="${esc(item.startTime)}" />
                     <label>抵達時間 (選填, 例如班機降落時間)</label>
@@ -1530,20 +1572,27 @@
                 loadItemDescription(item.PID, item.IIID);
             }
 
-            // 通勤拉車資訊 + 交通方式選單
+            // 通勤拉車資訊 + 交通方式選單——如果這一段的頭尾任一邊是「一般交通」項目 (不是班機), 使用者
+            // 這次明確要求把預估通勤時間/距離、走路/開車選單拿掉 (那個交通項目自己就是一段行程了, 前後
+            // 再多顯示一段計算出來的「拉車距離」沒有意義), 但下面的「推薦順路景點」仍然要保留, 所以這裡
+            // 只是不塞內容進 routeInfoEl, 容器本身照樣建立, 讓推薦按鈕還有地方可以附著。
+            const nextItem = items[index + 1];
             const route = routes.find(r => r.fromItemId === item.IIID);
+            const suppressRouteDetails = isPlainTransportItem(item) || isPlainTransportItem(nextItem);
             let routeInfoEl = null;
             if (route) {
                 routeInfoEl = document.createElement('div');
-                routeInfoEl.className = 'route-info' + (route.backtrack ? ' backtrack' : '');
-                routeInfoEl.innerHTML = buildRouteInfoHtml(route, idid);
+                routeInfoEl.className = 'route-info' + (route.backtrack && !suppressRouteDetails ? ' backtrack' : '');
+                routeInfoEl.innerHTML = suppressRouteDetails ? '' : buildRouteInfoHtml(route, idid);
                 list.appendChild(routeInfoEl);
             }
 
             // 智慧中途推薦：先偷看有沒有推薦結果, 沒有的話這顆按鈕都不顯示。按鈕改放在交通方式下拉選單旁邊 (同一行),
             // 點下去會在旁邊彈出一個小面板 (可以按 X 關掉), 不再佔一整排空間。
-            const nextItem = items[index + 1];
-            if (nextItem && item.PID != null && nextItem.PID != null) {
+            // 判斷條件原本要求兩邊都要有 PID (連結公司景點資料庫) 才查, 交通/班機項目沒有 PID 但有自己的
+            // 座標——改成跟後端 suggestPoiBetween() 一致, 只要兩邊都能拿到座標就可以查, 這樣「交通/班機
+            // 跟景點中間」才會出現推薦順路景點。
+            if (nextItem && hasRouteCoord(item) && hasRouteCoord(nextItem)) {
                 const suggestBtn = document.createElement('button');
                 suggestBtn.type = 'button';
                 suggestBtn.className = 'suggest-inline-btn';
@@ -1713,9 +1762,15 @@
         let current = dayStartMin;
 
         items.forEach((item, i) => {
+            // 交通項目的「停留時間」永遠是 null (交通不是一個會停留的點), 這裡改用通勤時間 (分鐘, 數字)
+            // 當作這個項目佔用的時長估算——跟停留時間一樣是數字, 才能真的推進時間表的時鐘。如果這個
+            // 項目本身有填出發/抵達時間 (下面 if (item.startTime) 那段), 這個估算值會被直接蓋掉、完全不使用,
+            // 符合「有填出發/抵達時間就以出發/抵達時間為主」的優先順序; 只有兩者都沒填時才會用到這個估算值。
             const duration = (item.stayDurationMin != null && item.stayDurationMin > 0)
                 ? item.stayDurationMin
-                : (defaultStayMin[item.itemType] ?? 60);
+                : (item.itemType === 'transport' && item.commuteDurationMin != null && item.commuteDurationMin > 0)
+                    ? item.commuteDurationMin
+                    : (defaultStayMin[item.itemType] ?? 60);
 
             // 有實際填寫出發/抵達時間的項目 (目前只有交通/班機項目會有, 見 attachFlightLegsAcrossDays) 直接採用
             // 真實時間, 不要再套用「預設停留時間累加估算」——尤其是班機, 用累加估算完全對不上真實時刻表,
@@ -1733,17 +1788,18 @@
             }
             if (end < start) end += 24 * 60; // 抵達時間字面上比出發時間早 → 隔夜/跨日班機, 視為隔天抵達
 
+            const displayType = isFlightItem(item) ? 'flight' : item.itemType;
             const node = document.createElement('div');
-            node.className = `timeline-node item-${item.itemType}`;
+            node.className = `timeline-node item-${displayType}`;
             node.innerHTML = `
                 <div class="timeline-node-time">${minutesToTime(start)}</div>
                 <div class="timeline-node-dot"></div>
-                <div class="timeline-node-card item-${item.itemType}">
+                <div class="timeline-node-card item-${displayType}">
                     <div class="timeline-card-header">
-                        <span>${typeIcon[item.itemType] || '📍'}</span>
+                        <span>${isFlightItem(item) ? '✈️' : (typeIcon[item.itemType] || '📍')}</span>
                         <span>${item.customName || '項目'}</span>
                     </div>
-                    <div class="timeline-card-sub">${typeLabel[item.itemType] || item.itemType}</div>
+                    <div class="timeline-card-sub">${isFlightItem(item) ? '航班' : (typeLabel[item.itemType] || item.itemType)}</div>
                 </div>
             `;
             wrap.appendChild(node);
@@ -1828,6 +1884,7 @@
     // 用 marker.setIcon(normalIcon) 復原成平常大小。
     const MARKER_SCALE_UP_RATIO = 1.5;
     const HOTEL_MARKER_COLOR = '#0d9488';
+    const FLIGHT_MARKER_COLOR = '#0369a1'; // 跟 --tag-flight 同一個藍色, 底色跟項目清單的飛機圖示同色系
     const STANDARD_MARKER_COLOR = '#ea4335'; // 跟 Google 地圖內建預設標記接近的紅色
 
     // 景點資料庫快選面板: 依國家/地區/景點名稱關鍵字 (三個欄位皆為部分比對、大小寫不拘, 同時輸入時要三個條件都符合) 篩選 allPoisForMap 並重畫清單
@@ -2039,13 +2096,16 @@
         itemPoints.forEach((p) => {
             const pos = { lat: p.lat, lng: p.lng };
             const isHotel = p.itemType === 'hotel';
-            const color = isHotel ? HOTEL_MARKER_COLOR : STANDARD_MARKER_COLOR;
+            const isFlight = p.itemType === 'transport' && p.transportMethod === '飛機';
+            const color = isHotel ? HOTEL_MARKER_COLOR : (isFlight ? FLIGHT_MARKER_COLOR : STANDARD_MARKER_COLOR);
             const normalScale = isHotel ? 13 : 10;
             const normalIcon = { path: google.maps.SymbolPath.CIRCLE, scale: normalScale, fillColor: color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 };
             const bigIcon = { path: google.maps.SymbolPath.CIRCLE, scale: normalScale * MARKER_SCALE_UP_RATIO, fillColor: color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 };
             let labelConfig;
             if (isHotel) {
                 labelConfig = { text: '🛏️', fontSize: '13px' };
+            } else if (isFlight) {
+                labelConfig = { text: '✈️', fontSize: '13px' }; // 機場銜接點, 不編 A/B/C 字母, 避免跟真正的景點順序混在一起
             } else {
                 labelConfig = { text: String.fromCharCode(65 + Math.min(letterIndex, 25)), color: '#fff', fontWeight: '700', fontSize: '11px' };
                 letterIndex++;
@@ -2255,7 +2315,7 @@
             toLocation: item.toLocation || null,
             toAddress: item.toAddress || null,
             transportMethod: item.transportMethod || null,
-            commuteDuration: item.commuteDuration || null,
+            commuteDurationMin: item.commuteDurationMin ?? null,
             startTime: item.startTime || null,
             endTime: item.endTime || null
         };
@@ -2282,24 +2342,38 @@
         const overrides = { itemType, note };
 
         if (itemType === 'transport') {
+            const customNameInput = document.getElementById('edit-transport-name-' + iiid).value.trim();
             const fromLocation = document.getElementById('edit-fromloc-' + iiid).value.trim();
             const fromAddress = document.getElementById('edit-fromaddr-' + iiid).value.trim();
             const toLocation = document.getElementById('edit-toloc-' + iiid).value.trim();
             const toAddress = document.getElementById('edit-toaddr-' + iiid).value.trim();
             const transportMethod = document.getElementById('edit-transportmethod-' + iiid).value.trim();
-            const commuteDuration = document.getElementById('edit-commuteduration-' + iiid).value.trim();
+            const commuteDurationMinRaw = document.getElementById('edit-commuteduration-' + iiid).value;
             const startTime = document.getElementById('edit-starttime-' + iiid).value.trim();
             const endTime = document.getElementById('edit-endtime-' + iiid).value.trim();
             if (!fromLocation || !toLocation) { alert('請至少輸入起始點與目的地'); return; }
 
-            const namePrefix = transportMethod ? (transportMethod + '：') : '';
-            overrides.customName = namePrefix + fromLocation + ' → ' + toLocation;
+            // 名稱留空時自動用「交通工具：起始點 → 目的地」帶入——但如果這本來是去程/回程班機項目
+            // (customName 開頭是「去程班機」/「回程班機」, 見 ItineraryService.attachFlightLegsAcrossDays()
+            // 的命名規則), 要保留原本的方向字首, 不能直接套用一般交通的命名規則, 不然機場銜接功能
+            // (calculateAirportTransferSegments()/updateItemDetails() 判斷回程班機的地方) 會認不出這個項目。
+            const flightPrefixMatch = (currentItem && currentItem.transportMethod === '飛機' && currentItem.customName)
+                ? currentItem.customName.match(/^(去程班機\d*|回程班機\d*)/)
+                : null;
+            let autoName;
+            if (flightPrefixMatch) {
+                autoName = flightPrefixMatch[0] + '：' + fromLocation + ' → ' + toLocation;
+            } else {
+                const namePrefix = transportMethod ? (transportMethod + '：') : '';
+                autoName = namePrefix + fromLocation + ' → ' + toLocation;
+            }
+            overrides.customName = customNameInput || autoName;
             overrides.fromLocation = fromLocation;
             overrides.fromAddress = fromAddress || null; // 空白代表「沒填」, 後端會依起始點自動查詢帶入
             overrides.toLocation = toLocation;
             overrides.toAddress = toAddress || null;     // 空白代表「沒填」, 後端會依目的地自動查詢帶入
             overrides.transportMethod = transportMethod || null;
-            overrides.commuteDuration = commuteDuration || null;
+            overrides.commuteDurationMin = commuteDurationMinRaw !== '' ? Number(commuteDurationMinRaw) : null;
             // 空白代表使用者主動清空——後端 updateItemDetails() 收到空字串會真的清掉這個時間, 不是「不更動」
             overrides.startTime = startTime;
             overrides.endTime = endTime;
@@ -2326,7 +2400,7 @@
             overrides.toLocation = null;
             overrides.toAddress = null;
             overrides.transportMethod = null;
-            overrides.commuteDuration = null;
+            overrides.commuteDurationMin = null;
             overrides.startTime = null;
             overrides.endTime = null;
         }
@@ -2460,6 +2534,11 @@
                 if (idid == null) continue;
                 const params = new URLSearchParams({ customName: edit.customName, showOnMap: edit.showOnMap });
                 if (edit.stayDurationMin != null) params.set('stayDurationMin', edit.stayDurationMin);
+                // commuteDurationMin 是數字型 (Integer) 參數, 不能跟下面的 setIfPresent 一樣送空字串
+                // (後端會轉型失敗), 用跟 stayDurationMin 一樣的做法: null 就整個不送這個參數, 讓後端
+                // @RequestParam(required = false) 收到 null, 一樣能正確清空 (updateItemDetails() 是直接
+                // assign, 不是「非 null 才更動」)。
+                if (edit.commuteDurationMin != null) params.set('commuteDurationMin', edit.commuteDurationMin);
                 if (edit.locationHint) params.set('locationHint', edit.locationHint);
                 if (edit.note != null) params.set('note', edit.note);
                 if (edit.itemType != null) params.set('itemType', edit.itemType);
@@ -2474,7 +2553,6 @@
                 setIfPresent('toLocation', edit.toLocation);
                 setIfPresent('toAddress', edit.toAddress);
                 setIfPresent('transportMethod', edit.transportMethod);
-                setIfPresent('commuteDuration', edit.commuteDuration);
                 setIfPresent('startTime', edit.startTime);
                 setIfPresent('endTime', edit.endTime);
                 const res = await fetch(`/itinerary/day/${idid}/items/${iiid}/edit?` + params.toString(), { method: 'POST' });

@@ -25,14 +25,26 @@ public class Quotation {
     private Integer MSID;
 
     // 基本報價／同業／直售加成與退傭設定的模式: "preset" = 套用 MSID 指到的「計算公式管理」已儲存規則
-    // (只影響同業/直售/退傭三層, 基本報價沒有對應的已儲存規則, 一律自己填); "custom" = 這張報價單自己填
-    // (沿用下面 custom_*_formula / *_markup_mode / *_markup_value 這幾組舊欄位)。
+    // (影響基本/同業/直售/退傭四層; 基本報價比較特別, MarginSetting.basicFormula 是選填的, 那組規則沒填的話
+    // 基本報價還是 fallback 回這張報價單自己的設定, 詳見 QuotationService#recalculateQuotationPricing());
+    // "custom" = 這張報價單自己填 (沿用下面 custom_*_formula / *_markup_mode / *_markup_value 這幾組舊欄位)。
     // 欄位本身沿用 migration_formula_pricing.sql 當時就建立好、DB 預設值是 'preset'、但一直沒接上畫面/邏輯的
     // formula_mode —— 因為 MSID 過去從來沒有被設定過, 這裡讀出來就算是 'preset' 也一定要另外檢查
     // MSID != null 才能真的套用已儲存規則, 否則舊資料 (MSID 一定是 null) 會被誤判成「已儲存規則」而算不出價錢,
     // 詳見 QuotationService#resolveActivePreset()。
     @Column(name = "formula_mode")
     private String formulaMode = "preset";
+
+    // 「整團人數級距報價結果」卡片 NP／團費成本這一組的「已儲存的／自填」切換, 跟上面 formulaMode/MSID
+    // (管①②③④基本報價/同業/直售/退傭那組) 完全獨立——使用者要求這兩組要能各自分開選規則、各自存,
+    // 不要綁在同一個下拉選單上 (以前是共用 formulaMode/MSID, 選了一組規則就同時決定兩邊, 沒辦法「基本報價
+    // 套用 A 規則、NP/團費成本套用 B 規則」這種混搭)。語意/容錯規則跟上面 formulaMode/MSID 一模一樣:
+    // tier_formula_mode="preset" 且 tier_MSID != null 才算真的套用中, 詳見 QuotationService#resolveActiveTierPreset()。
+    @Column(name = "tier_formula_mode")
+    private String tierFormulaMode = "custom";
+
+    @Column(name = "tier_MSID")
+    private Integer tierMSID;
 
     @Column(name = "group_size")
     private int groupSize = 1;
@@ -144,12 +156,27 @@ public class Quotation {
     public String getFormulaMode() { return formulaMode; }
     public void setFormulaMode(String formulaMode) { this.formulaMode = formulaMode; }
 
+    public String getTierFormulaMode() { return tierFormulaMode; }
+    public void setTierFormulaMode(String tierFormulaMode) { this.tierFormulaMode = tierFormulaMode; }
+
+    public Integer getTierMSID() { return tierMSID; }
+    public void setTierMSID(Integer tierMSID) { this.tierMSID = tierMSID; }
+
     // 「已儲存的」是不是真的生效中 —— 除了 formula_mode 要是 "preset", 還要真的有選一組規則 (MSID != null),
     // 避免舊資料 (formula_mode 欄位 DB 預設值是 'preset', 但 MSID 一直是 null) 被誤判。畫面上的「已儲存的／自填」
     // 切換鈕、QuotationService 的計算邏輯都共用這個判斷, 只寫一次避免兩邊邏輯兜不起來。
     @Transient
     public boolean isPresetFormulaModeActive() {
         return "preset".equals(formulaMode) && MSID != null;
+    }
+
+    // NP／團費成本這組的「已儲存的」是不是真的生效中——跟上面 isPresetFormulaModeActive() 判斷方式一樣,
+    // 只是看 tier_formula_mode/tier_MSID 這兩個獨立欄位。使用者要求①②③④基本報價/同業/直售/退傭這組跟
+    // ⑤⑥NP/團費成本這組要能分開選各自的「已儲存的」規則、互不影響, 所以拆成兩組獨立的
+    // formulaMode/MSID 欄位, 不再共用同一組, 詳見 QuotationService#resolveActiveTierPreset()。
+    @Transient
+    public boolean isTierPresetFormulaModeActive() {
+        return "preset".equals(tierFormulaMode) && tierMSID != null;
     }
 
     public int getGroupSize() { return groupSize; }

@@ -191,13 +191,22 @@ public class QuotationService {
         return line;
     }
 
-    /** 用既有元件庫的項目快速加一行 (對應「跳轉報價單編輯」時直接從元件庫掛項目)。 */
-    public QuotationLine addLineFromComponent(int QID, int CPID, int quantity, int focRatio, String note) {
+    /**
+     * 用既有元件庫的項目快速加一行 (對應「跳轉報價單編輯」時直接從元件庫掛項目)。
+     * costType/currencyCode/unitPrice 是選填的覆寫值 (使用者回報「從元件庫選擇也要能像手動新增一樣調整
+     * 計費方式/幣別/單價」, 以前這個表單完全沒開放改, 只能照元件庫存的預設值全收): 沒填 (null) 就沿用
+     * 元件庫存的預設幣別/單價, 計費方式沒填則預設 PER_PAX (元件庫項目原本的假設就是按人頭計費)。
+     */
+    public QuotationLine addLineFromComponent(int QID, int CPID, String costType, String currencyCode,
+                                              BigDecimal unitPrice, int quantity, int focRatio, String note) {
         TravelComponent component = travelComponentDAO.findById(CPID);
         if (component == null) throw new IllegalArgumentException("找不到元件");
         String category = mapComponentTypeToCategory(component.getType());
-        return addLine(QID, CPID, component.getName(), category, "PER_PAX", component.getCurrencyCode(),
-                component.getDefaultPrice(), quantity, BigDecimal.ZERO, BigDecimal.ZERO,
+        return addLine(QID, CPID, component.getName(), category,
+                (costType == null || costType.isBlank()) ? "PER_PAX" : costType,
+                (currencyCode == null || currencyCode.isBlank()) ? component.getCurrencyCode() : currencyCode,
+                unitPrice != null ? unitPrice : component.getDefaultPrice(),
+                quantity, BigDecimal.ZERO, BigDecimal.ZERO,
                 focRatio, component.isRefundable(), note);
     }
 
@@ -306,12 +315,40 @@ public class QuotationService {
         touchQuotation(quotation);
     }
 
-    /** 團體人數/有效期限這種基礎設定; 加成規則已移除, 團體人數變動要重新算 FOC, 交給 recalculateAll 處理。 */
+    /**
+     * 團體人數/有效期限這種基礎設定; 加成規則已移除, 團體人數變動要重新算 FOC, 交給 recalculateAll 處理。
+     *
+     * 使用者回報「報價基礎設定人數再重新計算，會把報價項目明細按人頭的項目更改成新的人數也消失了」——
+     * 追下去發現這個行為本來就沒實作過: 這裡以前只改了 quotation.group_size 這個欄位、觸發 FOC 重算,
+     * 但「按人頭」項目自己的 quantity 欄位完全沒有跟著新人數等比例調整 (FOC 折抵是用團體人數去算的沒錯,
+     * 但折抵的基礎——也就是這裡的 quantity——一直維持在新增這筆項目當下的舊人數, 沒有同步)。
+     * 例如 10 人團新增一筆「單人房差」quantity=10, 改成 20 人團後這筆項目的 quantity 應該跟著變成 20,
+     * 不然「單價×數量」就只算了 10 人份, 少算了一半的成本。
+     *
+     * 這裡改成: 團體人數變動時, 先把所有「按人頭」(PER_PAX) 項目的 quantity 依「舊人數 : 新人數」的比例
+     * 等比例縮放 (四捨五入取整數), 再送進 recalculateAll() 重算 FOC/成本/加成。「全團固定」(FIXED_GROUP)
+     * 項目完全不受影響, 維持原本填的數量 (這是它的定義, 不受人數影響才叫全團固定)。
+     */
     public void updateGroupSize(int QID, int groupSize) {
         Quotation quotation = quotationDAO.findById(QID);
         if (quotation == null) return;
         if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
-        quotation.setGroupSize(Math.max(groupSize, 1));
+
+        int oldGroupSize = Math.max(quotation.getGroupSize(), 1);
+        int newGroupSize = Math.max(groupSize, 1);
+
+        if (oldGroupSize != newGroupSize) {
+            for (QuotationLine line : quotationLineDAO.findByQuotation(QID)) {
+                if ("FIXED_GROUP".equals(line.getCostType())) continue; // 全團固定不受人數影響
+                BigDecimal scaledQty = BigDecimal.valueOf(Math.max(line.getQuantity(), 0))
+                        .multiply(BigDecimal.valueOf(newGroupSize))
+                        .divide(BigDecimal.valueOf(oldGroupSize), 0, RoundingMode.HALF_UP);
+                line.setQuantity(scaledQty.intValue());
+                quotationLineDAO.save(line);
+            }
+        }
+
+        quotation.setGroupSize(newGroupSize);
         quotationDAO.save(quotation);
         recalculateAll(QID);
     }
@@ -324,10 +361,12 @@ public class QuotationService {
      * 公式參數是空字串代表「清空這一層的公式, 改回沿用上面的舊制 mode/value 當 fallback」; null 代表這次不動這一層的公式。
      *
      * formulaMode/marginSettingId: 「已儲存的／自填」切換——formulaMode="preset" 且 marginSettingId 有效時,
-     * 同業/直售/退傭三層改成套用該筆「計算公式管理」規則 (MarginSetting), 不再吃這張報價單自己的
-     * trade/retail/rebate 那幾組欄位 (但欄位本身不會被清掉, 只是暫時不生效, 之後改回「自填」就會繼續沿用)。
-     * 基本報價沒有對應的已儲存規則, 不受這個切換影響, 一律用這張報價單自己的 basicMarkupMode/Value
-     * 或 customBasicFormula。formulaMode 傳 null 代表這次不改切換狀態。
+     * 基本/同業/直售/退傭四層改成套用該筆「計算公式管理」規則 (MarginSetting), 不再吃這張報價單自己的
+     * basic/trade/retail/rebate 那幾組欄位 (但欄位本身不會被清掉, 只是暫時不生效, 之後改回「自填」就會繼續沿用)。
+     * 基本報價比較特別: MarginSetting.basicFormula 是選填的 (這組規則可以「不管」基本報價這一層) ——
+     * preset 生效但那組規則沒填 basicFormula 時, 基本報價還是會 fallback 回這張報價單自己的
+     * basicMarkupMode/Value 或 customBasicFormula, 詳見 recalculateQuotationPricing()。formulaMode 傳 null
+     * 代表這次不改切換狀態。
      */
     public void updateMarkupSettings(int QID, String basicMarkupMode, BigDecimal basicMarkupValue,
                                      String tradeMarkupMode, BigDecimal tradeMarkupValue,
@@ -384,10 +423,23 @@ public class QuotationService {
     /**
      * 「已儲存的／自填」切換真正生效時 (quotation.isPresetFormulaModeActive()), 找出對應的 MarginSetting；
      * 沒生效 (自填, 或選了已儲存但規則被刪掉了) 就回傳 null, 呼叫端統一 fallback 回這張報價單自己的欄位。
+     * 這個只管①②③④基本報價/同業/直售/退傭這一組; NP/團費成本那組是完全獨立的另一個切換, 見下面
+     * resolveActiveTierPreset()。
      */
     private MarginSetting resolveActivePreset(Quotation quotation) {
         if (!quotation.isPresetFormulaModeActive()) return null;
         return marginSettingDAO.findById(quotation.getMSID());
+    }
+
+    /**
+     * NP／團費成本這組的「已儲存的／自填」切換真正生效時 (quotation.isTierPresetFormulaModeActive()),
+     * 找出對應的 MarginSetting；沒生效就回傳 null, 呼叫端統一 fallback 回這張報價單「整團人數級距報價結果」
+     * 卡片自己填的 (QuotationGroupTier.npFormula/teamFormula)。使用者要求這組要能跟上面①②③④分開選規則,
+     * 所以是獨立的 tier_formula_mode/tier_MSID 欄位、獨立的查詢, 不是共用 resolveActivePreset() 那組。
+     */
+    private MarginSetting resolveActiveTierPreset(Quotation quotation) {
+        if (!quotation.isTierPresetFormulaModeActive()) return null;
+        return marginSettingDAO.findById(quotation.getTierMSID());
     }
 
     // ------------------------------------------------------------
@@ -579,8 +631,14 @@ public class QuotationService {
      * (幣別／額外雜項金額已經跟這個方法分開: 幣別改走 updateGroupTierCurrency(), 額外雜項金額的手動輸入欄位
      * 已經從畫面上拿掉——雜項現在完全靠「報價項目明細」的全團固定項目自動加總, 舊資料裡如果本來就有存
      * 手動填的金額, 值還在資料庫裡, 只是沒有畫面能再改了)。
+     *
+     * tierFormulaMode/tierMarginSettingId: NP/團費成本這組獨立的「已儲存的／自填」切換 (跟①②③④基本報價/
+     * 同業/直售/退傭那組的 formulaMode/MSID 完全分開, 存在 quotation.tier_formula_mode/tier_MSID)。
+     * 邏輯跟 updateMarkupSettings() 處理 formulaMode/marginSettingId 的規則一樣: "preset" 且選到的規則
+     * 屬於這間旅行社才真的生效, 否則當作沒選、退回「自填」容錯; null 代表這次不改切換狀態。
      */
-    public void applyGroupTierFormulaSettings(int QID, String npFormula, String teamFormula) {
+    public void applyGroupTierFormulaSettings(int QID, String npFormula, String teamFormula,
+                                              String tierFormulaMode, Integer tierMarginSettingId) {
         Quotation quotation = quotationDAO.findById(QID);
         if (quotation == null) return;
         if (!quotation.isEditable()) throw new IllegalStateException("報價單已上鎖, 無法編輯");
@@ -607,6 +665,17 @@ public class QuotationService {
             tier.setTeamFormula(normalizedTeamFormula);
             quotationGroupTierDAO.save(tier);
         }
+
+        if ("preset".equals(tierFormulaMode)) {
+            MarginSetting picked = tierMarginSettingId != null ? marginSettingDAO.findById(tierMarginSettingId) : null;
+            quotation.setTierMSID(picked != null && picked.getAID() == quotation.getAID() ? picked.getMSID() : null);
+            quotation.setTierFormulaMode("preset");
+        } else if ("custom".equals(tierFormulaMode)) {
+            quotation.setTierFormulaMode("custom");
+        }
+        // tierFormulaMode 是其他值 (含 null) 代表這次沒有要改切換狀態, 維持原本存的 tier_formula_mode/tier_MSID 不動
+
+        quotationDAO.save(quotation);
         touchQuotation(quotation);
     }
 
@@ -708,11 +777,22 @@ public class QuotationService {
         tierVars.put("NET", grossCostPerPersonTwd); // 每人 Net（原始牌價）, 跟 BASIC_PRICE/MISC 這些變數分開, 供 NP/團費成本計算式參考
         tierVars.put("BASIC_PRICE", basicPricePerPersonTwd);
 
-        BigDecimal npResultTwd = evaluateLayer(tier.getNpFormula(), tierVars, () -> baseTwd.setScale(SCALE, RoundingMode.HALF_UP));
+        // NP／團費成本: 使用者要求這組要能跟①②③④分開選各自的「已儲存的」規則, 所以改用獨立的
+        // resolveActiveTierPreset() (看 quotation.tier_formula_mode/tier_MSID), 不再重用上面①②③④用的
+        // preset 變數。如果那組規則有填 npFormula/teamFormula 就用它; 沒填 (或沒套用已儲存規則) 就照舊
+        // fallback 回這張報價單「整團人數級距報價結果」卡片自己填的 (tier.getNpFormula()/tier.getTeamFormula(),
+        // 「套用到全部級距」按鈕存的那組)。
+        MarginSetting tierPreset = resolveActiveTierPreset(quotation);
+        String effectiveNpFormula = (tierPreset != null && tierPreset.getNpFormula() != null && !tierPreset.getNpFormula().isBlank())
+                ? tierPreset.getNpFormula() : tier.getNpFormula();
+        String effectiveTeamFormula = (tierPreset != null && tierPreset.getTeamFormula() != null && !tierPreset.getTeamFormula().isBlank())
+                ? tierPreset.getTeamFormula() : tier.getTeamFormula();
+
+        BigDecimal npResultTwd = evaluateLayer(effectiveNpFormula, tierVars, () -> baseTwd.setScale(SCALE, RoundingMode.HALF_UP));
         tier.setNpResultTwd(npResultTwd);
 
         tierVars.put("NP", npResultTwd);
-        BigDecimal teamResultTwd = evaluateLayer(tier.getTeamFormula(), tierVars, () -> npResultTwd);
+        BigDecimal teamResultTwd = evaluateLayer(effectiveTeamFormula, tierVars, () -> npResultTwd);
         tier.setTeamResultTwd(teamResultTwd);
     }
 
@@ -924,20 +1004,35 @@ public class QuotationService {
                 .map(line -> nz(line.getNetCost()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 公式建構器變數鏈: NET_COST/GROUP_SIZE 一開始就有, 每算完一層就把結果補進去給下一層公式引用
+        // Net 總成本 (原始牌價, 完全沒扣 FOC 折抵) —— 使用者要求把這個也加入計算公式的價格變數,
+        // 跟 NET_COST (NNet 總淨成本, 已扣 FOC) 是分開的兩個變數, 兩個都能在①②③④公式裡引用。
+        BigDecimal grossCostTotal = lines.stream()
+                .map(line -> nz(line.getGrossCost()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 公式建構器變數鏈: GROSS_COST/NET_COST/GROUP_SIZE 一開始就有, 每算完一層就把結果補進去給下一層公式引用
         // (跟畫面上 quotation/edit.html 的公式建構器 dropzone 給的變數一一對應)。
         Map<String, BigDecimal> formulaVars = new java.util.HashMap<>();
+        formulaVars.put("GROSS_COST", grossCostTotal);
         formulaVars.put("NET_COST", netCostTotal);
         formulaVars.put("GROUP_SIZE", BigDecimal.valueOf(quotation.getGroupSize()));
 
-        // 基本報價沒有對應的「已儲存規則」(MarginSetting 沒有 basic 這一層), 一律用這張報價單自己的設定
-        BigDecimal basicPriceTotal = evaluateLayer(quotation.getCustomBasicFormula(), formulaVars,
+        // 基本報價：「已儲存的／自填」切換生效時 (isPresetFormulaModeActive()), 如果那組規則有填 basicFormula
+        // 就用它; 沒填 (或根本沒套用已儲存規則) 就照舊 fallback 回這張報價單自己的 customBasicFormula/
+        // basicMarkupMode/basicMarkupValue —— 這裡要先解出 preset 才能判斷, 所以跟下面 trade/retail/rebate
+        // 共用同一個 resolveActivePreset() 呼叫提到最前面。
+        MarginSetting preset = resolveActivePreset(quotation);
+
+        boolean presetHasBasicFormula = preset != null && preset.getBasicFormula() != null && !preset.getBasicFormula().isBlank();
+        BigDecimal basicPriceTotal = presetHasBasicFormula
+                ? evaluateLayer(preset.getBasicFormula(), formulaVars,
+                () -> applyMarkup(netCostTotal, quotation.getBasicMarkupMode(), quotation.getBasicMarkupValue()))
+                : evaluateLayer(quotation.getCustomBasicFormula(), formulaVars,
                 () -> applyMarkup(netCostTotal, quotation.getBasicMarkupMode(), quotation.getBasicMarkupValue()));
         formulaVars.put("BASIC_PRICE", basicPriceTotal);
 
-        // 同業/直售/退傭: 「已儲存的／自填」切換生效時 (isPresetFormulaModeActive()) 改吃 MarginSetting 的公式/百分比,
-        // 沒生效就跟以前一樣完全吃這張報價單自己的 custom_*_formula / *_markup_mode / *_markup_value / rebate_*
-        MarginSetting preset = resolveActivePreset(quotation);
+        // 同業/直售/退傭: 同一個 preset (上面已經解出來了), 沒生效就跟以前一樣完全吃這張報價單自己的
+        // custom_*_formula / *_markup_mode / *_markup_value / rebate_*
 
         BigDecimal tradePriceTotal = preset != null
                 ? evaluateLayer(preset.getTradeFormula(), formulaVars,

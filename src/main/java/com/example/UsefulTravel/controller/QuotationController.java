@@ -216,10 +216,43 @@ public class QuotationController {
         model.addAttribute("lines", lines);
         model.addAttribute("totals", quotationService.getTotals(QID));
         model.addAttribute("currencies", currencyDAO.findAvailable(AID));
+        // 「新增報價項目」表單幣別欄位預設值: 記住這張報價單目前最後一筆項目用的幣別, 而不是每次都預設 TWD
+        // (使用者回報「加入報價單的項目幣別會跟上一筆加入的幣別一樣」這個行為不見了——這裡補回來)。
+        // lines 本身已經是照 sortOrder/QLID 由小到大排序 (見 QuotationLineDAO#findByQuotation), 拿最後一筆
+        // 的幣別當預設值就是「上一筆加入的幣別」；還沒有任何項目時退回 TWD。
+        model.addAttribute("lastUsedCurrency", lines.isEmpty() ? "TWD" : lines.get(lines.size() - 1).getCurrencyCode());
         model.addAttribute("components", travelComponentDAO.findByAgency(AID));
         model.addAttribute("priceTierTemplates", quotationService.listTemplates(AID));
         // 「基本報價／同業／直售加成與退傭設定」卡片「已儲存的」選項用: 這間旅行社在「計算公式管理」存的規則清單
-        model.addAttribute("marginSettings", marginSettingDAO.findByAgency(AID));
+        List<com.example.UsefulTravel.entity.MarginSetting> marginSettings = marginSettingDAO.findByAgency(AID);
+        model.addAttribute("marginSettings", marginSettings);
+
+        // 目前這張報價單實際套用中的「已儲存的」規則物件 (isPresetFormulaModeActive() 為 true 時才有值,
+        // 否則是 null)。改在 controller 這裡用一般 Java for 迴圈找, 不要在 Thymeleaf 樣板裡用 OGNL 的
+        // `.?[...]` selection 語法混在三元運算子 (`? :`) 裡算——那個組合曾經在畫面上引發過整頁從某個位置
+        // 開始整段消失的問題 (使用者回報「使用儲存公式計算會使整個頁面消失」): Thymeleaf 輸出是邊算邊
+        // 往外送 (streaming) 的, `.?[...]` 選取語法本身也用了一個 `?` 字元, 跟外層三元運算子的 `?` 混在
+        // 同一個屬性值裡解析很容易出錯, 一旦樣板運算式在渲染途中丟例外, 已經送出去的部分 (這個區塊之前的
+        // HTML) 還是會留在瀏覽器裡, 後面全部沒了, 看起來就像「整頁消失」而不是很容易辨識的 500 錯誤頁。
+        // 直接在 Java 這裡算好一個乾淨的物件丟給 model, 樣板只要判斷 null 就好, 完全不會有這個風險。
+        com.example.UsefulTravel.entity.MarginSetting activePreset = null;
+        if (quotation.isPresetFormulaModeActive()) {
+            for (com.example.UsefulTravel.entity.MarginSetting ms : marginSettings) {
+                if (ms.getMSID() == quotation.getMSID()) { activePreset = ms; break; }
+            }
+        }
+        model.addAttribute("activePreset", activePreset);
+
+        // NP／團費成本這組獨立的「已儲存的」規則物件 (isTierPresetFormulaModeActive() 為 true 時才有值) ——
+        // 跟上面 activePreset 同一套查法, 但看的是 tier_formula_mode/tier_MSID 這兩個獨立欄位 (使用者要求
+        // ①②③④基本報價/同業/直售/退傭這組跟⑤⑥NP/團費成本這組要能分開選各自的規則, 不再共用同一組)。
+        com.example.UsefulTravel.entity.MarginSetting activeTierPreset = null;
+        if (quotation.isTierPresetFormulaModeActive()) {
+            for (com.example.UsefulTravel.entity.MarginSetting ms : marginSettings) {
+                if (ms.getMSID() == quotation.getTierMSID()) { activeTierPreset = ms; break; }
+            }
+        }
+        model.addAttribute("activeTierPreset", activeTierPreset);
 
         // 每一筆明細各自的級距清單, 給畫面上「這個項目有沒有設定區間價錢」用
         Map<Integer, List<com.example.UsefulTravel.entity.QuotationLineTier>> tiersByLine = new LinkedHashMap<>();
@@ -282,10 +315,13 @@ public class QuotationController {
         return redirectBack(QID, back);
     }
 
-    // POST /quotation/{qid}/lines/from-component → 從元件庫快速掛一筆 (帶入元件的預設單價/幣別)
+    // POST /quotation/{qid}/lines/from-component → 從元件庫快速掛一筆 (可以覆寫計費方式/幣別/單價, 沒填就沿用元件庫的預設值)
     @PostMapping("/quotation/{qid}/lines/from-component")
     public String addLineFromComponent(@PathVariable("qid") int QID,
                                        @RequestParam int componentId,
+                                       @RequestParam(required = false) String costType,
+                                       @RequestParam(required = false) String currencyCode,
+                                       @RequestParam(required = false) java.math.BigDecimal unitPrice,
                                        @RequestParam(defaultValue = "1") int quantity,
                                        @RequestParam(required = false, defaultValue = "0") int focRatio,
                                        @RequestParam(required = false) String note,
@@ -293,7 +329,7 @@ public class QuotationController {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
 
-        quotationService.addLineFromComponent(QID, componentId, quantity, focRatio, note);
+        quotationService.addLineFromComponent(QID, componentId, costType, currencyCode, unitPrice, quantity, focRatio, note);
         return "redirect:/quotation/" + QID;
     }
 
@@ -480,18 +516,20 @@ public class QuotationController {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
 
-        // 「已儲存的」模式下, 同業/直售/退傭三層改成套用選定的 MarginSetting, 不驗證這次表單一起送過來的
-        // trade/retail/rebate 公式欄位 (這三個 dropzone 在「已儲存的」模式下畫面上是隱藏的, 內容視同沒填);
-        // 基本報價欄位不受影響, 一律照舊驗證。
+        // 「已儲存的」模式下, ①②③④四層都改成套用選定的 MarginSetting (①如果那組規則沒填 basicFormula,
+        // 交給 QuotationService 在計算時 fallback 回這張報價單自己的 basicMarkupMode/Value), 不驗證這次表單
+        // 一起送過來的 basic/trade/retail/rebate 公式欄位 (這四個 dropzone 在「已儲存的」模式下畫面上是隱藏的,
+        // 內容視同沒填, 而且很可能是選規則之前殘留的舊字串, 驗證了也沒意義還可能誤擋存檔)。
         boolean presetMode = "preset".equals(formulaMode);
         try {
             Map<String, BigDecimal> sample = new HashMap<>();
+            sample.put("GROSS_COST", BigDecimal.valueOf(120000));
             sample.put("NET_COST", BigDecimal.valueOf(100000));
             sample.put("GROUP_SIZE", BigDecimal.valueOf(20));
-            BigDecimal sampleBasic = (basicFormula != null && !basicFormula.isBlank())
-                    ? FormulaEngine.evaluate(basicFormula, sample) : sample.get("NET_COST");
-            sample.put("BASIC_PRICE", sampleBasic);
             if (!presetMode) {
+                BigDecimal sampleBasic = (basicFormula != null && !basicFormula.isBlank())
+                        ? FormulaEngine.evaluate(basicFormula, sample) : sample.get("NET_COST");
+                sample.put("BASIC_PRICE", sampleBasic);
                 BigDecimal sampleTrade = (tradeFormula != null && !tradeFormula.isBlank())
                         ? FormulaEngine.evaluate(tradeFormula, sample) : sampleBasic;
                 sample.put("TRADE_PRICE", sampleTrade);
@@ -507,7 +545,7 @@ public class QuotationController {
 
         quotationService.updateMarkupSettings(QID, basicMarkupMode, basicMarkupValue,
                 tradeMarkupMode, tradeMarkupValue, retailMarkupMode, retailMarkupValue, rebateMode, rebatePct,
-                basicFormula, presetMode ? null : tradeFormula, presetMode ? null : retailFormula,
+                presetMode ? null : basicFormula, presetMode ? null : tradeFormula, presetMode ? null : retailFormula,
                 presetMode ? null : rebateFormula, formulaMode, marginSettingId);
         return "redirect:/quotation/" + QID;
     }
@@ -563,15 +601,23 @@ public class QuotationController {
 
     // POST /quotation/{qid}/group-tiers/apply-all → NP計算式/團費成本計算式, 一次套用到「所有」人數級距
     // (不用一個個進去改)。公式欄位存檔前先驗證格式, 跟markup公式建構器同一套規則。
+    // tierFormulaMode/tierMarginSettingId: NP/團費成本這組獨立的「已儲存的／自填」切換 (跟①②③④基本報價/
+    // 同業/直售/退傭那組的 formulaMode/marginSettingId 完全分開), 「已儲存的」模式下不驗證這次表單一起
+    // 送過來的 npFormula/teamFormula (這兩個 dropzone 在「已儲存的」模式下畫面上是隱藏的, 內容視同沒填)。
     @PostMapping("/quotation/{qid}/group-tiers/apply-all")
     public String applyGroupTierFormulaSettings(@PathVariable("qid") int QID,
                                                 @RequestParam(required = false) String npFormula,
                                                 @RequestParam(required = false) String teamFormula,
+                                                @RequestParam(required = false) String tierFormulaMode,
+                                                @RequestParam(required = false) Integer tierMarginSettingId,
                                                 HttpSession session, RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        boolean tierPresetMode = "preset".equals(tierFormulaMode);
         try {
-            quotationService.applyGroupTierFormulaSettings(QID, npFormula, teamFormula);
+            quotationService.applyGroupTierFormulaSettings(QID,
+                    tierPresetMode ? null : npFormula, tierPresetMode ? null : teamFormula,
+                    tierFormulaMode, tierMarginSettingId);
         } catch (FormulaEngine.FormulaException e) {
             redirectAttributes.addFlashAttribute("quotationError", "計算式有誤：" + e.getMessage());
         }

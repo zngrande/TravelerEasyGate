@@ -101,9 +101,12 @@
                 <thead>
                 <tr>
                     <th>名稱</th>
+                    <th>基本報價公式</th>
                     <th>同業價公式</th>
                     <th>直售價公式</th>
                     <th>退傭金額公式</th>
+                    <th>NP 計算式</th>
+                    <th>團費成本計算式</th>
                     <th></th>
                 </tr>
                 </thead>
@@ -112,7 +115,16 @@
                     <td>
                         <strong th:text="${m.name}"></strong>
                         <span class="default-badge" th:if="${m.default}">預設</span>
-                        <span class="legacy-badge" th:if="${!m.formulaMode}" title="這組規則還是舊制百分比算法">舊制%</span>
+                        <!-- 「舊制%」徽章只在這組規則「連①②③④基本報價/同業/直售/退傭都沒有用公式」時才顯示——
+                             純 NP／團費成本規則 (isPureTierRule()) 完全不管報價定價這一層, 貼「舊制%」反而
+                             會誤導使用者以為它有在用百分比算報價, 這種情況不顯示這個徽章。 -->
+                        <span class="legacy-badge" th:if="${!m.formulaMode and !m.pureTierRule}" title="這組規則還是舊制百分比算法">舊制%</span>
+                    </td>
+                    <td>
+                        <!-- 基本報價這一層沒有舊制%可以 fallback (MarginSetting 從來沒有 basicMarkupPct 欄位),
+                             沒填就顯示「沿用報價單設定」, 提醒使用者這組規則不管基本報價、要去各張報價單自己調。 -->
+                        <span class="formula-pill" th:if="${m.basicFormula != null}" th:text="${m.readableBasicFormula}"></span>
+                        <span class="formula-pill empty" th:if="${m.basicFormula == null}">沿用報價單設定</span>
                     </td>
                     <td>
                         <!-- 顯示 readableTradeFormula (看得懂的中文變數說明), 不要直接顯示 tradeFormula 原始欄位——
@@ -128,6 +140,17 @@
                     <td>
                         <span class="formula-pill" th:if="${m.rebateFormula != null}" th:text="${m.readableRebateFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.rebateFormula == null}" th:text="'退傭' + ${m.rebatePct} + '%（舊制）'"></span>
+                    </td>
+                    <td>
+                        <!-- NP／團費成本是完全獨立的「整團人數級距報價結果」子功能, 沒有舊制%可以 fallback,
+                             沒填就顯示「沿用報價單設定」, 提醒使用者要去各張報價單「整團人數級距報價結果」
+                             卡片自己填 (或用「套用到全部級距」按鈕存的那組)。 -->
+                        <span class="formula-pill" th:if="${m.npFormula != null}" th:text="${m.readableNpFormula}"></span>
+                        <span class="formula-pill empty" th:if="${m.npFormula == null}">沿用報價單設定</span>
+                    </td>
+                    <td>
+                        <span class="formula-pill" th:if="${m.teamFormula != null}" th:text="${m.readableTeamFormula}"></span>
+                        <span class="formula-pill empty" th:if="${m.teamFormula == null}">沿用報價單設定</span>
                     </td>
                     <td>
                         <form method="post" th:action="@{'/margin-setting/' + ${m.MSID} + '/delete'}"
@@ -146,8 +169,8 @@
     </div>
 
     <div class="card">
-        <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 新增計算公式</div>
-        <div class="card-desc">把上方藍色的價格變數拖曳（或點一下）插入到下面選取中的公式欄位，插入後可以直接在欄位裡打運算子跟數字，例如「× 1.15 + 2000」。</div>
+        <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 新增報價定價規則</div>
+        <div class="card-desc">①②③④基本報價／同業／直售／退傭這一組——把上方藍色的價格變數拖曳（或點一下）插入到下面選取中的公式欄位，插入後可以直接在欄位裡打運算子跟數字，例如「× 1.15 + 2000」。這組規則跟下面「NP／團費成本規則」是分開儲存的，報價單那邊也可以分開選——同一份報價單可以「基本報價套用 A 規則、NP/團費成本套用 B 規則」這樣混搭。</div>
 
         <div class="palette">
             <div class="palette-label">價格變數 · 點擊或拖曳插入到目前選取的公式欄位</div>
@@ -164,8 +187,17 @@
 
             <div class="formula-field">
                 <div class="formula-field-label">
-                    <span class="name">① 同業價公式</span>
-                    <span class="optional">可用變數：淨成本、團體人數</span>
+                    <span class="name">① 基本報價公式（選填）</span>
+                    <span class="optional">可用變數：Net（總成本）、NNet（淨成本）、團體人數・留空＝這組規則不管基本報價, 套用時繼續沿用各張報價單自己的基本報價設定</span>
+                </div>
+                <div class="dropzone" id="zone-basic" contenteditable="true" data-placeholder="例：Net（總成本） × 1.15 + 2000" data-zone-key="basic" tabindex="0"></div>
+                <div class="formula-preview"><span>試算（Net=120,000／NNet=100,000／20人）＝</span><span class="result" id="preview-basic">尚未輸入</span></div>
+            </div>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">② 同業價公式（選填）</span>
+                    <span class="optional">可用變數：Net（總成本）、NNet（淨成本）、團體人數、基本報價・留空＝這組規則不管同業價, 套用時繼續沿用各張報價單自己的同業加成設定</span>
                 </div>
                 <div class="dropzone" id="zone-trade" contenteditable="true" data-placeholder="例：淨成本 × 1.15 + 2000" data-zone-key="trade" tabindex="0"></div>
                 <div class="formula-preview"><span>試算（淨成本=100,000／20人）＝</span><span class="result" id="preview-trade">尚未輸入</span></div>
@@ -173,8 +205,8 @@
 
             <div class="formula-field">
                 <div class="formula-field-label">
-                    <span class="name">② 直售價公式（選填）</span>
-                    <span class="optional">可用變數：淨成本、團體人數、同業價</span>
+                    <span class="name">③ 直售價公式（選填）</span>
+                    <span class="optional">可用變數：Net（總成本）、NNet（淨成本）、團體人數、基本報價、同業價</span>
                 </div>
                 <div class="dropzone" id="zone-retail" contenteditable="true" data-placeholder="例：同業價 × 1.1" data-zone-key="retail" tabindex="0"></div>
                 <div class="formula-preview"><span>試算＝</span><span class="result" id="preview-retail">尚未輸入</span></div>
@@ -182,8 +214,8 @@
 
             <div class="formula-field">
                 <div class="formula-field-label">
-                    <span class="name">③ 退傭金額公式（選填）</span>
-                    <span class="optional">可用變數：淨成本、團體人數、同業價</span>
+                    <span class="name">④ 退傭金額公式（選填）</span>
+                    <span class="optional">可用變數：Net（總成本）、NNet（淨成本）、團體人數、基本報價、同業價</span>
                 </div>
                 <div class="dropzone" id="zone-rebate" contenteditable="true" data-placeholder="例：同業價 × 0.08" data-zone-key="rebate" tabindex="0"></div>
                 <div class="formula-preview"><span>試算＝</span><span class="result" id="preview-rebate">尚未輸入</span></div>
@@ -194,15 +226,62 @@
                 <label for="isDefault" style="font-size:13.5px;">設為預設規則（建立新報價單時自動套用）</label>
             </div>
 
+            <input type="hidden" name="basicFormula" id="input-basic" />
             <input type="hidden" name="tradeFormula" id="input-trade" />
             <input type="hidden" name="retailFormula" id="input-retail" />
             <input type="hidden" name="rebateFormula" id="input-rebate" />
 
-            <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增規則</button>
+            <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增報價定價規則</button>
         </form>
 
         <div class="hint-box">
-            <strong>套用方式：</strong> 建好的規則會出現在報價單「報價基礎設定」的公式選單裡，同業價 = ①的結果；直售價 = ②的結果（留空視為 0 加成，直接等於淨成本）；退傭金額 = ③的結果（留空視為 0）。每一家同業都可以建一組自己的規則，報價單也可以切到「自填公式」模式單獨改一次性的算法，不會動到這裡的規則庫。
+            <strong>套用方式：</strong> 建好的規則會出現在報價單「基本報價／同業／直售加成與退傭設定」卡片的「選擇計算方式」選單裡。基本報價 = ①的結果（留空就繼續用那張報價單自己的基本報價設定，不受這組規則影響）；同業價 = ②的結果（留空視為 0 加成，直接等於基本報價）；直售價 = ③的結果（留空視為 0 加成，直接等於同業價）；退傭金額 = ④的結果（留空視為 0）。每一家同業都可以建一組自己的規則，報價單也可以切到「自填公式」模式單獨改一次性的算法，不會動到這裡的規則庫。
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 新增 NP／團費成本規則</div>
+        <div class="card-desc">⑤⑥「整團人數級距報價結果」卡片專用的另一組計算式 (跟上面①②③④基本報價／同業／直售／退傭是完全獨立的另一組變數)，對應報價單裡「NP」跟「團費成本」這兩個結果。這組規則跟上面「報價定價規則」是分開儲存的，報價單那邊也可以分開選一組不一樣的規則來用。</div>
+
+        <div class="palette">
+            <div class="palette-label">計算欄位 · 點擊或拖曳插入到目前選取的公式欄位（跟上面①②③④的價格變數完全分開，各自獨立）</div>
+            <div class="chip-row" id="tierVarChips"></div>
+            <div class="palette-label">運算子</div>
+            <div class="chip-row" id="tierOpChips"></div>
+        </div>
+
+        <form id="tierFormulaForm" method="post" th:action="@{/margin-setting/new}">
+            <div class="form-group">
+                <label class="form-label">規則名稱</label>
+                <input type="text" name="name" class="form-control" placeholder="例：一般團 NP／團費成本算法" required />
+            </div>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">⑤ NP 計算式（選填）</span>
+                    <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、全團固定、NET、基本報價・留空＝這組規則不管 NP, 沿用報價單自己的設定</span>
+                </div>
+                <div class="dropzone" id="zone-np" contenteditable="true" data-placeholder="例：（每人變動成本＋雜項）× 1.1" data-zone-key="np" tabindex="0"></div>
+                <div class="formula-preview"><span>試算（每人變動成本=10,000／雜項=5,000）＝</span><span class="result" id="preview-np">尚未輸入</span></div>
+            </div>
+
+            <div class="formula-field">
+                <div class="formula-field-label">
+                    <span class="name">⑥ 團費成本計算式（選填）</span>
+                    <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、全團固定、NET、基本報價、NP・留空＝這組規則不管團費成本, 沿用報價單自己的設定</span>
+                </div>
+                <div class="dropzone" id="zone-team" contenteditable="true" data-placeholder="例：NP ÷ 0.88 ＋ 2000" data-zone-key="team" tabindex="0"></div>
+                <div class="formula-preview"><span>試算＝</span><span class="result" id="preview-team">尚未輸入</span></div>
+            </div>
+
+            <input type="hidden" name="npFormula" id="input-np" />
+            <input type="hidden" name="teamFormula" id="input-team" />
+
+            <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增 NP／團費成本規則</button>
+        </form>
+
+        <div class="hint-box">
+            <strong>套用方式：</strong> 建好的規則會出現在報價單「整團人數級距報價結果」卡片自己的「選擇計算方式」選單裡 (跟上面報價定價規則的選單是分開的)。NP = ⑤的結果、團費成本 = ⑥的結果（留空都代表繼續沿用各張報價單「整團人數級距報價結果」卡片自己填的計算式）。
         </div>
     </div>
 </main>
@@ -210,14 +289,16 @@
 <script>
 (function () {
     // ---------- 變數 / 運算子定義 ----------
-    // varId 對應 QuotationService/FormulaEngine 的變數名稱 ({NET_COST} {GROUP_SIZE} {TRADE_PRICE})
+    // varId 對應 QuotationService/FormulaEngine 的變數名稱 ({GROSS_COST} {NET_COST} {GROUP_SIZE} {BASIC_PRICE} {TRADE_PRICE})
     var VARIABLES = [
-        { id: 'NET_COST', label: '淨成本', allowIn: ['trade', 'retail', 'rebate'] },
-        { id: 'GROUP_SIZE', label: '團體人數', allowIn: ['trade', 'retail', 'rebate'] },
-        { id: 'TRADE_PRICE', label: '同業價', allowIn: ['retail', 'rebate'] } // 由①算出來後才有值, 不能用在①自己
+        { id: 'GROSS_COST', label: 'Net（總成本）', allowIn: ['basic', 'trade', 'retail', 'rebate'] },
+        { id: 'NET_COST', label: '淨成本', allowIn: ['basic', 'trade', 'retail', 'rebate'] },
+        { id: 'GROUP_SIZE', label: '團體人數', allowIn: ['basic', 'trade', 'retail', 'rebate'] },
+        { id: 'BASIC_PRICE', label: '基本報價', allowIn: ['trade', 'retail', 'rebate'] }, // 由①算出來後才有值, 不能用在①自己
+        { id: 'TRADE_PRICE', label: '同業價', allowIn: ['retail', 'rebate'] } // 由②算出來後才有值, 不能用在①②自己
     ];
     var OPS = ['+', '−', '×', '÷', '(', ')'];
-    var ZONE_KEYS = ['trade', 'retail', 'rebate'];
+    var ZONE_KEYS = ['basic', 'trade', 'retail', 'rebate'];
 
     var zones = {};
     ZONE_KEYS.forEach(function (key) {
@@ -262,6 +343,24 @@
     ZONE_KEYS.forEach(function (key) {
         var zone = zones[key].el;
         zone.addEventListener('focus', function () { lastFocusedZone = key; });
+        // 2026-08-27 修正 (使用者回報「在只有價格變數和運算子時, 運算子一定會被排到所有價格變數後面,
+        // 修很多次都沒修好」): 前面幾次的做法共同的病根都是同一個——插入的當下都要問一次「現在瀏覽器那顆
+        // window.getSelection() 算不算數」, 但點 palette 上的變數/運算子 chip 按鈕 (它自己是個 <button>,
+        // 在 dropzone 外面) 會搶走 DOM focus, 這之後瀏覽器對「selection 還算不算在 zone 裡」的判斷非常
+        // 不穩定——只要判斷錯一次, 就會 fallback 回最後面。這次徹底不再問這個問題: 插入點完全由我們自己的
+        // JS 狀態 zone.__marker 決定, 只有 (a) 使用者真的在 dropzone 裡點一下/按鍵盤、(b) 我們自己插入內容
+        // 之後 這兩種情況會更新它; 點 palette 上的 chip 按鈕一律直接套用 zone.__marker, 不再讀
+        // window.getSelection() 判斷「現在算不算數」。
+        zone.addEventListener('mouseup', function (e) {
+            var pos = findCaretPosition(zone, e.clientX, e.clientY);
+            if (pos) setZoneMarker(zone, pos.node, pos.offset);
+        });
+        zone.addEventListener('keyup', function () {
+            var sel = window.getSelection();
+            if (sel.rangeCount && zone.contains(sel.anchorNode)) {
+                zone.__marker = { node: sel.anchorNode, offset: sel.anchorOffset };
+            }
+        });
         zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-over'); });
         zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
         zone.addEventListener('drop', function (e) {
@@ -291,14 +390,12 @@
             return;
         }
         var zone = zones[key].el;
-        focusEnd(zone);
         insertVarToken(zone, v.id, v.label);
         runAll();
     }
 
     function insertText(text) {
         var zone = zones[lastFocusedZone].el;
-        focusEnd(zone);
         insertTextAtCaret(zone, text);
         runAll();
     }
@@ -311,23 +408,84 @@
         var sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(range);
+        zone.__marker = { node: zone, offset: zone.childNodes.length };
+    }
+
+    // 用點擊座標主動算出「這一行上, 離點擊 x 最近的可插入位置」, 取代整個交給瀏覽器原生 hit-test 判斷
+    // (見上面 mouseup 監聽器旁的說明——原生判斷在「chip 附近」跟「短文字整段」都常常出錯, 不是只有
+    // 「最後面那段空白」這一種情況, 乾脆每一次點擊都自己算, 比較穩)。候選插入位置包括: 整個公式最前面、
+    // 每一個變數 chip 的前面/後面、每一段文字裡「每一個字元之間」的縫隙, 逐一比對哪個候選位置的水平座標
+    // 離點擊 x 最近 (且大致同一行), 選那個當作真正的插入點。
+    function findCaretPosition(zone, x, y) {
+        var best = null, bestDist = Infinity;
+        function consider(node, offset, rects) {
+            var rect = rects && rects.length ? rects[rects.length - 1] : null;
+            if (!rect) return;
+            if (y < rect.top - 8 || y > rect.bottom + 8) return; // 大致同一行才比, 避免公式換行時跨行比較
+            var dist = Math.abs(rect.left - x);
+            if (dist < bestDist) { bestDist = dist; best = { node: node, offset: offset }; }
+        }
+        var startRange = document.createRange();
+        startRange.setStart(zone, 0);
+        startRange.collapse(true);
+        consider(zone, 0, startRange.getClientRects());
+        Array.prototype.forEach.call(zone.childNodes, function (node) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                var text = node.textContent;
+                for (var i = 1; i <= text.length; i++) {
+                    var r = document.createRange();
+                    r.setStart(node, i);
+                    r.collapse(true);
+                    consider(node, i, r.getClientRects());
+                }
+            } else {
+                // 變數 chip (或其他元素節點): 只考慮「這個節點前面」跟「這個節點後面」兩個插入點
+                var idx = Array.prototype.indexOf.call(zone.childNodes, node);
+                var beforeRange = document.createRange();
+                beforeRange.setStartBefore(node);
+                beforeRange.collapse(true);
+                consider(zone, idx, beforeRange.getClientRects());
+                var afterRange = document.createRange();
+                afterRange.setStartAfter(node);
+                afterRange.collapse(true);
+                consider(zone, idx + 1, afterRange.getClientRects());
+            }
+        });
+        return best;
     }
 
     function placeCaretFromPoint(zone, x, y) {
-        var range;
-        if (document.caretRangeFromPoint) {
-            range = document.caretRangeFromPoint(x, y);
-        } else if (document.caretPositionFromPoint) {
-            var pos = document.caretPositionFromPoint(x, y);
-            if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); }
+        var pos = findCaretPosition(zone, x, y);
+        if (pos) setZoneMarker(zone, pos.node, pos.offset);
+        else focusEnd(zone);
+    }
+
+    // 插入點狀態管理 (zone.__marker): 見上面 mouseup 監聽器旁的說明, 這裡是核心實作。
+    function markerToRange(zone) {
+        var range = document.createRange();
+        var m = zone.__marker;
+        if (m && zone.contains(m.node)) {
+            try {
+                range.setStart(m.node, m.offset);
+                range.collapse(true);
+                return range;
+            } catch (err) { /* offset 可能因為節點內容已經變了而不再合法, 往下 fallback */ }
         }
-        if (range && zone.contains(range.startContainer)) {
-            var sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-        } else {
-            focusEnd(zone);
-        }
+        range.selectNodeContents(zone);
+        range.collapse(false);
+        return range;
+    }
+
+    // 設定插入點狀態, 同時把瀏覽器可視的游標也同步移過去。
+    function setZoneMarker(zone, node, offset) {
+        zone.__marker = { node: node, offset: offset };
+        zone.focus();
+        var range = document.createRange();
+        range.setStart(node, offset);
+        range.collapse(true);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
     }
 
     function insertVarToken(zone, varId, label) {
@@ -346,30 +504,16 @@
     }
 
     function insertTextAtCaret(zone, text) {
-        var sel = window.getSelection();
-        if (!sel.rangeCount || !zone.contains(sel.anchorNode)) focusEnd(zone);
-        sel = window.getSelection();
-        var range = sel.getRangeAt(0);
-        range.deleteContents();
-        var node = document.createTextNode(text);
-        range.insertNode(node);
-        range.setStartAfter(node);
-        range.setEndAfter(node);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        insertNodeAtCaret(zone, document.createTextNode(text));
     }
 
+    // 核心插入邏輯: 完全依 zone.__marker 決定插入位置, 插入後把 zone.__marker 更新成「剛插入的節點後面」,
+    // 下一次插入 (不管是點 chip 還是拖放) 才會自然接在後面。
     function insertNodeAtCaret(zone, node) {
-        var sel = window.getSelection();
-        if (!sel.rangeCount || !zone.contains(sel.anchorNode)) focusEnd(zone);
-        sel = window.getSelection();
-        var range = sel.getRangeAt(0);
-        range.deleteContents();
+        var range = markerToRange(zone);
         range.insertNode(node);
-        range.setStartAfter(node);
-        range.setEndAfter(node);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        var idx = Array.prototype.indexOf.call(zone.childNodes, node);
+        setZoneMarker(zone, zone, idx + 1);
     }
 
     // ---------- 序列化 (dropzone -> {VAR_ID} 字串) + 純前端試算預覽 (跟 FormulaEngine 邏輯對應) ----------
@@ -383,7 +527,7 @@
     }
 
     function evaluate(expr, sampleValues) {
-        var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷()]/g);
+        var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷*\/()]/g);
         var stripped = expr.replace(/\s+/g, '');
         if (!tokens || tokens.join('') !== stripped) {
             if (expr === '') return { ok: false, empty: true };
@@ -399,9 +543,9 @@
         }
         function parseTerm() {
             var v = parseFactor();
-            while (peek() === '×' || peek() === '÷') {
+            while (peek() === '×' || peek() === '÷' || peek() === '*' || peek() === '/') {
                 var op = next(); var r = parseFactor();
-                if (op === '×') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
+                if (op === '×' || op === '*') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
             }
             return v;
         }
@@ -436,13 +580,19 @@
     }
 
     function runAll() {
-        var sample = { NET_COST: 100000, GROUP_SIZE: 20 };
+        var sample = { GROSS_COST: 120000, NET_COST: 100000, GROUP_SIZE: 20 };
+
+        var basicExpr = serialize(zones.basic.el);
+        zones.basic.input.value = normalizeForSubmit(basicExpr);
+        var basicResult = evaluate(basicExpr.replace(/−/g, '-'), sample);
+        renderPreview('basic', basicResult, true);
+        sample.BASIC_PRICE = basicResult.ok ? basicResult.value : sample.NET_COST; // 沒填就當作沿用報價單自己的基本報價繼續往下試算
 
         var tradeExpr = serialize(zones.trade.el);
         zones.trade.input.value = normalizeForSubmit(tradeExpr);
         var tradeResult = evaluate(tradeExpr.replace(/−/g, '-'), sample);
-        renderPreview('trade', tradeResult, false);
-        if (tradeResult.ok) sample.TRADE_PRICE = tradeResult.value;
+        renderPreview('trade', tradeResult, true);
+        sample.TRADE_PRICE = tradeResult.ok ? tradeResult.value : sample.BASIC_PRICE; // 沒填就當作沿用報價單自己的同業加成繼續往下試算
 
         ['retail', 'rebate'].forEach(function (key) {
             var expr = serialize(zones[key].el);
@@ -455,7 +605,13 @@
     function renderPreview(key, result, optional) {
         var el = zones[key].preview;
         if (result.empty) {
-            el.textContent = optional ? '留空＝0（等於淨成本 / 不退傭）' : '尚未輸入';
+            if (key === 'basic') {
+                el.textContent = '留空＝沿用報價單自己的基本報價設定';
+            } else if (key === 'trade') {
+                el.textContent = '留空＝沿用報價單自己的同業加成設定';
+            } else {
+                el.textContent = optional ? '留空＝0（等於基本報價 / 不退傭）' : '尚未輸入';
+            }
             el.classList.remove('err');
         } else if (!result.ok) {
             el.textContent = result.error;
@@ -470,6 +626,319 @@
 
     // 保險: 送出表單前再序列化一次, 避免使用者用滑鼠選字之類的方式弄亂了 input 沒同步到
     document.getElementById('formulaForm').addEventListener('submit', function () {
+        runAll();
+    });
+})();
+
+// ---------- ⑤⑥ NP／團費成本計算式: 「整團人數級距報價結果」卡片專用的另一套變數, 跟上面①②③④完全獨立
+// 的第二個公式建構器, 用同一套拖拉/點擊插入模式, 但變數清單、dropzone id、chip 面板 id 都不一樣, 所以另外
+// 包一個 IIFE 避免變數互相污染。兩個 IIFE 各自監聽同一個 <form id="formulaForm"> 的 submit 事件, 都會在
+// 送出前把自己那組 dropzone 序列化進對應的 hidden input, 互不影響。 ----------
+(function () {
+    var VARIABLES = [
+        { id: 'VARIABLE_COST', label: '每人變動成本', allowIn: ['np', 'team'] },
+        { id: 'MISC', label: '雜項（全團固定費用）', allowIn: ['np', 'team'] },
+        { id: 'FIXED_GROUP', label: '全團固定（不含額外雜項，僅自動加總）', allowIn: ['np', 'team'] },
+        { id: 'NET', label: 'NET（每人 Net，原始牌價）', allowIn: ['np', 'team'] },
+        { id: 'BASIC_PRICE', label: '基本報價', allowIn: ['np', 'team'] },
+        { id: 'NP', label: 'NP', allowIn: ['team'] } // 由⑤算出來後才有值, 不能用在⑤自己
+    ];
+    var OPS = ['+', '−', '×', '÷', '(', ')'];
+    var ZONE_KEYS = ['np', 'team'];
+
+    var zones = {};
+    ZONE_KEYS.forEach(function (key) {
+        zones[key] = {
+            el: document.getElementById('zone-' + key),
+            preview: document.getElementById('preview-' + key),
+            input: document.getElementById('input-' + key)
+        };
+    });
+    if (!zones.np.el) return; // 理論上不會發生 (這張卡片一定在畫面上), 保險起見還是檢查一下
+    var lastFocusedZone = 'np';
+
+    var varChipsEl = document.getElementById('tierVarChips');
+    VARIABLES.forEach(function (v) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip';
+        chip.textContent = v.label;
+        chip.draggable = true;
+        chip.addEventListener('dragstart', function (e) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'var', id: v.id, label: v.label }));
+        });
+        chip.addEventListener('click', function () { insertVar(v); });
+        varChipsEl.appendChild(chip);
+    });
+
+    var opChipsEl = document.getElementById('tierOpChips');
+    OPS.forEach(function (op) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip op';
+        chip.textContent = op;
+        chip.draggable = true;
+        chip.addEventListener('dragstart', function (e) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'op', value: op }));
+        });
+        chip.addEventListener('click', function () { insertText(op); });
+        opChipsEl.appendChild(chip);
+    });
+
+    ZONE_KEYS.forEach(function (key) {
+        var zone = zones[key].el;
+        zone.addEventListener('focus', function () { lastFocusedZone = key; });
+        // 見上面「基本報價／同業／直售加成」公式建構器同一段說明 (2026-08-27 修正): 插入點完全由
+        // zone.__marker 這個我們自己的 JS 狀態決定, 不再問「現在瀏覽器的 window.getSelection() 算不算數」——
+        // 點 palette 上的 chip 按鈕一律直接套用 zone.__marker。
+        zone.addEventListener('mouseup', function (e) {
+            var pos = findCaretPosition(zone, e.clientX, e.clientY);
+            if (pos) setZoneMarker(zone, pos.node, pos.offset);
+        });
+        zone.addEventListener('keyup', function () {
+            var sel = window.getSelection();
+            if (sel.rangeCount && zone.contains(sel.anchorNode)) {
+                zone.__marker = { node: sel.anchorNode, offset: sel.anchorOffset };
+            }
+        });
+        zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
+        zone.addEventListener('drop', function (e) {
+            e.preventDefault();
+            zone.classList.remove('drag-over');
+            lastFocusedZone = key;
+            var data;
+            try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
+            placeCaretFromPoint(zone, e.clientX, e.clientY);
+            if (data.type === 'var') {
+                var v = VARIABLES.find(function (x) { return x.id === data.id; });
+                if (v && v.allowIn.indexOf(key) === -1) { runAll(); return; }
+                insertVarToken(zone, data.id, data.label);
+            } else {
+                insertTextAtCaret(zone, data.value);
+            }
+            runAll();
+        });
+        zone.addEventListener('input', runAll);
+        zone.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+    });
+
+    function focusEnd(zone) {
+        zone.focus();
+        var range = document.createRange();
+        range.selectNodeContents(zone);
+        range.collapse(false);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        zone.__marker = { node: zone, offset: zone.childNodes.length };
+    }
+
+    // 用點擊座標主動算出「這一行上, 離點擊 x 最近的可插入位置」, 取代整個交給瀏覽器原生 hit-test 判斷。
+    function findCaretPosition(zone, x, y) {
+        var best = null, bestDist = Infinity;
+        function consider(node, offset, rects) {
+            var rect = rects && rects.length ? rects[rects.length - 1] : null;
+            if (!rect) return;
+            if (y < rect.top - 8 || y > rect.bottom + 8) return; // 大致同一行才比, 避免公式換行時跨行比較
+            var dist = Math.abs(rect.left - x);
+            if (dist < bestDist) { bestDist = dist; best = { node: node, offset: offset }; }
+        }
+        var startRange = document.createRange();
+        startRange.setStart(zone, 0);
+        startRange.collapse(true);
+        consider(zone, 0, startRange.getClientRects());
+        Array.prototype.forEach.call(zone.childNodes, function (node) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                var text = node.textContent;
+                for (var i = 1; i <= text.length; i++) {
+                    var r = document.createRange();
+                    r.setStart(node, i);
+                    r.collapse(true);
+                    consider(node, i, r.getClientRects());
+                }
+            } else {
+                var idx = Array.prototype.indexOf.call(zone.childNodes, node);
+                var beforeRange = document.createRange();
+                beforeRange.setStartBefore(node);
+                beforeRange.collapse(true);
+                consider(zone, idx, beforeRange.getClientRects());
+                var afterRange = document.createRange();
+                afterRange.setStartAfter(node);
+                afterRange.collapse(true);
+                consider(zone, idx + 1, afterRange.getClientRects());
+            }
+        });
+        return best;
+    }
+
+    function placeCaretFromPoint(zone, x, y) {
+        var pos = findCaretPosition(zone, x, y);
+        if (pos) setZoneMarker(zone, pos.node, pos.offset);
+        else focusEnd(zone);
+    }
+
+    // 插入點狀態管理 (zone.__marker): 見上面 mouseup 監聽器旁的說明, 這裡是核心實作。
+    function markerToRange(zone) {
+        var range = document.createRange();
+        var m = zone.__marker;
+        if (m && zone.contains(m.node)) {
+            try {
+                range.setStart(m.node, m.offset);
+                range.collapse(true);
+                return range;
+            } catch (err) { /* fallback */ }
+        }
+        range.selectNodeContents(zone);
+        range.collapse(false);
+        return range;
+    }
+
+    function setZoneMarker(zone, node, offset) {
+        zone.__marker = { node: node, offset: offset };
+        zone.focus();
+        var range = document.createRange();
+        range.setStart(node, offset);
+        range.collapse(true);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function insertVar(v) {
+        var key = lastFocusedZone;
+        if (v.allowIn.indexOf(key) === -1) {
+            alert('「' + v.label + '」不能用在這一層公式（這個階段還沒有這個值）');
+            return;
+        }
+        insertVarToken(zones[key].el, v.id, v.label);
+        runAll();
+    }
+
+    function insertText(text) {
+        var zone = zones[lastFocusedZone].el;
+        insertTextAtCaret(zone, text);
+        runAll();
+    }
+
+    function insertVarToken(zone, varId, label) {
+        var token = document.createElement('span');
+        token.className = 'token';
+        token.contentEditable = 'false';
+        token.dataset.varId = varId;
+        var xSpan = document.createElement('span');
+        xSpan.className = 'x';
+        xSpan.title = '移除';
+        xSpan.textContent = '×';
+        xSpan.addEventListener('click', function () { token.remove(); runAll(); });
+        token.textContent = label;
+        token.appendChild(xSpan);
+        insertNodeAtCaret(zone, token);
+    }
+
+    function insertTextAtCaret(zone, text) {
+        insertNodeAtCaret(zone, document.createTextNode(text));
+    }
+
+    function insertNodeAtCaret(zone, node) {
+        var range = markerToRange(zone);
+        range.insertNode(node);
+        var idx = Array.prototype.indexOf.call(zone.childNodes, node);
+        setZoneMarker(zone, zone, idx + 1);
+    }
+
+    function serialize(zone) {
+        var out = '';
+        zone.childNodes.forEach(function (n) {
+            if (n.nodeType === Node.TEXT_NODE) out += n.textContent;
+            else if (n.classList && n.classList.contains('token')) out += '{' + n.dataset.varId + '}';
+        });
+        return out.trim();
+    }
+
+    function evaluate(expr, sampleValues) {
+        var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷*\/()]/g);
+        var stripped = expr.replace(/\s+/g, '');
+        if (!tokens || tokens.join('') !== stripped) {
+            if (expr === '') return { ok: false, empty: true };
+            return { ok: false, error: '格式錯誤' };
+        }
+        var i = 0;
+        function peek() { return tokens[i]; }
+        function next() { return tokens[i++]; }
+        function parseExpr() {
+            var v = parseTerm();
+            while (peek() === '+' || peek() === '-') { var op = next(); var r = parseTerm(); v = op === '+' ? v + r : v - r; }
+            return v;
+        }
+        function parseTerm() {
+            var v = parseFactor();
+            while (peek() === '×' || peek() === '÷' || peek() === '*' || peek() === '/') {
+                var op = next(); var r = parseFactor();
+                if (op === '×' || op === '*') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
+            }
+            return v;
+        }
+        function parseFactor() {
+            if (peek() === '(') { next(); var v = parseExpr(); if (peek() !== ')') throw new Error('括號未閉合'); next(); return v; }
+            if (peek() === '-') { next(); return -parseFactor(); }
+            var t = next();
+            if (t === undefined) throw new Error('運算式不完整');
+            if (t.charAt(0) === '{') {
+                var id = t.slice(1, -1);
+                var val = sampleValues[id];
+                if (val === undefined || val === null) throw new Error('這個階段還沒有「' + id + '」的值');
+                return val;
+            }
+            return parseFloat(t);
+        }
+        try {
+            var value = parseExpr();
+            if (i !== tokens.length) return { ok: false, error: '格式錯誤' };
+            return { ok: true, value: value };
+        } catch (err) {
+            return { ok: false, error: err.message || '格式錯誤' };
+        }
+    }
+
+    function fmt(n) { return Math.round(n).toLocaleString('zh-Hant-TW'); }
+
+    function normalizeForSubmit(expr) {
+        return expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+    }
+
+    function runAll() {
+        var sample = { VARIABLE_COST: 10000, MISC: 5000, FIXED_GROUP: 5000, NET: 10000, BASIC_PRICE: 12000 };
+
+        var npExpr = serialize(zones.np.el);
+        zones.np.input.value = normalizeForSubmit(npExpr);
+        var npResult = evaluate(npExpr.replace(/−/g, '-'), sample);
+        renderPreview('np', npResult);
+        sample.NP = npResult.ok ? npResult.value : (sample.VARIABLE_COST + sample.MISC);
+
+        var teamExpr = serialize(zones.team.el);
+        zones.team.input.value = normalizeForSubmit(teamExpr);
+        var teamResult = evaluate(teamExpr.replace(/−/g, '-'), sample);
+        renderPreview('team', teamResult);
+    }
+
+    function renderPreview(key, result) {
+        var el = zones[key].preview;
+        if (result.empty) {
+            el.textContent = '留空＝這組規則不管這一層, 沿用報價單自己的設定';
+            el.classList.remove('err');
+        } else if (!result.ok) {
+            el.textContent = result.error;
+            el.classList.add('err');
+        } else {
+            el.textContent = 'NT$ ' + fmt(result.value);
+            el.classList.remove('err');
+        }
+    }
+
+    runAll();
+
+    document.getElementById('tierFormulaForm').addEventListener('submit', function () {
         runAll();
     });
 })();

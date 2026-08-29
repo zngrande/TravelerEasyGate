@@ -514,6 +514,102 @@ public class ItineraryService {
         }
     }
 
+    /**
+     * 使用者這次要求: 有填去程/回程班機時, 要能算出「抵達機場 → 當天第一個景點」(去程) 跟
+     * 「前一個景點 → 出發機場」(回程) 的拉車距離/時間。回程如果剛好是那一天的第一筆項目 (那天沒有排
+     * 任何景點就直接去機場), 就改成算「前一天最後一項住宿 → 出發機場」——這個規則直接沿用既有的
+     * findCarryOverHotel()/recalculateRoutes() 機制 (原本就是設計來處理「這天第一項的『前一站』要接到
+     * 前一天住宿」這種情境), 不需要另外重寫一次。
+     *
+     * 不管有沒有轉機/跨天, 只處理「整趟行程去程方向最後一段航班」跟「回程方向第一段航班」這兩筆——
+     * 轉機中間的航段本身是機場對機場銜接, 不需要 (也沒有意義) 算拉車距離; 使用者原文的簡化版規則
+     * 「無論有幾班飛機、有無跨天, 直接判斷去程最後一筆/回程第一筆」正好就是這裡的做法。
+     *
+     * 呼叫時機很重要: 一定要在 attachFlightItems()、hideMealsOverlappingFlights() 都執行完之後才呼叫——
+     * 前者要等所有航段都插入完成才能正確判斷「最後一段/第一段」是哪一筆, 後者可能刪掉跟班機時間重疊的
+     * 餐食, 會影響到「當天第一個景點」/「前一個景點」實際上是哪一筆項目。
+     */
+    public void calculateAirportTransferSegments(int ITID) {
+        List<ItineraryDay> days = itineraryDayDAO.findByItinerary(ITID); // 已依 day_number ASC 排序
+        if (days.isEmpty()) return;
+
+        String tripCountry = null;
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary != null) tripCountry = firstToken(itinerary.getCountry());
+
+        // 依「第幾天 → 這天內的 sort_order」順序整趟掃過去, 找出「去程班機最後一筆」「回程班機第一筆」
+        // (attachFlightLegsAcrossDays 一律用「去程班機」「回程班機」開頭命名, 見 buildFlightLabel)。
+        ItineraryItem lastOutboundLeg = null;
+        ItineraryItem firstReturnLeg = null;
+        for (ItineraryDay day : days) {
+            for (ItineraryItem item : itineraryItemDAO.findByDay(day.getIDID())) {
+                if (!"transport".equals(item.getItemType()) || !"飛機".equals(item.getTransportMethod())) continue;
+                String name = item.getCustomName();
+                if (name == null) continue;
+                if (name.startsWith("去程班機")) {
+                    lastOutboundLeg = item; // 一路覆蓋下去, 掃到最後留下來的就是整趟行程最後一筆去程航段
+                } else if (name.startsWith("回程班機") && firstReturnLeg == null) {
+                    firstReturnLeg = item; // 只在第一次遇到時記錄, 之後不再覆蓋, 就是整趟行程第一筆回程航段
+                }
+            }
+        }
+
+        Set<Integer> daysToRecalculate = new HashSet<>();
+
+        // 這個方法現在也會在每次打開看板頁時呼叫一次 (見 ItineraryController.board()), 才能讓這個 patch
+        // 上線之前就已經建立好的舊行程也自動補上這個功能, 不用重新建立行程。加這個判斷是為了避免每次開
+        // 看板都重打一次 Google API (geocode + recalculateRoutes 都要打 Google 的服務)——已經算過、有座標
+        // 又已經是 showOnMap=true 的話, 直接跳過, 之後這個項目本身有異動時 (拖曳排序/編輯) 本來就會走既有
+        // 的 recalculateRoutes(), 不需要每次進頁面都重算。
+        if (lastOutboundLeg != null && (lastOutboundLeg.getLatitude() == null || !Boolean.TRUE.equals(lastOutboundLeg.getShowOnMap()))
+                && !isBlank(lastOutboundLeg.getToLocation())) {
+            // 去程: 交通項目的座標本來就是拿來代表「目的地」(既有慣例, 見 updateItemDetails 對交通項目
+            // toLocation 的處理), 抵達機場剛好就是這個航段的目的地, 直接沿用同一套慣例存座標即可,
+            // 讓後面的 recalculateRoutes() 能正常算出「機場 → 下一個項目」的距離。
+            GoogleMapsClient.GeocodeResult geo = geocodeAirport(lastOutboundLeg.getToLocation(), tripCountry);
+            if (geo != null) {
+                lastOutboundLeg.setLatitude(BigDecimal.valueOf(geo.latitude));
+                lastOutboundLeg.setLongitude(BigDecimal.valueOf(geo.longitude));
+                lastOutboundLeg.setShowOnMap(true); // 使用者要求要在地圖上看到「機場→第一個景點」這段路線
+                itineraryItemDAO.save(lastOutboundLeg);
+                daysToRecalculate.add(lastOutboundLeg.getIDID());
+            }
+        }
+
+        if (firstReturnLeg != null && (firstReturnLeg.getLatitude() == null || !Boolean.TRUE.equals(firstReturnLeg.getShowOnMap()))
+                && !isBlank(firstReturnLeg.getFromLocation())) {
+            // 回程: 這裡刻意跟一般交通項目的慣例 (座標=目的地) 不同, 改存「出發機場」(fromLocation) 的
+            // 座標——因為這一段真正要算的是「前一個景點/前一天住宿 → 出發機場」的距離, 不是飛機降落後的
+            // 目的地 (回程的目的地通常是完全不同國家/城市的返程機場, 拿來算距離沒有意義)。這個項目本來
+            // 就是 showOnMap=false, 不會顯示在地圖上, 所以座標語意跟其他交通項目不一致不會造成地圖顯示錯誤。
+            GoogleMapsClient.GeocodeResult geo = geocodeAirport(firstReturnLeg.getFromLocation(), tripCountry);
+            if (geo != null) {
+                firstReturnLeg.setLatitude(BigDecimal.valueOf(geo.latitude));
+                firstReturnLeg.setLongitude(BigDecimal.valueOf(geo.longitude));
+                firstReturnLeg.setShowOnMap(true); // 使用者要求要在地圖上看到「最後一個景點→機場」這段路線
+                itineraryItemDAO.save(firstReturnLeg);
+                daysToRecalculate.add(firstReturnLeg.getIDID());
+            }
+        }
+
+        // 兩筆有可能剛好落在同一天 (例如只有一天的行程), 用 Set 去重, 每天最多重算一次;
+        // recalculateRoutes() 本身就會處理「前一天住宿當起點」的銜接 (findCarryOverHotel()),
+        // 回程班機剛好是那一天第一筆項目時, 這裡不用另外特判, 既有邏輯會自動生效。
+        for (int idid : daysToRecalculate) {
+            recalculateRoutes(idid);
+        }
+    }
+
+    // 查詢機場座標: 機場名稱是自由文字 (使用者在「行程重點資訊」打字/自動完成填的, 例如「東京成田機場」),
+    // 沿用既有 findPlace() 優先、查不到再退回 geocode() 的做法, 跟 updateItemDetails 處理交通項目
+    // 目的地欄位時是同一套邏輯, 保持查詢行為一致。
+    private GoogleMapsClient.GeocodeResult geocodeAirport(String airportName, String countryHint) {
+        String query = isBlank(countryHint) ? airportName : (airportName + " " + countryHint);
+        GoogleMapsClient.GeocodeResult geo = googleMapsClient.findPlace(query, countryHint);
+        if (geo == null) geo = googleMapsClient.geocode(query, countryHint);
+        return geo;
+    }
+
     // 把使用者填的「第幾天」字串轉成合法的天數 index (1-based); 沒填/不是數字/超出這個行程實際天數範圍
     // 都退回 defaultValue (去程預設第一天、回程預設最後一天), 不要讓格式錯誤直接讓建立行程失敗。
     private int parseDayIndexOrDefault(String raw, int defaultValue, int totalDays) {
@@ -1171,7 +1267,7 @@ public class ItineraryService {
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
                                   String timeSlot, String note, Boolean showOnMap) {
         updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -1182,22 +1278,27 @@ public class ItineraryService {
      *                         (沿用單一經緯度欄位) 對應到「抵達的目的地」
      * @param toAddress        交通項目專用: 目的地地址; 有填就直接採用, 沒填但有目的地名稱的話後端會自動查詢帶入
      * @param transportMethod  交通項目專用: 交通工具 (高鐵/飛機/遊覽車/渡輪/計程車...)
-     * @param commuteDuration  交通項目專用: 通勤時間 (自由文字, 例如「約1小時30分」)
+     * @param commuteDuration  交通項目專用 (舊欄位, 已停用): 通勤時間 (自由文字, 例如「約1小時30分」)——
+     *                         畫面已經改用下面的 commuteDurationMin, 這個參數保留只是不動舊呼叫點, 不會再有畫面傳值進來
      * @param startTime        交通項目專用: 出發時間 ("HH:mm", 選填); 傳 null 代表不更動, 傳空字串會清空。
      *                         建立行程時「去程/回程班機」表單填的時間就是存在這裡 (見 attachFlightLegsAcrossDays),
      *                         但建立之後原本完全沒有地方可以編輯——這裡補上編輯入口, 讓使用者事後也能補填/修正。
      * @param endTime          交通項目專用: 抵達時間 ("HH:mm", 選填), 用法同 startTime
+     * @param commuteDurationMin 交通項目專用: 通勤時間 (分鐘, 數字), 取代上面的 commuteDuration 自由文字欄位,
+     *                            用來帶入行程時間表計算 (見 board.html renderTimeline() 的說明); 跟 stayDurationMin
+     *                            一樣是「傳了就直接覆蓋、包含清成 null」的語意, 不是「不為 null 才更動」
      */
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
                                   String timeSlot, String note, Boolean showOnMap,
                                   String itemType, String fromLocation, String fromAddress,
                                   String toLocation, String toAddress, String transportMethod, String commuteDuration,
-                                  String startTime, String endTime) {
+                                  String startTime, String endTime, Integer commuteDurationMin) {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
         item.setCustomName(customName);
         item.setStayDurationMin(stayDurationMin);
+        item.setCommuteDurationMin(commuteDurationMin);
         if (timeSlot != null) {
             item.setTimeSlot(timeSlot.isBlank() ? null : timeSlot);
         }
@@ -1281,7 +1382,23 @@ public class ItineraryService {
 
         // 交通項目在地圖上的位置沿用單一經緯度欄位, 代表「抵達的目的地」: 目的地名稱有異動就順便重新查一次座標,
         // 這樣「顯示在地圖上」這個開關才會真的對應到有意義的位置, 不會空有勾選卻沒有座標可畫。
-        if (toLocation != null && !toLocation.isBlank()) {
+        // 回程班機是唯一的例外: calculateAirportTransferSegments() 建立/補算這個項目的座標時, 刻意存的是
+        // 「出發機場」(fromLocation) 不是「目的地」(toLocation)——如果這裡沒有排除, 使用者之後只要編輯這個
+        // 項目任何欄位存檔一次 (包含單純按「顯示在地圖上」切換), 就會被這段既有邏輯蓋回抵達機場的座標,
+        // 「最後一個景點→出發機場」這段地圖路線就會跟著跑掉。判斷方式跟 calculateAirportTransferSegments()
+        // 找「回程班機」用的是同一套 (transportMethod === 飛機 + customName 開頭是「回程班機」)。
+        boolean isReturnFlightLeg = "飛機".equals(item.getTransportMethod())
+                && item.getCustomName() != null && item.getCustomName().startsWith("回程班機");
+        if (isReturnFlightLeg) {
+            if (fromLocation != null && !fromLocation.isBlank()) {
+                if (geocodeCountry == null) geocodeCountry = resolveCountryForItem(item);
+                GoogleMapsClient.GeocodeResult geo = geocodeAirport(fromLocation.trim(), geocodeCountry);
+                if (geo != null) {
+                    item.setLatitude(BigDecimal.valueOf(geo.latitude));
+                    item.setLongitude(BigDecimal.valueOf(geo.longitude));
+                }
+            }
+        } else if (toLocation != null && !toLocation.isBlank()) {
             if (geocodeCountry == null) geocodeCountry = resolveCountryForItem(item);
             String query = String.join(" ", toLocation.trim(), geocodeCountry != null ? geocodeCountry : "").trim();
             GoogleMapsClient.GeocodeResult geo = googleMapsClient.findPlace(query, geocodeCountry);
@@ -1294,6 +1411,23 @@ public class ItineraryService {
 
         itineraryItemDAO.save(item);
         recalculateRoutes(item.getIDID());
+    }
+
+    // 取得一個行程項目可以拿來算距離的座標: 優先用項目自己存的座標 (交通/班機項目沒有連結 POI, 但
+    // 有自己的經緯度), 沒有才退回查連結的 POI——跟 RouteService.resolveCoordinates() 是同一套邏輯,
+    // 這裡另外重複一份是因為 RouteService 沒有對外公開這個方法, 兩邊各自服務不同的呼叫情境
+    // (這裡是「順路景點推薦」, RouteService 是「相鄰項目拉車距離」), 沒有強行合併成共用方法。
+    private double[] resolveItemCoordinates(ItineraryItem item) {
+        if (item.getLatitude() != null && item.getLongitude() != null) {
+            return new double[]{item.getLatitude().doubleValue(), item.getLongitude().doubleValue()};
+        }
+        if (item.getPID() != null) {
+            Poi poi = poiDAO.findById(item.getPID());
+            if (poi != null && poi.getLatitude() != null) {
+                return new double[]{poi.getLatitude().doubleValue(), poi.getLongitude().doubleValue()};
+            }
+        }
+        return null;
     }
 
     // 交通項目自動查詢地址/座標時, 找這個項目所屬行程的國家 (優先用項目自己判斷出的國家, 沒有才反查行程層級的國家),
@@ -1674,18 +1808,18 @@ public class ItineraryService {
     public List<com.example.UsefulTravel.entity.Poi> suggestPoiBetween(int AID, int IDID, int fromIIID, int toIIID) {
         ItineraryItem fromItem = itineraryItemDAO.findById(fromIIID);
         ItineraryItem toItem = itineraryItemDAO.findById(toIIID);
-        if (fromItem == null || toItem == null || fromItem.getPID() == null || toItem.getPID() == null) {
-            return List.of();
-        }
+        if (fromItem == null || toItem == null) return List.of();
 
-        com.example.UsefulTravel.entity.Poi fromPoi = poiDAO.findById(fromItem.getPID());
-        com.example.UsefulTravel.entity.Poi toPoi = poiDAO.findById(toItem.getPID());
-        if (fromPoi == null || toPoi == null || fromPoi.getLatitude() == null || toPoi.getLatitude() == null) {
-            return List.of();
-        }
+        // 座標來源改成沿用 RouteService.resolveCoordinates() 同一套邏輯 (優先項目自己的座標, 沒有才查
+        // 連結的 POI)——原本這裡限定兩邊都要有 PID 才能推薦, 導致「交通」類項目 (沒有連結 POI, 但飛機/
+        // 有目的地座標的交通項目本身有自己的經緯度) 兩側的順路推薦永遠不會出現。使用者這次明確要求
+        // 「交通跟景點中間還是要有推薦景點」, 這裡放寬成只要任一種方式能拿到座標就可以。
+        double[] fromCoord = resolveItemCoordinates(fromItem);
+        double[] toCoord = resolveItemCoordinates(toItem);
+        if (fromCoord == null || toCoord == null) return List.of();
 
-        double fLat = fromPoi.getLatitude().doubleValue(), fLng = fromPoi.getLongitude().doubleValue();
-        double tLat = toPoi.getLatitude().doubleValue(), tLng = toPoi.getLongitude().doubleValue();
+        double fLat = fromCoord[0], fLng = fromCoord[1];
+        double tLat = toCoord[0], tLng = toCoord[1];
         double directKm = haversineKm(fLat, fLng, tLat, tLng);
         final double RATIO_LIMIT = 1.5; // 拉車時間 (或退回時的直線距離) 不能超過直達的 1.5 倍
 
@@ -1694,10 +1828,18 @@ public class ItineraryService {
                 .map(ItineraryItem::getPID).filter(java.util.Objects::nonNull)
                 .collect(java.util.stream.Collectors.toSet());
 
-        List<com.example.UsefulTravel.entity.Poi> roughCandidates = poiDAO.findByAgencyAndCountry(AID, fromPoi.getCountry(), null).stream()
+        // 候選清單查詢範圍的國家: 交通項目沒有連結 POI、不能再像以前一樣直接拿 fromPoi.getCountry(),
+        // 改用跟「交通項目自動查詢地址」同一套 resolveCountryForItem() (優先項目自己判斷出的國家,
+        // 沒有才反查行程層級的國家)。
+        String country = resolveCountryForItem(fromItem);
+        Integer fromPid = fromItem.getPID();
+        Integer toPid = toItem.getPID();
+
+        List<com.example.UsefulTravel.entity.Poi> roughCandidates = poiDAO.findByAgencyAndCountry(AID, country, null).stream()
                 .filter(p -> p.getLatitude() != null)
                 .filter(p -> !alreadyInDay.contains(p.getPID()))
-                .filter(p -> p.getPID() != fromPoi.getPID() && p.getPID() != toPoi.getPID())
+                .filter(p -> fromPid == null || p.getPID() != fromPid)
+                .filter(p -> toPid == null || p.getPID() != toPid)
                 .filter(p -> directKm >= 0.3) // 兩點幾乎同位置時, 直線距離太小算比例沒意義, 整批跳過
                 .sorted(java.util.Comparator.comparingDouble(p -> {
                     double cLat = p.getLatitude().doubleValue(), cLng = p.getLongitude().doubleValue();

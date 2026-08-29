@@ -43,6 +43,8 @@
         .status-locked { background: #eff6ff; color: var(--primary-blue); }
         .status-confirmed { background: #ecfdf5; color: var(--green); }
         .status-expired { background: #fef2f2; color: #dc2626; }
+        .btn-icon-delete { background: none; border: none; cursor: pointer; color: var(--text-gray); font-size: 16px; padding: 4px 6px; border-radius: 6px; }
+        .btn-icon-delete:hover { color: #dc2626; background: #fef2f2; }
 
         .form-group { margin-bottom: 16px; }
         .form-label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
@@ -96,6 +98,15 @@
                           style="margin-left:12px;color:#cbd5e1;font-size:16px;cursor:not-allowed;">
                         <i class="fa-solid fa-file-excel"></i>
                     </span>
+                    <!-- 刪除這個版本: 只開放草稿狀態刪 (已鎖定/已確認建議保留歷史, 後端 QuotationController#delete 的
+                         註解也是這個建議), 按下去要求二次確認避免手滑刪錯。 -->
+                    <form th:if="${q.status == 'draft'}" method="post" th:action="@{'/quotation/' + ${q.QID} + '/delete'}"
+                          onsubmit="return confirm('確定要刪除第 ' + [[${q.version}]] + ' 版報價嗎？此動作無法復原。');"
+                          style="display:inline;margin-left:12px;">
+                        <button type="submit" class="btn-icon-delete" title="刪除這個版本">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </form>
                 </div>
             </div>
 
@@ -111,9 +122,6 @@
                     <label class="form-label">團體人數</label>
                     <input type="number" name="groupSize" class="form-control" min="1"
                            th:value="${itinerary.groupSize} ?: 1" required />
-                </div>
-                <div class="item-note" style="margin-bottom:16px;" th:if="${!quotations.isEmpty()}">
-                    同業/直售加成跟退傭%會直接帶入上一版報價單的數字，建立後可以到報價編輯頁再自己調整。
                 </div>
                 <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 建立報價單</button>
             </form>

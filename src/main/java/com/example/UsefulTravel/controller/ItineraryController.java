@@ -105,6 +105,9 @@ public class ItineraryController {
         // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
         // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
         itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
+        // 去程/回程機場銜接的拉車距離/時間——一定要在上面兩個呼叫都跑完之後才算, 見
+        // ItineraryService.calculateAirportTransferSegments() 說明。
+        itineraryService.calculateAirportTransferSegments(itinerary.getITID());
         return "redirect:/itinerary/" + itinerary.getITID() + "/board";
     }
 
@@ -152,6 +155,9 @@ public class ItineraryController {
         // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
         // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
         itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
+        // 去程/回程機場銜接的拉車距離/時間——一定要在上面兩個呼叫都跑完之後才算, 見
+        // ItineraryService.calculateAirportTransferSegments() 說明。
+        itineraryService.calculateAirportTransferSegments(itinerary.getITID());
 
         if (aiFoundNothing) {
             redirectAttributes.addFlashAttribute("aiPlanNotice",
@@ -169,6 +175,11 @@ public class ItineraryController {
 
         Itinerary itinerary = itineraryService.getItinerary(ITID);
         List<ItineraryDay> days = itineraryService.getDays(ITID);
+        // 補跑一次去程/回程機場銜接的拉車距離/地圖路線——calculateAirportTransferSegments() 內部有做過
+        // 判斷 (座標已經算過、showOnMap 也已經是 true 就直接跳過), 所以這個 patch 上線之前就已經建立好的
+        // 舊行程, 只要重新整理一次看板頁就會自動補上這個功能, 不需要重新建立行程; 已經處理過的行程再次
+        // 打開看板不會重打 Google API, 不用擔心效能/費用問題。
+        itineraryService.calculateAirportTransferSegments(ITID);
         model.addAttribute("itineraryId", ITID);
         model.addAttribute("itinerary", itinerary);
         model.addAttribute("days", days);
@@ -330,10 +341,11 @@ public class ItineraryController {
                          @RequestParam(required = false) String transportMethod,
                          @RequestParam(required = false) String commuteDuration,
                          @RequestParam(required = false) String startTime,
-                         @RequestParam(required = false) String endTime) {
+                         @RequestParam(required = false) String endTime,
+                         @RequestParam(required = false) Integer commuteDurationMin) {
         itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
                 itemType, fromLocation, fromAddress, toLocation, toAddress, transportMethod, commuteDuration,
-                startTime, endTime);
+                startTime, endTime, commuteDurationMin);
     }
 
     // POST /itinerary/day/{IDID}/auto-arrange → 自動整理這一天 (預設: 餐廳/住宿排到最後面)
@@ -450,6 +462,7 @@ public class ItineraryController {
             point.put("lng", lng);
             point.put("name", item.getCustomName());
             point.put("itemType", item.getItemType());
+            point.put("transportMethod", item.getTransportMethod()); // 前端用來判斷是不是班機項目 (畫飛機圖示、不編 A/B/C 字母)
 
             // 找出「這個點 → 下一個點」這段路段的通勤方式, 讓前端用 DirectionsService 畫路線、靜態地圖大圖時模式一致
             String mode = routes.stream()

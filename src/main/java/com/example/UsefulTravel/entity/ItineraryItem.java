@@ -76,7 +76,14 @@ public class ItineraryItem {
     private String transportMethod; // 交通工具 (例如: 高鐵/飛機/遊覽車/渡輪/計程車...)
 
     @Column(name = "commute_duration")
-    private String commuteDuration; // 通勤時間 (自由文字, 例如「約1小時30分」)
+    private String commuteDuration; // 通勤時間 (自由文字, 例如「約1小時30分」) —— 已改用下面 commuteDurationMin
+                                     // (數字, 分鐘) 取代, 這個欄位保留只是為了不動舊資料, UI 已經不會再讀寫它
+
+    @Column(name = "commute_duration_min")
+    private Integer commuteDurationMin; // 通勤時間 (分鐘, 數字), 取代上面的自由文字欄位: 跟停留時間 (stayDurationMin)
+                                         // 一樣是數字, 才能真的帶入行程時間表計算——如果這個項目有填出發/抵達時間
+                                         // (startTime/endTime), 行程時間表會優先用那兩個, 這個欄位只在兩者都沒填時
+                                         // 當作估算的通勤時長 (見 board.html renderTimeline() 的說明)
 
     public ItineraryItem() {}
 
@@ -153,4 +160,6 @@ public class ItineraryItem {
 
     public String getCommuteDuration() { return commuteDuration; }
     public void setCommuteDuration(String commuteDuration) { this.commuteDuration = commuteDuration; }
+    public Integer getCommuteDurationMin() { return commuteDurationMin; }
+    public void setCommuteDurationMin(Integer commuteDurationMin) { this.commuteDurationMin = commuteDurationMin; }
 }

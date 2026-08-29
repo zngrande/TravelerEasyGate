@@ -107,7 +107,7 @@
 <aside th:replace="~{fragments/sidebar :: sidebar(active='itinerary', userName=${session.name})}"></aside>
 
 <main class="main-content">
-    <div id="pageContent" th:fragment="pageContent" th:attr="data-fragment-url=@{'/quotation/' + ${quotation.QID} + '/fragment'}" style="view-transition-name: page-content;">
+    <div id="pageContent" th:fragment="pageContent" th:attr="data-fragment-url=@{'/quotation/' + ${quotation.QID} + '/fragment'},data-group-size=${quotation.groupSize}" style="view-transition-name: page-content;">
         <div class="page-header">
             <div>
                 <div class="page-title">
@@ -177,7 +177,7 @@
         <div class="card">
             <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 基本報價／同業／直售加成與退傭設定</div>
             <div class="item-note" style="margin-bottom:12px;">
-                NNet（總淨成本）先套用「①基本報價公式」變成基本報價，基本報價再套用「②同業價公式」變成同業價，同業價再套用「③直售價公式」變成直售價——一層疊一層往上加。「④退傭金額公式」一樣可以引用前面已經算出來的價格。基本報價沒有對應的已儲存規則，一律自己填；同業／直售／退傭可以選「選擇計算方式」下拉選單裡已儲存的規則直接套用，或選「自填」自己組公式——建立新版本時會自動帶入上一版的數字；「自填」任一層公式留空就沿用下面括號內顯示的舊制設定。
+                Net（總成本）先套用「①基本報價公式」變成基本報價，基本報價再套用「②同業價公式」變成同業價，同業價再套用「③直售價公式」變成直售價——一層疊一層往上加。「④退傭金額公式」一樣可以引用前面已經算出來的價格。①②③④四層都可以選「選擇計算方式」下拉選單裡已儲存的規則直接套用（規則裡如果沒有設定①基本報價，就繼續沿用這張報價單自己的設定），或選「自填」自己組全部四層——建立新版本時會自動帶入上一版的數字；「自填」任一層公式留空就沿用下面括號內顯示的舊制設定。
             </div>
 
             <!-- data-full-redirect: 這顆表單刻意讓瀏覽器正常換頁 (不走頁面其他表單共用的 AJAX 局部刷新),
@@ -185,17 +185,17 @@
                  script、綁定會失效; 走一般整頁重新整理最單純, 也才能讓公式格式錯誤時的錯誤訊息 (flash 訊息) 正常顯示。 -->
             <form id="markupFormulaForm" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/markup'}" data-full-redirect="true">
 
-                <!-- 同業／直售／退傭三層的「選擇計算方式」: 一開始是單一顆下拉選單, 列出所有已儲存的計算公式規則 + 一個「自填」選項。
-                     選一條已儲存規則就直接套用「計算公式管理」的設定, 下面②③④公式建構器保持收合; 選「自填」才會展開②③④讓使用者自己組公式。
-                     基本報價沒有已儲存規則可選, 不受這個下拉選單影響, 永遠自己填 (見下方①，跟下拉選單選什麼無關)。 -->
+                <!-- 基本／同業／直售／退傭四層的「選擇計算方式」: 一開始是單一顆下拉選單, 列出所有已儲存的計算公式規則 + 一個「自填」選項。
+                     選一條已儲存規則就直接套用「計算公式管理」的設定 (①如果那組規則沒填, 繼續沿用這張報價單自己的基本報價設定),
+                     下面①②③④公式建構器保持收合; 選「自填」才會展開①②③④讓使用者自己組公式。 -->
                 <div class="formula-field" id="qModeToggleField">
                     <div class="formula-field-label">
                         <span class="name">選擇計算方式</span>
-                        <span class="optional">套用「已儲存的」計算公式規則，或選「自填」自己組②③④的公式（①基本報價公式沒有已儲存規則可選，一律自己填）</span>
+                        <span class="optional">套用「已儲存的」計算公式規則，或選「自填」自己組①②③④的公式</span>
                     </div>
                     <select id="qFormulaModeSelect" class="form-control" th:disabled="${!canEdit}" style="max-width:420px;" onchange="toggleQuotationFormulaMode()">
                         <option value="" disabled
-                                th:selected="${quotation.isPresetFormulaModeActive() and (marginSettings == null or marginSettings.?[MSID == quotation.MSID].isEmpty())}">
+                                th:selected="${quotation.isPresetFormulaModeActive() and activePreset == null}">
                             （原本設定的計算公式規則已不存在，請重新選擇）
                         </option>
                         <option th:each="ms : ${marginSettings}"
@@ -206,6 +206,29 @@
                     </select>
                     <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.isEmpty()}">
                         目前還沒有已儲存的計算公式規則，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
+                    </div>
+                    <!-- ①基本報價這一層即使套用「已儲存的」規則, 那組規則也可能沒有設定基本報價公式 (MarginSetting.basicFormula
+                         是選填的) ——這種情況下明確提示使用者「現在實際生效的基本報價設定是什麼」, 避免看不到①的 dropzone
+                         (被收合了) 就以為基本報價沒有在算。activePreset 是 controller (buildEditModel()) 算好才丟進來的,
+                         這裡只判斷 null, 不在樣板裡用 OGNL 的 `.?[...]` selection 語法 (那個曾經在渲染途中丟例外,
+                         導致頁面從這裡開始整段消失, 詳見 buildEditModel() 的註解)。
+
+                         2026-08-26 修正: 上面「選擇計算方式」下拉選單那個 disabled option 的 th:selected 之前還留著
+                         一份幾乎一樣的 `marginSettings.?[MSID == quotation.MSID].isEmpty()`，就是這次使用者回報「選擇
+                         已設定的計算公式、儲存並計算後整個頁面消失、當機」的真正根因 (log 裡的例外訊息是
+                         `Property or field 'quotation' cannot be found on object of type 'MarginSetting'`——SpEL 的
+                         `.?[...]` selection 求值每一個元素時, 會把「目前這個元素」(MarginSetting) 當作屬性解析的
+                         root, 外層的 `quotation` 變數在裡面解析不到, 直接丟例外, 不是只有跟三元運算子混在一起才會炸,
+                         這裡沒有三元運算子一樣會炸)。已經改成直接判斷 activePreset == null (跟這裡的邏輯共用同一個
+                         controller 算好的物件), 不會再有這個問題; 下面 NP／團費成本那組「選擇計算方式」下拉選單原本
+                         也有一份幾乎一樣的寫法, 一併用 activeTierPreset 改掉了。 -->
+                    <div class="item-note" style="margin-top:6px;" th:if="${quotation.isPresetFormulaModeActive()}">
+                        <span th:if="${activePreset != null and activePreset.basicFormula != null}">
+                            ①基本報價公式套用「已儲存的」規則：<strong th:text="${activePreset.readableBasicFormula}"></strong>
+                        </span>
+                        <span th:if="${activePreset == null or activePreset.basicFormula == null}">
+                            ①基本報價公式：目前套用的規則沒有設定這一層，繼續沿用這張報價單自己的基本報價設定（<span th:text="${quotation.basicMarkupValue}"></span><span th:text="${quotation.isBasicMarkupAmountMode()} ? '（自填金額）' : '%'"></span>）。要調整請切到「自填」。
+                        </span>
                     </div>
                     <input type="hidden" name="formulaMode" id="qinput-formulaMode" />
                     <input type="hidden" name="marginSettingId" id="qinput-marginSettingId" />
@@ -218,20 +241,20 @@
                     <div class="chip-row" id="qOpChips"></div>
                 </div>
 
-                <div class="formula-field">
-                    <div class="formula-field-label">
-                        <span class="name">① 基本報價公式</span>
-                        <span class="optional">可用變數：NNet、團體人數・留空＝套用舊制「基本利潤比例」<span th:text="${quotation.basicMarkupValue}"></span><span th:text="${quotation.isBasicMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
-                    </div>
-                    <div class="dropzone" id="qzone-basic" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：NNet × 1.15 + 2000" data-zone-key="basic" tabindex="0"></div>
-                    <div class="formula-preview"><span>試算（NNet=100,000／20人）＝</span><span class="result" id="qpreview-basic">尚未輸入</span></div>
-                </div>
-
                 <div id="qCustomSection">
                     <div class="formula-field">
                         <div class="formula-field-label">
+                            <span class="name">① 基本報價公式</span>
+                            <span class="optional">可用變數：Net、NNet、團體人數・留空＝套用舊制「基本利潤比例」<span th:text="${quotation.basicMarkupValue}"></span><span th:text="${quotation.isBasicMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
+                        </div>
+                        <div class="dropzone" id="qzone-basic" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：NNet × 1.15 + 2000" data-zone-key="basic" tabindex="0"></div>
+                        <div class="formula-preview"><span>試算（Net=120,000／NNet=100,000／20人）＝</span><span class="result" id="qpreview-basic">尚未輸入</span></div>
+                    </div>
+
+                    <div class="formula-field">
+                        <div class="formula-field-label">
                             <span class="name">② 同業價公式</span>
-                            <span class="optional">可用變數：NNet、團體人數、基本報價・留空＝套用舊制「同業利潤比例」<span th:text="${quotation.tradeMarkupValue}"></span><span th:text="${quotation.isTradeMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
+                            <span class="optional">可用變數：Net、NNet、團體人數、基本報價・留空＝套用舊制「同業利潤比例」<span th:text="${quotation.tradeMarkupValue}"></span><span th:text="${quotation.isTradeMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
                         </div>
                         <div class="dropzone" id="qzone-trade" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：基本報價 × 1.1" data-zone-key="trade" tabindex="0"></div>
                         <div class="formula-preview"><span>試算＝</span><span class="result" id="qpreview-trade">尚未輸入</span></div>
@@ -240,7 +263,7 @@
                     <div class="formula-field">
                         <div class="formula-field-label">
                             <span class="name">③ 直售價公式</span>
-                            <span class="optional">可用變數：NNet、團體人數、基本報價、同業價・留空＝套用舊制「直售利潤比例」<span th:text="${quotation.retailMarkupValue}"></span><span th:text="${quotation.isRetailMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
+                            <span class="optional">可用變數：Net、NNet、團體人數、基本報價、同業價・留空＝套用舊制「直售利潤比例」<span th:text="${quotation.retailMarkupValue}"></span><span th:text="${quotation.isRetailMarkupAmountMode()} ? '（自填金額）' : '%'"></span></span>
                         </div>
                         <div class="dropzone" id="qzone-retail" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：同業價 × 1.1" data-zone-key="retail" tabindex="0"></div>
                         <div class="formula-preview"><span>試算＝</span><span class="result" id="qpreview-retail">尚未輸入</span></div>
@@ -249,7 +272,7 @@
                     <div class="formula-field">
                         <div class="formula-field-label">
                             <span class="name">④ 退傭金額公式</span>
-                            <span class="optional">可用變數：NNet、團體人數、基本報價、同業價、直售價・留空＝套用舊制退傭<span th:text="${quotation.rebatePct}"></span><span th:text="${quotation.rebateMode == 'AMOUNT'} ? '（自填金額）' : '%'"></span></span>
+                            <span class="optional">可用變數：Net、NNet、團體人數、基本報價、同業價、直售價・留空＝套用舊制退傭<span th:text="${quotation.rebatePct}"></span><span th:text="${quotation.rebateMode == 'AMOUNT'} ? '（自填金額）' : '%'"></span></span>
                         </div>
                         <div class="dropzone" id="qzone-rebate" th:attr="contenteditable=${canEdit} ? 'true' : 'false'" data-placeholder="例：同業價 × 0.08" data-zone-key="rebate" tabindex="0"></div>
                         <div class="formula-preview"><span>試算＝</span><span class="result" id="qpreview-rebate">尚未輸入</span></div>
@@ -325,7 +348,7 @@
                                 </button>
                                 <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines/' + ${line.QLID} + '/delete'}"
                                       data-confirm="確定要刪除這筆報價項目嗎？" style="display:inline;">
-                                    <button type="submit" title="刪除"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="submit" title="刪除" style="background:none;border:none;cursor:pointer;color:var(--text-gray);"><i class="fa-solid fa-trash"></i></button>
                                 </form>
                             </td>
                         </tr>
@@ -406,7 +429,9 @@
                     <tfoot>
                     <tr>
                         <td th:attr="colspan=${canEdit} ? 7 : 6">合計</td>
+                        <td class="num" th:text="${#numbers.formatDecimal(totals.get('grossCost'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" th:text="${#numbers.formatDecimal(totals.get('netCost'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(totals.get('basicPrice'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" style="color:var(--primary-blue);" th:text="${#numbers.formatDecimal(totals.get('tradePrice'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" style="color:var(--primary-purple);" th:text="${#numbers.formatDecimal(totals.get('retailPrice'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td class="num" style="color:var(--amber);" th:text="${#numbers.formatDecimal(totals.get('rebateAmount'), 0, 'COMMA', 0, 'POINT')}"></td>
@@ -528,18 +553,39 @@
         <div class="card" th:if="${canEdit}">
             <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 新增報價項目</div>
 
-            <!-- 快速從元件庫掛上 -->
+            <!-- 快速從元件庫掛上: 選了元件庫項目後計費方式/幣別/單價都可以再覆寫 (使用者回報以前只能整包照元件庫預設值收,
+                 沒辦法像手動新增那樣調整——這裡補上, 三個欄位都先帶入元件庫的預設值, 選按人頭時數量也預設報價基礎設定的
+                 團體人數, 使用者仍然可以自己改掉這些預設值再送出)。componentId 的 option 上放 data-* 屬性給 JS 讀,
+                 選元件/切換計費方式時同步更新這幾個欄位的預設值, 見下面 initFromComponentDefaults()。 -->
             <form class="quick-attach" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines/from-component'}" th:if="${!components.isEmpty()}">
                 <div class="form-group" style="flex:2;">
                     <label class="form-label">從元件庫選擇</label>
-                    <select name="componentId" class="form-control" style="width:100%;" required>
+                    <select name="componentId" id="fcComponentSelect" class="form-control" style="width:100%;" required onchange="applyComponentDefaults()">
                         <option th:each="c : ${components}" th:value="${c.CPID}"
+                                th:attr="data-currency=${c.currencyCode},data-price=${c.defaultPrice}"
                                 th:text="${c.name} + '（' + ${c.type} + '）— ' + ${c.currencyCode} + ' ' + ${c.defaultPrice}"></option>
                     </select>
                 </div>
                 <div class="form-group">
+                    <label class="form-label">計費方式</label>
+                    <select name="costType" id="fcCostType" class="form-control" style="width:200px;" onchange="applyComponentDefaults()">
+                        <option value="PER_PAX" selected>按人頭（單價 × 人數）</option>
+                        <option value="FIXED_GROUP">全團固定（不受人數影響，只受數量影響）</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">幣別</label>
+                    <select name="currencyCode" id="fcCurrency" class="form-control" style="width:150px;">
+                        <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'"></option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">單價</label>
+                    <input type="number" step="0.01" name="unitPrice" id="fcUnitPrice" class="form-control" style="width:110px;" required />
+                </div>
+                <div class="form-group">
                     <label class="form-label">數量</label>
-                    <input type="number" name="quantity" class="form-control" value="1" min="1" style="width:90px;" required />
+                    <input type="number" name="quantity" id="fcQuantity" class="form-control" value="1" min="1" style="width:90px;" required />
                 </div>
                 <div class="form-group">
                     <label class="form-label">FOC 比例（0=不適用）</label>
@@ -567,7 +613,10 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">計費方式</label>
-                    <select name="costType" class="form-control">
+                    <!-- 使用者要求: 選「按人頭」時數量要預設報價基礎設定的團體人數 (不是死板的 1) ——
+                         onchange 呼叫 applyPerPaxDefaultQty(), 頁面載入時也會呼叫一次 (見下面 script), 因為
+                         「按人頭」本來就是這個下拉選單預設選取的選項。 -->
+                    <select name="costType" id="newLineCostType" class="form-control" onchange="applyPerPaxDefaultQty(this)">
                         <option value="PER_PAX" selected>按人頭（單價 × 人數）</option>
                         <option value="FIXED_GROUP">全團固定（不受人數影響，只受數量影響）</option>
                     </select>
@@ -575,7 +624,7 @@
                 <div class="form-group">
                     <label class="form-label">幣別</label>
                     <select name="currencyCode" class="form-control">
-                        <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'" th:selected="${cur.code == 'TWD'}"></option>
+                        <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'" th:selected="${cur.code == lastUsedCurrency}"></option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -584,7 +633,7 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">數量</label>
-                    <input type="number" name="quantity" class="form-control" value="1" min="0" required />
+                    <input type="number" name="quantity" id="newLineQty" class="form-control" th:value="${quotation.groupSize}" min="0" required />
                 </div>
                 <div class="form-group">
                     <label class="form-label">燃油稅（機票用，選填）</label>
@@ -622,6 +671,24 @@
                 「雜項（全團固定費用）」＝自動加總「報價項目明細」裡所有「全團固定」項目在該級距代表人數下的成本（如果項目在「區間價錢管理」設定了人數級距，會依代表人數自動判斷單價）。
                 「NP」／「團費成本」＝（每人變動成本＋雜項）換算成台幣後，套用可自訂的計算公式——公式可以引用「每人變動成本」「雜項（全團固定費用）」「全團固定」「NET」「基本報價」這幾個計算欄位（團費成本另外還能引用「NP」），留空就直接沿用這個和、不額外調整。
                 （原本的「總成本／每人成本／同業價／直售價／毛利率」欄位背景仍然照算，只是這個畫面不再顯示——如果需要，之後可以再加回來。）
+            </div>
+
+            <!-- NP／團費成本這兩個計算式現在也可以存進「計算公式管理」——使用者要求這組要能跟上面①②③④基本報價／
+                 同業／直售／退傭分開選規則、各自獨立存, 所以這裡改成自己的「選擇計算方式」下拉選單 (quotation.
+                 tier_formula_mode/tier_MSID, 跟上面①②③④共用的 formula_mode/MSID 完全分開)。activeTierPreset
+                 是 controller (buildEditModel()) 算好才丟進來的, 這裡只判斷 null, 不在樣板裡用 OGNL selection 語法
+                 (曾經在渲染途中丟例外導致頁面從這裡開始整段消失, 詳見 buildEditModel() 的註解)。 -->
+            <div class="item-note" style="margin-bottom:16px;" th:if="${quotation.isTierPresetFormulaModeActive()}">
+                <span th:if="${activeTierPreset != null and (activeTierPreset.npFormula != null or activeTierPreset.teamFormula != null)}">
+                    目前套用「已儲存的」規則「<strong th:text="${activeTierPreset.name}"></strong>」：
+                    <span th:if="${activeTierPreset.npFormula != null}">NP 計算式套用該規則的設定；</span>
+                    <span th:if="${activeTierPreset.npFormula == null}">NP 沒有在該規則裡設定，繼續沿用下面自己填的計算式；</span>
+                    <span th:if="${activeTierPreset.teamFormula != null}">團費成本計算式套用該規則的設定。</span>
+                    <span th:if="${activeTierPreset.teamFormula == null}">團費成本沒有在該規則裡設定，繼續沿用下面自己填的計算式。</span>
+                </span>
+                <span th:if="${activeTierPreset == null or (activeTierPreset.npFormula == null and activeTierPreset.teamFormula == null)}">
+                    目前套用的「已儲存的」規則沒有設定 NP／團費成本這一層，繼續沿用下面自己填的計算式。
+                </span>
             </div>
 
             <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
@@ -702,30 +769,59 @@
                  data-full-redirect 原因跟markup公式表單一樣: dropzone 事件是頁面載入時綁一次, AJAX 換內容會失效,
                  這顆表單刻意整頁換頁。 -->
             <div th:if="${canEdit and !groupTiers.isEmpty()}" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color);">
-                <div class="palette">
-                    <div class="palette-label">計算欄位 · 點擊或拖曳插入到目前選取的公式欄位（跟上面加成設定卡片的價格變數完全分開，各自獨立）</div>
-                    <div class="chip-row" id="gVarChips"></div>
-                    <div class="palette-label">運算子</div>
-                    <div class="chip-row" id="gOpChips"></div>
-                </div>
-
                 <form id="groupTierFormulaForm" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/apply-all'}" data-full-redirect="true">
-                    <div class="formula-field">
+
+                    <!-- NP／團費成本這組獨立的「選擇計算方式」: 跟上面①②③④基本報價/同業/直售/退傭那組的下拉選單
+                         完全分開, 選一條已儲存規則就直接套用該規則的 npFormula/teamFormula (那組規則沒填就繼續
+                         沿用下面自己填的), 下面的公式建構器保持收合; 選「自填」才展開讓使用者自己組公式。 -->
+                    <div class="formula-field" id="gModeToggleField">
                         <div class="formula-field-label">
-                            <span class="name">NP 計算式</span>
-                            <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、全團固定、NET、基本報價・留空＝直接等於「每人變動成本＋雜項」</span>
+                            <span class="name">選擇計算方式</span>
+                            <span class="optional">套用「已儲存的」計算公式規則，或選「自填」自己組 NP／團費成本的公式（跟上面①②③④是分開的選單，可以各自選不同的規則）</span>
                         </div>
-                        <div class="dropzone" id="gzone-np" contenteditable="true" data-placeholder="例：（每人變動成本＋雜項）× 1.1" data-zone-key="np" tabindex="0"></div>
-                        <div class="formula-preview"><span>試算（每人變動成本=10,000／雜項=5,000）＝</span><span class="result" id="gpreview-np">尚未輸入</span></div>
+                        <select id="gFormulaModeSelect" class="form-control" style="max-width:420px;" onchange="toggleGroupTierFormulaMode()">
+                            <option value="" disabled
+                                    th:selected="${quotation.isTierPresetFormulaModeActive() and activeTierPreset == null}">
+                                （原本設定的計算公式規則已不存在，請重新選擇）
+                            </option>
+                            <option th:each="ms : ${marginSettings}"
+                                    th:value="${ms.MSID}"
+                                    th:selected="${quotation.isTierPresetFormulaModeActive() and quotation.tierMSID == ms.MSID}"
+                                    th:text="${ms.name}"></option>
+                            <option value="__custom__" th:selected="${!quotation.isTierPresetFormulaModeActive()}">自填</option>
+                        </select>
+                        <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.isEmpty()}">
+                            目前還沒有已儲存的計算公式規則，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
+                        </div>
+                        <input type="hidden" name="tierFormulaMode" id="ginput-tierFormulaMode" />
+                        <input type="hidden" name="tierMarginSettingId" id="ginput-tierMarginSettingId" />
                     </div>
 
-                    <div class="formula-field">
-                        <div class="formula-field-label">
-                            <span class="name">團費成本計算式</span>
-                            <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、全團固定、NET、基本報價、NP・留空＝直接等於「NP」</span>
+                    <div class="palette">
+                        <div class="palette-label">計算欄位 · 點擊或拖曳插入到目前選取的公式欄位（跟上面加成設定卡片的價格變數完全分開，各自獨立）</div>
+                        <div class="chip-row" id="gVarChips"></div>
+                        <div class="palette-label">運算子</div>
+                        <div class="chip-row" id="gOpChips"></div>
+                    </div>
+
+                    <div id="gCustomSection">
+                        <div class="formula-field">
+                            <div class="formula-field-label">
+                                <span class="name">⑤ NP 計算式</span>
+                                <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、全團固定、NET、基本報價・留空＝直接等於「每人變動成本＋雜項」</span>
+                            </div>
+                            <div class="dropzone" id="gzone-np" contenteditable="true" data-placeholder="例：（每人變動成本＋雜項）× 1.1" data-zone-key="np" tabindex="0"></div>
+                            <div class="formula-preview"><span>試算（每人變動成本=10,000／雜項=5,000）＝</span><span class="result" id="gpreview-np">尚未輸入</span></div>
                         </div>
-                        <div class="dropzone" id="gzone-team" contenteditable="true" data-placeholder="例：NP ÷ 0.88 ＋ 2000" data-zone-key="team" tabindex="0"></div>
-                        <div class="formula-preview"><span>試算＝</span><span class="result" id="gpreview-team">尚未輸入</span></div>
+
+                        <div class="formula-field">
+                            <div class="formula-field-label">
+                                <span class="name">⑥ 團費成本計算式</span>
+                                <span class="optional">可用變數：每人變動成本、雜項（全團固定費用）、全團固定、NET、基本報價、NP・留空＝直接等於「NP」</span>
+                            </div>
+                            <div class="dropzone" id="gzone-team" contenteditable="true" data-placeholder="例：NP ÷ 0.88 ＋ 2000" data-zone-key="team" tabindex="0"></div>
+                            <div class="formula-preview"><span>試算＝</span><span class="result" id="gpreview-team">尚未輸入</span></div>
+                        </div>
                     </div>
 
                     <input type="hidden" name="npFormula" id="ginput-np" />
@@ -739,12 +835,67 @@
 </main>
 
 <script th:inline="javascript">
+    // 這張報價單目前的團體人數, 給「選按人頭時數量預設帶入團體人數」這個功能用 (見下面
+    // applyPerPaxDefaultQty()/applyComponentDefaults())。
+    //
+    // 2026-08-26 修正 (使用者回報「更換團體人數後, 新增報價項目(按人頭)的預設數量沒有一起更新」):
+    // 這裡原本的假設是錯的——上面這段註解以前寫「團體人數只會透過報價基礎設定卡片送出、那個表單是走整頁換頁」,
+    // 但實際檢查下面的全域表單攔截邏輯 (document.addEventListener('submit', ...)) 才發現: 那段攔截是「除非表單
+    // 有標記 data-full-redirect="true" 才放行走整頁換頁」, 而「報價基礎設定」這顆表單根本沒有這個標記, 所以
+    // 團體人數改變其實跟這個頁面上其他按鈕一樣, 一路都是走 AJAX 局部刷新 (fetch + refreshPageContent()), 從來
+    // 沒有整頁重新整理過。這個 <script> 標籤在 #pageContent 外面, AJAX 換內容不會讓它重新執行, 所以 CURRENT_GROUP_SIZE
+    // 這個變數以前真的是「只在使用者剛打開這個頁面那一刻」讀過一次, 之後不管改幾次團體人數都不會再更新——難怪
+    // 「新增報價項目」表單選「按人頭」時, 數量欄位一直預設帶入最舊的人數。
+    // 修法: 把目前團體人數也一併寫進 #pageContent 的 data-group-size 屬性 (跟 data-fragment-url 同一個 div 上),
+    // 每次 refreshPageContent() 換完內容後, 從新內容的這個屬性重新讀一次指派回 CURRENT_GROUP_SIZE (見下面
+    // refreshPageContent() 的 swap()), 這樣才會跟著每一次 AJAX 刷新保持最新, 不用等整頁重新整理。
+    var CURRENT_GROUP_SIZE = /*[[${quotation.groupSize}]]*/ 1;
+
     // 表格裡的編輯(鉛筆)按鈕: 點一下切換顯示/隱藏對應的編輯列 (「區間價錢管理」卡片的級距編輯列用)
     function toggleEditRow(btn) {
         const targetId = btn.getAttribute('data-target');
         const row = targetId ? document.getElementById(targetId) : null;
         if (!row) return;
         row.style.display = row.style.display === 'none' ? '' : 'none';
+    }
+
+    // ---------- 「新增報價項目」表單: 選「按人頭」時數量欄位預設帶入團體人數; 選「全團固定」時預設帶入 1 ----------
+    // 使用者要求: 手動新增自訂項目、從元件庫掛項目, 選「按人頭（單價 × 人數）」時數量都應該預設等於報價基礎設定
+    // 目前的團體人數。
+    // 2026-08-26 補充需求: 「全團固定」以前刻意不動數量欄位 (維持使用者手動填的值), 但實務上比較常見的情境是
+    // 使用者先選「按人頭」(數量被設成團體人數, 例如 21), 後來才發現這筆其實該用「全團固定」一口價, 切過去之後
+    // 數量欄位還留著剛剛「按人頭」那次設的團體人數殘值 (21), 沒有跟著歸零成一口價常見的 1, 很容易漏改就送出去
+    // 變成「單價 × 21」的一口價, 金額算錯。改成: 切到「全團固定」的當下也主動把數量『設為』1 (同樣是只在切換
+    // 的當下設一次, 之後使用者還是可以自己改成別的數量, 不會一直強制蓋回去, 跟「按人頭」那邊的行為對稱)。
+    function applyPerPaxDefaultQty(selectEl) {
+        var form = selectEl.closest('form');
+        if (!form) return;
+        var qtyInput = form.querySelector('[name="quantity"]');
+        if (!qtyInput) return;
+        if (selectEl.value === 'PER_PAX') qtyInput.value = CURRENT_GROUP_SIZE;
+        else if (selectEl.value === 'FIXED_GROUP') qtyInput.value = 1;
+    }
+
+    // ---------- 「從元件庫選擇」快速掛上表單: 選了元件後幣別/單價預設帶入元件庫存的值, 計費方式「按人頭」時數量
+    // 預設團體人數、「全團固定」時數量預設 1 (同上面 applyPerPaxDefaultQty 的邏輯, 這裡因為同一顆表單身兼「選元件」
+    // 跟「切換計費方式」兩種觸發來源, 直接寫一個共用函式兩邊的 onchange 都呼叫它) ----------
+    function applyComponentDefaults() {
+        var componentSelect = document.getElementById('fcComponentSelect');
+        if (!componentSelect) return; // 這張報價單所屬旅行社目前元件庫是空的, 這個表單這次沒有渲染出來, 不用往下跑
+        var costTypeSelect = document.getElementById('fcCostType');
+        var currencySelect = document.getElementById('fcCurrency');
+        var unitPriceInput = document.getElementById('fcUnitPrice');
+        var qtyInput = document.getElementById('fcQuantity');
+
+        var opt = componentSelect.options[componentSelect.selectedIndex];
+        if (opt) {
+            if (currencySelect && opt.dataset.currency) currencySelect.value = opt.dataset.currency;
+            if (unitPriceInput && opt.dataset.price) unitPriceInput.value = opt.dataset.price;
+        }
+        if (costTypeSelect && qtyInput) {
+            if (costTypeSelect.value === 'PER_PAX') qtyInput.value = CURRENT_GROUP_SIZE;
+            else if (costTypeSelect.value === 'FIXED_GROUP') qtyInput.value = 1;
+        }
     }
 
     // ---------- 基本報價／同業／直售加成與退傭設定: 公式建構器 (跟 margin-setting/list.html 同一套邏輯) ----------
@@ -766,8 +917,9 @@
             rebate: /*[[${quotation.customRebateFormula}]]*/ null
         };
 
-        // varId 對應 QuotationService/FormulaEngine 的變數名稱 ({NET_COST} {GROUP_SIZE} {BASIC_PRICE} {TRADE_PRICE} {RETAIL_PRICE})
+        // varId 對應 QuotationService/FormulaEngine 的變數名稱 ({GROSS_COST} {NET_COST} {GROUP_SIZE} {BASIC_PRICE} {TRADE_PRICE} {RETAIL_PRICE})
         var VARIABLES = [
+            { id: 'GROSS_COST', label: 'Net（總成本）', allowIn: ['basic', 'trade', 'retail', 'rebate'] },
             { id: 'NET_COST', label: 'NNet（總淨成本）', allowIn: ['basic', 'trade', 'retail', 'rebate'] },
             { id: 'GROUP_SIZE', label: '團體人數', allowIn: ['basic', 'trade', 'retail', 'rebate'] },
             { id: 'BASIC_PRICE', label: '基本報價', allowIn: ['trade', 'retail', 'rebate'] },
@@ -821,6 +973,42 @@
         ZONE_KEYS.forEach(function (key) {
             var zone = zones[key].el;
             zone.addEventListener('focus', function () { lastFocusedZone = key; });
+            // 2026-08-26 修正 (使用者回報「拿掉 focusEnd() 之後, 點選計算公式區游標不會出現在最後面, 要點很久」):
+            // 問題不是「不該記住游標位置」, 是記住的方法太脆弱——原本完全依賴當下這一刻的 window.getSelection(),
+            // 但點擊 chip 按鈕 (它自己是個 <button>, 會搶走 focus) 之後, 瀏覽器很常把原本 dropzone 裡的選取範圍
+            // 清掉或視為失效, 下一次點 chip 時 zone.contains(sel.anchorNode) 就判定「選取範圍不在這個 dropzone 裡」,
+            // 於是又 fallback 回「插在最後面」——但插入後我們沒有把這個新位置記回來, 所以連續點好幾下 chip,
+            // 每一下都在同一個「最後面」重新判斷一次, 感覺起來就是「游標定不下來、要點很久」。
+            // 改成: 每次使用者在 dropzone 裡真的點一下或按鍵盤 (mouseup/keyup) 就把當下的選取範圍存進
+            // zone.__lastRange; 之後不管是點 chip 插入、拖放插入, 都優先還原這個記住的位置 (活的 selection 有效
+            // 就直接用活的, 沒有才退回記住的位置, 兩者都沒有才真的退回最後面), 插入完也把新位置重新存回
+            // zone.__lastRange——這樣「連續點 chip 接龍」會自然接在上一個插入點後面 (跟以前一樣好用), 但「先點一下
+            // 算式中間、再點 chip」也還是插得到指定位置 (不會走回 bug #3 的老路)。
+            // 2026-08-27 修正 (使用者回報「在只有價格變數和運算子時, 運算子一定會被排到所有價格變數後面,
+            // 修很多次都沒修好」): 前面幾次的做法 (不管是「檢查活的 selection 還在不在 zone 裡」還是
+            // 「記住上次的 range, 活的無效才還原」) 共同的病根都是同一個——插入的當下都要問一次「現在瀏覽器
+            // 那顆 window.getSelection() 算不算數」, 但點 palette 上的變數/運算子 chip 按鈕 (它自己是個
+            // <button>, 在 dropzone 外面) 會搶走 DOM focus, 這之後瀏覽器對「selection 還算不算在 zone 裡」
+            // 的判斷非常不穩定, 不同瀏覽器、甚至同一瀏覽器不同次點擊結果都可能不一樣——只要判斷錯一次,
+            // 就會 fallback 回最後面, 這也是「明明是照 變數/運算子/變數 的順序點, 存出來的算式卻變成
+            // 變數變數運算子」的成因: 點運算子 chip 那一下, 剛好判斷成「selection 失效」, 於是插到了最後面
+            // (在當時那個時間點, 最後面剛好等於「最後一個變數的後面」, 所以看起來像是運算子被排到最後)。
+            // 這次徹底不再問這個問題: 插入點完全由我們自己的 JS 狀態 zone.__marker 決定 (一個 {node, offset}
+            // 座標), 只有兩種情況會更新它——(a) 使用者真的在 dropzone 裡點一下/按鍵盤 (這時候焦點確實在
+            // zone 上, 讀到的位置一定準); (b) 我們自己插入內容之後, 主動把它設成「剛插入的東西後面」。
+            // 點 palette 上的 chip 按鈕要插入新內容時, 一律直接套用 zone.__marker, 完全不去讀
+            // window.getSelection() 判斷「現在算不算數」——行為變成完全由我們自己的狀態決定, 不再看瀏覽器
+            // 那一刻不穩定的判斷, 每次點擊的結果才會是可預期、可重現的。
+            zone.addEventListener('mouseup', function (e) {
+                var pos = findCaretPosition(zone, e.clientX, e.clientY);
+                if (pos) setZoneMarker(zone, pos.node, pos.offset);
+            });
+            zone.addEventListener('keyup', function () {
+                var sel = window.getSelection();
+                if (sel.rangeCount && zone.contains(sel.anchorNode)) {
+                    zone.__marker = { node: sel.anchorNode, offset: sel.anchorOffset };
+                }
+            });
             zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-over'); });
             zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
             zone.addEventListener('drop', function (e) {
@@ -843,6 +1031,79 @@
             zone.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
         });
 
+        // 用點擊座標主動算出「這一行上, 離點擊 x 最近的可插入位置」, 取代整個交給瀏覽器原生 hit-test 判斷
+        // (見上面 mouseup 監聽器旁的說明——原生判斷在「chip 附近」跟「短文字整段」都常常出錯, 不是只有
+        // 「最後面那段空白」這一種情況, 乾脆每一次點擊都自己算, 比較穩)。候選插入位置包括: 整個公式最前面、
+        // 每一個變數 chip 的前面/後面、每一段文字裡「每一個字元之間」的縫隙, 逐一比對哪個候選位置的水平座標
+        // 離點擊 x 最近 (且大致同一行), 選那個當作真正的插入點。
+        function findCaretPosition(zone, x, y) {
+            var best = null, bestDist = Infinity;
+            function consider(node, offset, rects) {
+                var rect = rects && rects.length ? rects[rects.length - 1] : null;
+                if (!rect) return;
+                if (y < rect.top - 8 || y > rect.bottom + 8) return; // 大致同一行才比, 避免公式換行時跨行比較
+                var dist = Math.abs(rect.left - x);
+                if (dist < bestDist) { bestDist = dist; best = { node: node, offset: offset }; }
+            }
+            var startRange = document.createRange();
+            startRange.setStart(zone, 0);
+            startRange.collapse(true);
+            consider(zone, 0, startRange.getClientRects());
+            Array.prototype.forEach.call(zone.childNodes, function (node) {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    var text = node.textContent;
+                    for (var i = 1; i <= text.length; i++) {
+                        var r = document.createRange();
+                        r.setStart(node, i);
+                        r.collapse(true);
+                        consider(node, i, r.getClientRects());
+                    }
+                } else {
+                    // 變數 chip (或其他元素節點): 只考慮「這個節點前面」跟「這個節點後面」兩個插入點
+                    var idx = Array.prototype.indexOf.call(zone.childNodes, node);
+                    var beforeRange = document.createRange();
+                    beforeRange.setStartBefore(node);
+                    beforeRange.collapse(true);
+                    consider(zone, idx, beforeRange.getClientRects());
+                    var afterRange = document.createRange();
+                    afterRange.setStartAfter(node);
+                    afterRange.collapse(true);
+                    consider(zone, idx + 1, afterRange.getClientRects());
+                }
+            });
+            return best;
+        }
+
+        // ---------- 插入點狀態管理 (zone.__marker): 見上面 mouseup 監聽器旁的說明, 這裡是核心實作 ----------
+        // 把 zone.__marker 換算成一個目前可用的 Range; marker 不存在或它指到的節點已經不在這個 zone 裡
+        // (理論上不太會發生, 保險起見) 才 fallback 回「整個 zone 的最後面」。
+        function markerToRange(zone) {
+            var range = document.createRange();
+            var m = zone.__marker;
+            if (m && zone.contains(m.node)) {
+                try {
+                    range.setStart(m.node, m.offset);
+                    range.collapse(true);
+                    return range;
+                } catch (err) { /* offset 可能因為節點內容已經變了而不再合法, 往下 fallback */ }
+            }
+            range.selectNodeContents(zone);
+            range.collapse(false);
+            return range;
+        }
+
+        // 設定插入點狀態, 同時把瀏覽器可視的游標也同步移過去 (讓使用者看得到游標目前在哪、也能接著用鍵盤打字)。
+        function setZoneMarker(zone, node, offset) {
+            zone.__marker = { node: node, offset: offset };
+            zone.focus();
+            var range = document.createRange();
+            range.setStart(node, offset);
+            range.collapse(true);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
         function insertVar(v) {
             var key = lastFocusedZone;
             if (v.allowIn.indexOf(key) === -1) {
@@ -850,14 +1111,12 @@
                 return;
             }
             var zone = zones[key].el;
-            focusEnd(zone);
             insertVarToken(zone, v.id, v.label);
             runAll();
         }
 
         function insertText(text) {
             var zone = zones[lastFocusedZone].el;
-            focusEnd(zone);
             insertTextAtCaret(zone, text);
             runAll();
         }
@@ -870,23 +1129,13 @@
             var sel = window.getSelection();
             sel.removeAllRanges();
             sel.addRange(range);
+            zone.__marker = { node: zone, offset: zone.childNodes.length };
         }
 
         function placeCaretFromPoint(zone, x, y) {
-            var range;
-            if (document.caretRangeFromPoint) {
-                range = document.caretRangeFromPoint(x, y);
-            } else if (document.caretPositionFromPoint) {
-                var pos = document.caretPositionFromPoint(x, y);
-                if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); }
-            }
-            if (range && zone.contains(range.startContainer)) {
-                var sel = window.getSelection();
-                sel.removeAllRanges();
-                sel.addRange(range);
-            } else {
-                focusEnd(zone);
-            }
+            var pos = findCaretPosition(zone, x, y);
+            if (pos) setZoneMarker(zone, pos.node, pos.offset);
+            else focusEnd(zone);
         }
 
         function insertVarToken(zone, varId, label) {
@@ -905,30 +1154,16 @@
         }
 
         function insertTextAtCaret(zone, text) {
-            var sel = window.getSelection();
-            if (!sel.rangeCount || !zone.contains(sel.anchorNode)) focusEnd(zone);
-            sel = window.getSelection();
-            var range = sel.getRangeAt(0);
-            range.deleteContents();
-            var node = document.createTextNode(text);
-            range.insertNode(node);
-            range.setStartAfter(node);
-            range.setEndAfter(node);
-            sel.removeAllRanges();
-            sel.addRange(range);
+            insertNodeAtCaret(zone, document.createTextNode(text));
         }
 
+        // 核心插入邏輯: 完全依 zone.__marker 決定插入位置 (見上面 markerToRange() 的說明), 插入後把
+        // zone.__marker 更新成「剛插入的節點後面」, 下一次插入 (不管是點 chip 還是拖放) 才會自然接在後面。
         function insertNodeAtCaret(zone, node) {
-            var sel = window.getSelection();
-            if (!sel.rangeCount || !zone.contains(sel.anchorNode)) focusEnd(zone);
-            sel = window.getSelection();
-            var range = sel.getRangeAt(0);
-            range.deleteContents();
+            var range = markerToRange(zone);
             range.insertNode(node);
-            range.setStartAfter(node);
-            range.setEndAfter(node);
-            sel.removeAllRanges();
-            sel.addRange(range);
+            var idx = Array.prototype.indexOf.call(zone.childNodes, node);
+            setZoneMarker(zone, zone, idx + 1);
         }
 
         // ---------- 還原已存的公式字串 -> dropzone 內容 (跟 serialize() 相反的操作), 頁面載入時跑一次 ----------
@@ -936,6 +1171,7 @@
             if (!expr) return;
             var zone = zones[key].el;
             zone.innerHTML = '';
+            zone.__marker = { node: zone, offset: 0 };
             var re = /\{[^}]+\}|[^{}]+/g;
             var m;
             while ((m = re.exec(expr)) !== null) {
@@ -946,6 +1182,7 @@
                     insertVarToken(zone, id, v ? v.label : id);
                 } else {
                     zone.appendChild(document.createTextNode(part));
+                    zone.__marker = { node: zone, offset: zone.childNodes.length };
                 }
             }
         }
@@ -961,7 +1198,7 @@
         }
 
         function evaluate(expr, sampleValues) {
-            var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷()]/g);
+            var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷*\/()]/g);
             var stripped = expr.replace(/\s+/g, '');
             if (!tokens || tokens.join('') !== stripped) {
                 if (expr === '') return { ok: false, empty: true };
@@ -977,9 +1214,9 @@
             }
             function parseTerm() {
                 var v = parseFactor();
-                while (peek() === '×' || peek() === '÷') {
+                while (peek() === '×' || peek() === '÷' || peek() === '*' || peek() === '/') {
                     var op = next(); var r = parseFactor();
-                    if (op === '×') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
+                    if (op === '×' || op === '*') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
                 }
                 return v;
             }
@@ -1014,7 +1251,7 @@
         }
 
         function runAll() {
-            var sample = { NET_COST: 100000, GROUP_SIZE: 20 };
+            var sample = { GROSS_COST: 120000, NET_COST: 100000, GROUP_SIZE: 20 };
 
             var basicExpr = serialize(zones.basic.el);
             zones.basic.input.value = normalizeForSubmit(basicExpr);
@@ -1074,6 +1311,21 @@
         if (customSection) customSection.style.display = isCustom ? '' : 'none';
         var modeInput = document.getElementById('qinput-formulaMode');
         var msIdInput = document.getElementById('qinput-marginSettingId');
+        if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
+        if (msIdInput) msIdInput.value = isCustom ? '' : sel.value;
+    }
+
+    // ---------- NP／團費成本「選擇計算方式」下拉選單: 跟上面 toggleQuotationFormulaMode() 同一套邏輯, 但完全
+    // 獨立 (使用者要求①②③④基本報價/同業/直售/退傭那組跟⑤⑥NP/團費成本這組要能分開選各自的規則), 選一條已儲存
+    // 規則就隱藏⑤⑥公式建構器, 選「自填」才展開讓使用者自己組公式。同步把選到的值寫進 tierFormulaMode/
+    // tierMarginSettingId 這兩個真正會送出的 hidden input。 ----------
+    function toggleGroupTierFormulaMode() {
+        var sel = document.getElementById('gFormulaModeSelect');
+        var isCustom = !sel || sel.value === '__custom__' || sel.value === '';
+        var customSection = document.getElementById('gCustomSection');
+        if (customSection) customSection.style.display = isCustom ? '' : 'none';
+        var modeInput = document.getElementById('ginput-tierFormulaMode');
+        var msIdInput = document.getElementById('ginput-tierMarginSettingId');
         if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
         if (msIdInput) msIdInput.value = isCustom ? '' : sel.value;
     }
@@ -1143,6 +1395,19 @@
         ZONE_KEYS.forEach(function (key) {
             var zone = zones[key].el;
             zone.addEventListener('focus', function () { lastFocusedZone = key; });
+            // 見上面「基本報價／同業／直售加成」公式建構器同一段說明 (2026-08-27 修正): 插入點完全由
+            // zone.__marker 這個我們自己的 JS 狀態決定, 不再問「現在瀏覽器的 window.getSelection() 算不算數」——
+            // 點 palette 上的 chip 按鈕一律直接套用 zone.__marker。
+            zone.addEventListener('mouseup', function (e) {
+                var pos = findCaretPosition(zone, e.clientX, e.clientY);
+                if (pos) setZoneMarker(zone, pos.node, pos.offset);
+            });
+            zone.addEventListener('keyup', function () {
+                var sel = window.getSelection();
+                if (sel.rangeCount && zone.contains(sel.anchorNode)) {
+                    zone.__marker = { node: sel.anchorNode, offset: sel.anchorOffset };
+                }
+            });
             zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-over'); });
             zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
             zone.addEventListener('drop', function (e) {
@@ -1162,15 +1427,83 @@
             });
         });
 
-        function placeCaretFromPoint(zone, x, y) {
-            var range;
-            if (document.caretRangeFromPoint) {
-                range = document.caretRangeFromPoint(x, y);
-            } else if (document.caretPositionFromPoint) {
-                var pos = document.caretPositionFromPoint(x, y);
-                if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); }
+        // 用點擊座標主動算出「這一行上, 離點擊 x 最近的可插入位置」, 取代整個交給瀏覽器原生 hit-test 判斷。
+        function findCaretPosition(zone, x, y) {
+            var best = null, bestDist = Infinity;
+            function consider(node, offset, rects) {
+                var rect = rects && rects.length ? rects[rects.length - 1] : null;
+                if (!rect) return;
+                if (y < rect.top - 8 || y > rect.bottom + 8) return; // 大致同一行才比, 避免公式換行時跨行比較
+                var dist = Math.abs(rect.left - x);
+                if (dist < bestDist) { bestDist = dist; best = { node: node, offset: offset }; }
             }
-            if (!range) return;
+            var startRange = document.createRange();
+            startRange.setStart(zone, 0);
+            startRange.collapse(true);
+            consider(zone, 0, startRange.getClientRects());
+            Array.prototype.forEach.call(zone.childNodes, function (node) {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    var text = node.textContent;
+                    for (var i = 1; i <= text.length; i++) {
+                        var r = document.createRange();
+                        r.setStart(node, i);
+                        r.collapse(true);
+                        consider(node, i, r.getClientRects());
+                    }
+                } else {
+                    var idx = Array.prototype.indexOf.call(zone.childNodes, node);
+                    var beforeRange = document.createRange();
+                    beforeRange.setStartBefore(node);
+                    beforeRange.collapse(true);
+                    consider(zone, idx, beforeRange.getClientRects());
+                    var afterRange = document.createRange();
+                    afterRange.setStartAfter(node);
+                    afterRange.collapse(true);
+                    consider(zone, idx + 1, afterRange.getClientRects());
+                }
+            });
+            return best;
+        }
+
+        function placeCaretFromPoint(zone, x, y) {
+            var pos = findCaretPosition(zone, x, y);
+            if (pos) setZoneMarker(zone, pos.node, pos.offset);
+            else focusEnd(zone);
+        }
+
+        function focusEnd(zone) {
+            zone.focus();
+            var range = document.createRange();
+            range.selectNodeContents(zone);
+            range.collapse(false);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            zone.__marker = { node: zone, offset: zone.childNodes.length };
+        }
+
+        // 插入點狀態管理 (跟上面「基本報價／同業／直售加成」公式建構器同一套邏輯, 見那邊的詳細說明)。
+        function markerToRange(zone) {
+            var range = document.createRange();
+            var m = zone.__marker;
+            if (m && zone.contains(m.node)) {
+                try {
+                    range.setStart(m.node, m.offset);
+                    range.collapse(true);
+                    return range;
+                } catch (err) { /* fallback */ }
+            }
+            range.selectNodeContents(zone);
+            range.collapse(false);
+            return range;
+        }
+
+        function setZoneMarker(zone, node, offset) {
+            zone.__marker = { node: node, offset: offset };
+            zone.focus();
+            var range = document.createRange();
+            range.setStart(node, offset);
+            range.collapse(true);
             var sel = window.getSelection();
             sel.removeAllRanges();
             sel.addRange(range);
@@ -1180,7 +1513,6 @@
             var allowed = !v.allowIn || v.allowIn.indexOf(lastFocusedZone) !== -1;
             if (!allowed) return;
             var zone = zones[lastFocusedZone].el;
-            zone.focus();
             insertVarToken(zone, v.id, v.label);
             runAll();
         }
@@ -1196,33 +1528,22 @@
 
         function insertText(text) {
             var zone = zones[lastFocusedZone].el;
-            zone.focus();
             insertNodeAtCaret(zone, document.createTextNode(text));
             runAll();
         }
 
         function insertNodeAtCaret(zone, node) {
-            var sel = window.getSelection();
-            var range;
-            if (sel.rangeCount > 0 && zone.contains(sel.anchorNode)) {
-                range = sel.getRangeAt(0);
-            } else {
-                range = document.createRange();
-                range.selectNodeContents(zone);
-                range.collapse(false);
-            }
-            range.deleteContents();
+            var range = markerToRange(zone);
             range.insertNode(node);
-            range.setStartAfter(node);
-            range.setEndAfter(node);
-            sel.removeAllRanges();
-            sel.addRange(range);
+            var idx = Array.prototype.indexOf.call(zone.childNodes, node);
+            setZoneMarker(zone, zone, idx + 1);
         }
 
         function renderStored(key, expr) {
             if (!expr) return;
             var zone = zones[key].el;
             zone.innerHTML = '';
+            zone.__marker = { node: zone, offset: 0 };
             var re = /\{[^}]+\}|[^{}]+/g;
             var m;
             while ((m = re.exec(expr)) !== null) {
@@ -1233,6 +1554,7 @@
                     insertVarToken(zone, id, v ? v.label : id);
                 } else {
                     zone.appendChild(document.createTextNode(part));
+                    zone.__marker = { node: zone, offset: zone.childNodes.length };
                 }
             }
         }
@@ -1247,7 +1569,7 @@
         }
 
         function evaluate(expr, sampleValues) {
-            var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷()]/g);
+            var tokens = expr.match(/\{[^}]+\}|\d+(\.\d+)?|[+\-×÷*\/()]/g);
             var stripped = expr.replace(/\s+/g, '');
             if (!tokens || tokens.join('') !== stripped) {
                 if (expr === '') return { ok: false, empty: true };
@@ -1263,9 +1585,9 @@
             }
             function parseTerm() {
                 var v = parseFactor();
-                while (peek() === '×' || peek() === '÷') {
+                while (peek() === '×' || peek() === '÷' || peek() === '*' || peek() === '/') {
                     var op = next(); var r = parseFactor();
-                    if (op === '×') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
+                    if (op === '×' || op === '*') v = v * r; else { if (r === 0) throw new Error('除以0'); v = v / r; }
                 }
                 return v;
             }
@@ -1341,6 +1663,14 @@
         initMarkupFormulaBuilder();
         toggleQuotationFormulaMode();
         initGroupTierFormulaBuilder();
+        toggleGroupTierFormulaMode();
+        // 「新增報價項目」卡片每次 AJAX 局部刷新換新內容後, 計費方式選單會被重置回預設的「按人頭」,
+        // 數量欄位的預設值也要跟著重新套一次 (Thymeleaf 那邊只有第一次伺服器端渲染時算過 quotation.groupSize,
+        // AJAX 換的新 HTML 片段一樣是伺服器重新渲染出來的所以其實沒問題; 這裡呼叫主要是保險, 確保計費方式
+        // 下拉選單目前選中的值跟數量欄位是同步的)。
+        var newLineCostType = document.getElementById('newLineCostType');
+        if (newLineCostType) applyPerPaxDefaultQty(newLineCostType);
+        applyComponentDefaults();
     }
     initFormulaBuilders();
 
@@ -1429,11 +1759,17 @@
 
             const swap = () => {
                 newContent.classList.add('is-entering');
+                // 換內容前先把團體人數同步更新到 CURRENT_GROUP_SIZE (見上面該變數宣告處的說明——這個 <script>
+                // 標籤在 #pageContent 外面不會跟著 AJAX 重新執行, 一定要主動從新內容的 data-group-size 讀回來,
+                // 不然「更換團體人數」之後「新增報價項目」選「按人頭」的預設數量還是會沿用舊人數)。
+                var freshGroupSize = parseInt(newContent.dataset.groupSize, 10);
+                if (!isNaN(freshGroupSize)) CURRENT_GROUP_SIZE = freshGroupSize;
                 document.getElementById('pageContent').replaceWith(newContent);
                 // 換完 DOM 之後要重新跑一次「基本報價／同業／直售加成」跟「整團人數級距」這兩個公式建構器的
                 // 初始化 (見上面 initFormulaBuilders() 的說明)——不然這兩張卡片換了新內容之後會變成完全不能用
                 // (chip 面板空的、dropzone 不能拖拉/點擊插入、剛新增出現的「整團人數級距」公式卡片也不能用),
-                // 要整頁重新整理才會恢復。
+                // 要整頁重新整理才會恢復; 同一個函式裡也會用剛更新好的 CURRENT_GROUP_SIZE 重新套一次「新增報價
+                // 項目」數量欄位的預設值。
                 initFormulaBuilders();
                 window.scrollTo(0, scrollY);
                 // 下一畫格再拿掉 is-entering, 讓 opacity 0 -> 1 的 CSS transition 有機會播放
