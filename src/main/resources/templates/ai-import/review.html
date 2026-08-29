@@ -260,15 +260,6 @@
                 確認下面拆解出來的內容沒問題後，行程名稱與國家已由 AI 自動判斷，您可以直接修改，確認後點擊按鈕轉成正式行程。
             </p>
 
-            <!-- 建立時填寫的「行程重點資訊」(出發/抵達機場+時間、行程說明), 唯讀顯示讓使用者確認 AI 有沒有參考到 -->
-            <div th:if="${aiImport.extraContext != null and !aiImport.extraContext.isBlank()}"
-                 style="background:#faf5ff; border:1px solid #f3e8ff; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:12.5px; color:#334155; white-space:pre-line; line-height:1.6;">
-                <div style="font-weight:700; color:var(--primary-purple); margin-bottom:4px;">
-                    <i class="fa-solid fa-plane-departure"></i> 建立時填寫的行程重點資訊
-                </div>
-                <span th:text="${aiImport.extraContext}"></span>
-            </div>
-
             <form method="post" th:action="@{'/ai-import/' + ${aiImport.IPID} + '/confirm'}">
                 <label>行程名稱</label>
                 <input type="text" name="title" th:value="${aiImport.suggestedTitle}" placeholder="例：花蓮經典三日遊" required />
@@ -312,6 +303,7 @@
                         <div class="item-left">
                             <span class="type-badge" th:classappend="${item.itemType}" th:text="${item.itemType == 'attraction' ? '景點' : (item.itemType == 'meal' ? '餐廳' : (item.itemType == 'hotel' ? '住宿' : (item.itemType == 'transport' ? '交通' : '亮點')))}">類型</span>
                             <span class="item-name" th:text="${item.name}">項目名稱</span>
+                            <span th:if="${item.nameEn != null and !item.nameEn.isEmpty()}" style="color:#94a3b8;font-size:12px;" th:text="'(' + ${item.nameEn} + ')'"></span>
                             <span th:if="${item.timeSlot}" style="color:#94a3b8;font-size:12px;" th:text="'（' + ${item.timeSlot} + '）'"></span>
                             <span th:if="${item.stayMinutes != null}" style="color:#059669;font-size:12px;" th:text="'⏱ 約 ' + ${item.stayMinutes} + ' 分鐘'"></span>
                             <span th:if="${item.itemCountry != null}" style="color:#7c3aed;font-size:12px;" th:text="'📍 ' + ${item.itemCountry} + (${item.itemRegion} != null ? '/' + ${item.itemRegion} : '')"></span>
@@ -331,6 +323,11 @@
                                 ✎ 編輯
                             </button>
                         </span>
+                    </div>
+
+                    <div class="note" th:if="${item.matchedPid != null}"
+                         style="color:#166534;font-size:12px;margin-top:4px;">
+                        <i class="fa-solid fa-database"></i> 將採用資料庫名稱：<span th:text="${@aiParseService.getMatchedPoiName(item.matchedPid)}"></span>
                     </div>
 
                     <div class="note" th:if="${item.note != null and !item.note.isEmpty()}" th:text="${item.note}"></div>

@@ -164,7 +164,7 @@
         </a>
     </div>
 
-    <p class="page-desc">把航班、餐食等級、住宿等級、自費項目建成標準元件，之後在各行程的「報價元件」裡直接掛上去，B2B 報價單會自動加總成本與售價。</p>
+    <p class="page-desc">把航班、遊覽車、導遊、保險、餐食等級、住宿等級、自費項目這些每趟行程都會用到的固定資源建成標準元件，之後在各行程的「報價元件」裡直接掛上去，B2B 報價單會自動加總成本與售價。</p>
 
     <div th:if="${deleteError}" class="alert-error">
         <i class="fa-solid fa-triangle-exclamation"></i>
@@ -184,24 +184,62 @@
                     <tr>
                         <th>名稱</th>
                         <th>類型</th>
+                        <th>計費方式</th>
                         <th>預設單價 (TWD)</th>
                         <th>說明</th>
                         <th></th>
                     </tr>
                     </thead>
                     <tbody>
-                    <tr th:each="c : ${components}">
+                    <th:block th:each="c : ${components}">
+                    <!-- 檢視模式：一般顯示的資料列 -->
+                    <tr th:id="'view-' + ${c.CPID}">
                         <td><strong th:text="${c.name}"></strong></td>
-                        <td><span class="tag" th:text="${c.type}"></span></td>
+                        <td><span class="tag" th:text="${componentTypeLabels.get(c.type)} ?: ${c.type}"></span></td>
+                        <td>
+                            <span class="tag" style="background:#f3e8ff; color:#7e22ce;"
+                                  th:text="${c.costType == 'FIXED_GROUP'} ? '全團固定一口價' : '按人頭'"></span>
+                        </td>
                         <td style="font-weight:600; color:#0f172a;" th:text="${c.defaultPrice != null ? 'NT$ ' + c.defaultPrice : '-'}"></td>
                         <td style="color: var(--text-gray);" th:text="${c.description != null ? c.description : '-'}"></td>
-                        <td>
-                            <form method="post" th:action="@{'/component/' + ${c.CPID} + '/delete'}"
+                        <td style="white-space:nowrap;">
+                            <button type="button" class="btn-icon-delete" title="編輯" th:onclick="'toggleComponentEdit(' + ${c.CPID} + ')'">
+                                <i class="fa-solid fa-pen"></i>
+                            </button>
+                            <form method="post" th:action="@{'/component/' + ${c.CPID} + '/delete'}" style="display:inline;"
                                   onsubmit="return confirm('確定要刪除這個元件嗎？');">
                                 <button type="submit" class="btn-icon-delete" title="刪除"><i class="fa-solid fa-trash"></i></button>
                             </form>
                         </td>
                     </tr>
+                    <!-- 編輯模式：預設隱藏，點「編輯」後切換成這一列的表單，「元件庫內容要可以編輯」 -->
+                    <tr th:id="'edit-' + ${c.CPID}" style="display:none; background:#f8fafc;">
+                        <td colspan="6">
+                            <form method="post" th:action="@{'/component/' + ${c.CPID} + '/edit'}"
+                                  style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0;">
+                                <select name="type" class="form-control" style="width:160px;">
+                                    <option th:each="t : ${componentTypeLabels}" th:value="${t.key}" th:text="${t.value}"
+                                            th:selected="${t.key == c.type}"></option>
+                                </select>
+                                <select name="costType" class="form-control" style="width:150px;">
+                                    <option value="PER_PAX" th:selected="${c.costType != 'FIXED_GROUP'}">按人頭</option>
+                                    <option value="FIXED_GROUP" th:selected="${c.costType == 'FIXED_GROUP'}">全團固定一口價</option>
+                                </select>
+                                <input type="text" name="name" class="form-control" th:value="${c.name}"
+                                       style="flex:1; min-width:140px;" required />
+                                <input type="number" step="0.01" name="defaultPrice" class="form-control" th:value="${c.defaultPrice}"
+                                       placeholder="預設單價" style="width:130px;" />
+                                <input type="text" name="description" class="form-control" th:value="${c.description}"
+                                       placeholder="說明（選填）" style="flex:1; min-width:160px;" />
+                                <button type="submit" class="btn-submit" style="width:auto; padding:9px 16px;">
+                                    <i class="fa-solid fa-check"></i> 儲存
+                                </button>
+                                <button type="button" class="btn-submit" style="width:auto; padding:9px 16px; background:#94a3b8;"
+                                        th:onclick="'toggleComponentEdit(' + ${c.CPID} + ')'">取消</button>
+                            </form>
+                        </td>
+                    </tr>
+                    </th:block>
                     </tbody>
                 </table>
             </div>
@@ -221,10 +259,15 @@
                 <div class="form-group">
                     <label class="form-label">類型</label>
                     <select name="type" class="form-control" required>
-                        <option value="flight">航班</option>
-                        <option value="meal">餐食</option>
-                        <option value="hotel_grade">住宿等級</option>
-                        <option value="optional_tour">自費項目</option>
+                        <option th:each="t : ${componentTypeLabels}" th:value="${t.key}" th:text="${t.value}"></option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">計費方式</label>
+                    <select name="costType" class="form-control">
+                        <option value="PER_PAX" selected>按人頭</option>
+                        <option value="FIXED_GROUP">全團固定一口價</option>
                     </select>
                 </div>
 
@@ -250,6 +293,18 @@
         </div>
     </div>
 </main>
+
+<script>
+    // 「編輯」按鈕：切換這一列的檢視/編輯模式，不用另外跳頁或跳出視窗
+    function toggleComponentEdit(id) {
+        var viewRow = document.getElementById('view-' + id);
+        var editRow = document.getElementById('edit-' + id);
+        if (!viewRow || !editRow) return;
+        var isEditing = editRow.style.display !== 'none';
+        viewRow.style.display = isEditing ? '' : 'none';
+        editRow.style.display = isEditing ? 'none' : '';
+    }
+</script>
 
 </body>
 </html>

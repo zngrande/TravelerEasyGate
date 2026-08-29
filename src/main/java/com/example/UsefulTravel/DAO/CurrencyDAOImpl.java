@@ -65,4 +65,9 @@ public class CurrencyDAOImpl implements CurrencyDAO {
                 .setParameter("aid", AID)
                 .getResultList();
     }
+
+    @Override
+    public List<Currency> findAll() {
+        return em.createQuery("SELECT c FROM Currency c", Currency.class).getResultList();
+    }
 }

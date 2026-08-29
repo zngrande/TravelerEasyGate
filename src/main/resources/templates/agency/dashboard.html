@@ -55,6 +55,22 @@
         .section-title { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
         .btn-ai { background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; padding: 9px 18px; border-radius: 6px; font-weight: 500; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }
 
+        /* 篩選輸入框 (放在 AI 解析按鈕左邊, 用名稱/國家/地區找行程) */
+        .filter-box { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 14px; }
+        .filter-box i { color: var(--text-gray); font-size: 13px; }
+        .filter-box input { border: none; outline: none; font-size: 13px; width: 200px; font-family: inherit; color: var(--text-dark); }
+
+        /* 釘選 / 複製行程按鈕與釘選狀態樣式 */
+        .btn-icon.pinned { color: #f59e0b; }
+        .pinned-badge { color: #f59e0b; margin-right: 6px; }
+        tr.is-pinned { background: #fffbeb; }
+
+        /* 往右滑釘選 (仿 LINE 聊天列表手勢)：包住行程名稱, 手指往右拖曳時整塊跟著移動,
+           拖曳超過門檻放開就觸發釘選/取消釘選, 沒超過就彈回原位 */
+        .swipe-wrap { position: relative; overflow: hidden; }
+        .swipe-hint { position: absolute; left: 0; top: 0; bottom: 0; display: flex; align-items: center; padding-left: 4px; color: #f59e0b; font-size: 15px; opacity: 0; }
+        .swipe-content { position: relative; background: inherit; transition: transform 0.2s ease; touch-action: pan-y; }
+
         /* Stats Cards (卡片樣式共用給 Hero 右側的 .hero-stats 使用) */
         .stat-card { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
         .stat-info { display: flex; flex-direction: column; gap: 4px; }
@@ -149,9 +165,16 @@
         <div class="section-title">
             <i class="fa-solid fa-suitcase"></i> 我的行程
         </div>
-        <a th:href="@{/ai-import/new}" class="btn-ai">
-            <i class="fa-solid fa-wand-magic-sparkles"></i> AI 行程拆解分析
-        </a>
+        <div style="display:flex; align-items:center; gap:10px;">
+            <!-- 篩選: 用名稱/國家/地區即時篩選下面的行程列表, 純前端過濾不用重新整理頁面 -->
+            <div class="filter-box">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="itineraryFilterInput" placeholder="篩選：名稱／國家／地區／代碼" oninput="filterItineraries()" />
+            </div>
+            <a th:href="@{/ai-import/new}" class="btn-ai">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> AI 行程拆解分析
+            </a>
+        </div>
     </div>
 
     <!-- Itinerary Table -->
@@ -168,10 +191,21 @@
             </tr>
             </thead>
             <tbody>
-            <tr th:each="it : ${itineraries}">
+            <tr th:each="it : ${itineraries}"
+                th:id="'it-row-' + ${it.ITID}"
+                th:classappend="${it.pinned} ? 'is-pinned' : ''"
+                th:attr="data-title=${it.title}, data-country=${it.country}, data-region=${it.region}, data-code=${filterCodesByItinerary.get(it.ITID)}">
                 <td>
-                    <div class="itinerary-cell">
-                        <span th:text="${it.title}"></span>
+                    <!-- 名稱這一格支援「往右滑釘選」手勢 (仿 LINE 聊天列表), swipe-content 是實際會位移的內容,
+                         swipe-hint 是滑開後底下露出的釘選圖示提示 -->
+                    <div class="swipe-wrap" th:id="'swipe-' + ${it.ITID}">
+                        <div class="swipe-hint"><i class="fa-solid fa-thumbtack"></i></div>
+                        <div class="swipe-content" th:attr="data-itid=${it.ITID}">
+                            <div class="itinerary-cell">
+                                <i th:if="${it.pinned}" class="fa-solid fa-thumbtack pinned-badge" title="已釘選"></i>
+                                <span th:text="${it.title}"></span>
+                            </div>
+                        </div>
                     </div>
                 </td>
                 <td th:text="${it.country} + (${it.region} != null ? ' / ' + ${it.region} : '')"></td>
@@ -192,6 +226,20 @@
                         <a th:href="@{'/itinerary/' + ${it.ITID} + '/edit-basic'}" class="btn-text" style="color:#2563eb;">編輯基本資料</a>
 
                         <a th:href="@{'/itinerary/' + ${it.ITID} + '/quick-quote'}" class="btn-text" style="color:#8b5cf6;">編輯報價</a>
+
+                        <!-- 釘選按鈕: 跟名稱格的滑動手勢做同一件事, 給不方便滑動 (滑鼠使用者) 的另一個入口 -->
+                        <button type="button" class="btn-icon" th:classappend="${it.pinned} ? 'pinned' : ''"
+                                th:onclick="'togglePin(' + ${it.ITID} + ')'"
+                                th:title="${it.pinned} ? '取消釘選' : '釘選行程'">
+                            <i class="fa-solid fa-thumbtack"></i>
+                        </button>
+
+                        <!-- 複製行程: 常用於「同一條路線, 下一團客人只是日期/人數不同」不用重新排一次 -->
+                        <form method="post" th:action="@{'/itinerary/' + ${it.ITID} + '/duplicate'}" style="margin:0;">
+                            <button type="submit" class="btn-icon" title="複製行程">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                        </form>
 
                         <form method="post" th:action="@{'/itinerary/' + ${it.ITID} + '/delete'}" style="margin:0;"
                               onsubmit="return confirm('確定要刪除「' + this.dataset.title + '」嗎？');"
@@ -244,6 +292,72 @@
             layers[activeLayerIdx].classList.remove('active');
             activeLayerIdx = nextLayerIdx;
         }, 5000); // 每 5 秒淡入下一張
+    })();
+
+    // 篩選：用名稱/國家/地區即時過濾下面的行程表格 (純前端, 不用重新整理頁面)
+    function filterItineraries() {
+        const keyword = document.getElementById('itineraryFilterInput').value.trim().toLowerCase();
+        document.querySelectorAll('.table-container tbody tr').forEach(function (row) {
+            const haystack = [row.dataset.title, row.dataset.country, row.dataset.region, row.dataset.code]
+                .filter(Boolean).join(' ').toLowerCase();
+            row.style.display = (!keyword || haystack.indexOf(keyword) !== -1) ? '' : 'none';
+        });
+    }
+
+    // 釘選 / 取消釘選：呼叫後端切換狀態，成功後直接重新整理頁面讓釘選的行程排到最上面
+    // (排序邏輯在後端 SQL 做, 前端不用自己重新排列 DOM 順序, 比較不容易跟資料庫狀態兜不起來)
+    function togglePin(ITID) {
+        fetch('/itinerary/' + ITID + '/pin', { method: 'POST' })
+            .then(function (res) {
+                if (!res.ok) throw new Error('切換釘選狀態失敗');
+                return res.json();
+            })
+            .then(function () { window.location.reload(); })
+            .catch(function (err) { alert(err.message || '操作失敗，請稍後再試'); });
+    }
+
+    // 往右滑釘選 (仿 LINE 聊天列表)：手指在行程名稱那一格往右拖曳，超過門檻放開就觸發釘選/取消釘選；
+    // 沒超過門檻就彈回原位，不會誤觸。用 pointer events 同時支援觸控螢幕跟滑鼠拖曳。
+    (function initSwipeToPin() {
+        const SWIPE_THRESHOLD = 60; // 拖曳超過這個距離 (px) 放開才算觸發
+        const MAX_DRAG = 90; // 拖曳最多允許移動這麼多 px, 避免整格被拖出畫面外
+
+        document.querySelectorAll('.swipe-content').forEach(function (content) {
+            const ITID = content.dataset.itid;
+            let startX = null;
+            let dragging = false;
+
+            function onPointerDown(e) {
+                startX = e.clientX;
+                dragging = true;
+                content.style.transition = 'none';
+            }
+
+            function onPointerMove(e) {
+                if (!dragging || startX === null) return;
+                const delta = Math.max(0, Math.min(MAX_DRAG, e.clientX - startX)); // 只允許往右滑
+                content.style.transform = 'translateX(' + delta + 'px)';
+                const hint = content.parentElement.querySelector('.swipe-hint');
+                if (hint) hint.style.opacity = String(Math.min(1, delta / SWIPE_THRESHOLD));
+            }
+
+            function onPointerUp(e) {
+                if (!dragging || startX === null) return;
+                dragging = false;
+                content.style.transition = 'transform 0.2s ease';
+                const delta = Math.max(0, Math.min(MAX_DRAG, (e.clientX || startX) - startX));
+                content.style.transform = 'translateX(0)';
+                const hint = content.parentElement.querySelector('.swipe-hint');
+                if (hint) hint.style.opacity = '0';
+                startX = null;
+                if (delta >= SWIPE_THRESHOLD) togglePin(ITID);
+            }
+
+            content.addEventListener('pointerdown', onPointerDown);
+            content.addEventListener('pointermove', onPointerMove);
+            content.addEventListener('pointerup', onPointerUp);
+            content.addEventListener('pointercancel', onPointerUp);
+        });
     })();
 </script>
 

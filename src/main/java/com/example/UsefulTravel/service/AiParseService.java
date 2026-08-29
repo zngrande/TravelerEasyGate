@@ -50,13 +50,14 @@ public class AiParseService {
               "theme": "當天主題簡短描述 (例如: 台北市區文化巡禮)",
               "items": [
                 {
-                  "item_type": "attraction | meal | hotel | transport | highlight",
-                  "name": "景點/餐廳/飯店/交通方式的名稱",
+                  "item_type": "attraction | meal | hotel | highlight",
+                  "name": "景點/餐廳/飯店的中文名稱(或原文語言, 找不到中文就用原文)",
+                  "name_en": "這個地點的英文名稱或該國常見的外文原名 (例如日文景點給日文原名、英文景點/連鎖店給英文), 原文裡有出現才填, 完全沒有就給 null; 不要自己音譯猜測",
                   "item_country": "這一個項目實際所在的國家 (不是整趟行程的國家, 是這一項自己的), 例如多國行程裡某個景點在「不丹」某個在「印度」就分別標註, 判斷不出來給 null",
                   "item_region": "這一個項目實際所在的地區/城市, 判斷不出來給 null",
                   "time_slot": "morning | noon | afternoon | evening | breakfast | lunch | dinner | null",
-                  "note": "原文中的補充說明 (例如: 含早餐、五星飯店、包車接送、注意事項等), 沒有就給空字串",
-                  "stay_minutes": "預估在這個地方會停留幾分鐘 (數字, 15的倍數, 例如 90); attraction/meal 一定要給估計值, hotel 給 null (入住時間另外算), transport/highlight 給 null"
+                  "note": "原文中的補充說明 (例如: 含早餐、五星飯店、注意事項等), 沒有就給空字串",
+                  "stay_minutes": "預估在這個地方會停留幾分鐘 (數字, 15的倍數, 例如 90); attraction/meal 一定要給估計值, hotel 給 null (入住時間另外算)"
                 }
               ]
             }
@@ -64,16 +65,18 @@ public class AiParseService {
         }
 
         規則:
-        - item_type=attraction 是景點/活動; meal 是餐食; hotel 是住宿; transport 是航班/高鐵/包車等交通;
+        - item_type=attraction 是景點/活動; meal 是餐食; hotel 是住宿;
           highlight 是行銷亮點文案或注意事項(不屬於實體地點的敘述)。
+        - 完全略過航班/高鐵/包車接送等交通資訊: 原文裡提到的機場接送、航班班次、高鐵車次、
+          包車移動等內容, 不要拆解成任何項目, 也不要放進其他項目的 note 裡, 當作沒看到即可。
         - 依照原文出現的天數順序拆解，若原文沒有明確分天，你要合理推斷。
         - 名稱要精簡(例如「故宮博物院」而不是整句話)，細節放到 note。
         - stay_minutes 依常識估算: 大型景點/博物館約90~180分鐘, 一般景點約60~90分鐘,
           用餐約60~90分鐘, 如果原文有明確提到停留時間就用原文的。
         - 如果原文資訊不完整，盡力用你判斷合理的方式填, 不要留空必填欄位。
-        - 如果使用者訊息最前面有一段用「【行程重點資訊】」包起來的文字, 那是使用者自己填寫的出發/抵達機場、
-          時間、行程說明等重點資訊, 準確度比後面的原始文字高, 天數判斷、日期相關的 note、行程國家/地區
-          都要優先參考這段內容, 如果跟後面原始文字衝突以這段為準。
+        - name_en 只在原文本身就有寫出英文/外文名稱時才填 (例如原文寫「硫磺山纜車 Banff Gondola」就填
+          "Banff Gondola"), 用途是幫忙比對公司景點資料庫裡登記的原文別名, 提高比對命中率; 原文完全沒有
+          外文名稱就給 null, 不要自己翻譯或音譯出一個名稱。
         - 絕對不要輸出 JSON 以外的任何文字或說明。
         """;
 
@@ -96,36 +99,25 @@ public class AiParseService {
      * 送出文字給 Claude 解析, 存成暫存資料, 回傳 AiImport 讓 controller 導去 review 頁面
      */
     public AiImport parseText(int AID, int UID, String rawText) {
-        return parseText(AID, UID, rawText, "text", "default", null);
+        return parseText(AID, UID, rawText, "text", "default");
     }
 
     /**
      * @param sourceType 記錄這份資料原始來源: text / pdf / docx (方便之後在列表分辨)
      */
     public AiImport parseText(int AID, int UID, String rawText, String sourceType) {
-        return parseText(AID, UID, rawText, sourceType, "default", null);
+        return parseText(AID, UID, rawText, sourceType, "default");
     }
 
     /**
      * @param userStyle 使用者手動指定的風格 (wenqing/luxury/corporate/default)
      */
     public AiImport parseText(int AID, int UID, String rawText, String sourceType, String userStyle) {
-        return parseText(AID, UID, rawText, sourceType, userStyle, null);
-    }
-
-    /**
-     * @param extraContext 使用者填的「行程重點資訊」(出發/抵達機場+時間、行程說明) 格式化文字, 選填。
-     *                      會存進 ai_import.extra_context (review 頁面顯示用), 也會當額外 context
-     *                      一併送給 AI 解析, 提高天數/日期判斷的準確度。
-     */
-    public AiImport parseText(int AID, int UID, String rawText, String sourceType, String userStyle, String extraContext) {
         AiImport aiImport = new AiImport(AID, UID, sourceType, rawText);
-        aiImport.setExtraContext(emptyToNull(extraContext));
         aiImportDAO.save(aiImport); // 先存一筆 pending, 拿到 IPID
 
         try {
-            String userContent = buildUserContent(rawText, aiImport.getExtraContext());
-            String jsonText = anthropicClient.complete(SYSTEM_PROMPT, userContent, 16000);
+            String jsonText = anthropicClient.complete(SYSTEM_PROMPT, rawText, 16000);
             JsonNode root = objectMapper.readTree(stripCodeFence(jsonText));
 
             aiImport.setTemplateStyle(normalizeStyle(userStyle));
@@ -147,10 +139,11 @@ public class AiParseService {
                 int sortOrder = 0;
                 for (JsonNode itemNode : dayNode.path("items")) {
                     String name = itemNode.path("name").asText("");
+                    String nameEn = emptyToNull(itemNode.path("name_en").asText(null));
                     // 比對範圍優先用這個項目自己判斷的國家 (比較精確, 多國行程時才不會跨國誤配),
                     // 項目自己沒有判斷出國家就退回整份行程共用的國家 (見下方 findMatchingPoi 的模糊比對說明)
                     String itemScopeCountry = emptyToNull(itemNode.path("item_country").asText(null));
-                    Integer matchedPid = findMatchingPoi(AID, name,
+                    Integer matchedPid = findMatchingPoi(AID, name, nameEn,
                             itemScopeCountry != null ? itemScopeCountry : aiImport.getSuggestedCountry());
 
                     AiParsedItem item = new AiParsedItem(
@@ -161,6 +154,7 @@ public class AiParseService {
                             itemNode.path("note").asText(""),
                             sortOrder++
                     );
+                    item.setNameEn(nameEn);
                     item.setMatchedPid(matchedPid);
 
                     item.setItemCountry(emptyToNull(itemNode.path("item_country").asText(null)));
@@ -208,9 +202,23 @@ public class AiParseService {
     // (共用庫+自己的)。限縮範圍除了避免跨國誤配 (兩個國家可能剛好有相似命名的地點), 對大型資料庫來說
     // 也是必要的效能考量 (模糊比對是逐筆算相似度, 全表掃描在候選很多時會變慢)。
     private Integer findMatchingPoi(int AID, String name, String country) {
+        return findMatchingPoi(AID, name, null, country);
+    }
+
+    // nameEn: AI 解析時原文附帶抽取出來的英文/外文名稱 (原文沒有就是 null)。
+    // 使用者反映: 資料庫登記的中文名稱跟 AI 解析出來的中文名稱用字差太多時 (例如「硫磺山纜車」
+    // vs 資料庫「班夫硫磺山景觀纜車」, 相似度只有 0.56, 低於門檻), 純中文比對完全比不到, 但兩邊
+    // 其實常常共用同一個英文/外文原名 (都是 "Banff Gondola")。修正: 比對時中文 name 跟英文
+    // nameEn 都分別去比對候選 POI 的 name 跟 original_name (原文別名, 通常存英文/外文拼寫),
+    // 四種組合取最高分, 只要有一種組合超過門檻就採用。
+    private Integer findMatchingPoi(int AID, String name, String nameEn, String country) {
         if (name == null || name.isBlank()) return null;
         List<Poi> matches = poiDAO.searchByKeyword(AID, name, null);
         if (!matches.isEmpty()) return matches.get(0).getPID();
+        if (nameEn != null && !nameEn.isBlank()) {
+            matches = poiDAO.searchByKeyword(AID, nameEn, null);
+            if (!matches.isEmpty()) return matches.get(0).getPID();
+        }
 
         List<Poi> candidates = (country != null && !country.isBlank())
                 ? poiDAO.findByAgencyAndCountry(AID, country, null)
@@ -222,6 +230,12 @@ public class AiParseService {
             double score = nameSimilarity(name, candidate.getName());
             if (candidate.getOriginalName() != null && !candidate.getOriginalName().isBlank()) {
                 score = Math.max(score, nameSimilarity(name, candidate.getOriginalName()));
+                if (nameEn != null && !nameEn.isBlank()) {
+                    score = Math.max(score, nameSimilarity(nameEn, candidate.getOriginalName()));
+                }
+            }
+            if (nameEn != null && !nameEn.isBlank()) {
+                score = Math.max(score, nameSimilarity(nameEn, candidate.getName()));
             }
             if (score > bestScore) {
                 bestScore = score;
@@ -234,15 +248,74 @@ public class AiParseService {
     // 正規化 Levenshtein 相似度, 範圍 0~1 (1 = 完全相同): 1 - (編輯距離 / 兩字串長度中較長的那個)。
     // 字元層級比對對中文地名特別合適 (不需要斷詞), 「插入/刪除幾個字但骨架相同」這種常見的命名差異
     // (新穗高纜車 vs 新穗高「高空」纜車) 差距越小分數就越高。
+    //
+    // 純 Levenshtein 對「短名稱前後被包了一圈地名/描述字」這種常見情況分數會偏低——例如「硫磺山纜車」
+    // vs 資料庫登記的全名「班夫硫磺山景觀纜車」, 中間插入「班夫」「景觀」四個字, 相似度只有 0.56
+    // (使用者實際回報案例), 但這兩個字串明顯是同一個地方, 只是資料庫存的是含地名/類型描述的全名。
+    // 修正: 額外算一個「包含」分數來源, 取跟 Levenshtein 相似度兩者的最大值。這個包含分數依語言分兩種
+    // 算法 (見下方說明), 都是「較短的名稱是否完整藏在較長的名稱裡面」的概念, 差別在中文/英文的斷詞方式
+    // 天生不同, 用同一種演算法會顧此失彼:
+    //
+    //   1. 不含空白 (中文/日文等 CJK 地名通常沒有空白): 用「最長共同子序列 (LCS)」, 允許中間插入其他字,
+    //      只要相對順序不變, 例如「硫磺山纜車」四個字依序出現在「班夫硫磺山景觀纜車」裡面即可, 不需要
+    //      連續。只在較短字串至少 4 個字時才採用, 避免 2~3 個字的短名稱太容易「湊巧」在無關的長名稱裡
+    //      湊出一樣的字序 (用「東京鐵塔」vs「晴空塔」這組之前特別提防的誤配案例驗證過, LCS 只有 1)。
+    //
+    //   2. 含空白 (通常是 name_en 這種英文/外文名稱): 使用者實際回報案例「Bow Falls」(弓河瀑布) 被誤配到
+    //      「Montmorency Falls」(蒙特倫斯瀑布)——這兩個地方完全無關, 但用 LCS 字元層級跳著配對算出來
+    //      相似度高達 0.78 (超過門檻), 因為兩者剛好共用了一個很常見的地形字尾 "Falls"。英文單字之間允許
+    //      LCS 跳著配對風險太高 (常見字尾如 Falls/River/Lake/Point 到處都會出現), 所以改成「完整子字串
+    //      包含比對」(大小寫不分), 一定要整段短名稱連續出現在長名稱裡面才算數, 不能跳著湊字元, 明顯嚴謹
+    //      許多; 同樣只在較短字串至少 5 個字元時才採用, 避免單一個泛用字被到處誤配。
     private double nameSimilarity(String a, String b) {
         if (a == null || b == null) return 0;
         String s1 = a.trim();
         String s2 = b.trim();
         if (s1.isEmpty() || s2.isEmpty()) return 0;
         if (s1.equals(s2)) return 1.0;
+
         int distance = levenshteinDistance(s1, s2);
         int maxLen = Math.max(s1.length(), s2.length());
-        return maxLen == 0 ? 0 : 1.0 - ((double) distance / maxLen);
+        double editSimilarity = maxLen == 0 ? 0 : 1.0 - ((double) distance / maxLen);
+
+        int shorterLen = Math.min(s1.length(), s2.length());
+        boolean multiWord = s1.indexOf(' ') >= 0 || s2.indexOf(' ') >= 0;
+        double containmentSimilarity = 0;
+        if (multiWord) {
+            if (shorterLen >= 5) {
+                String lower1 = s1.toLowerCase();
+                String lower2 = s2.toLowerCase();
+                if (lower1.contains(lower2) || lower2.contains(lower1)) {
+                    containmentSimilarity = 0.9;
+                }
+            }
+        } else if (shorterLen >= 4) {
+            int lcsLen = longestCommonSubsequence(s1, s2);
+            containmentSimilarity = (double) lcsLen / shorterLen;
+        }
+
+        return Math.max(editSimilarity, containmentSimilarity);
+    }
+
+    // 最長共同子序列 (Longest Common Subsequence) 長度: 允許中間插入其他字元, 只要相對順序不變,
+    // 用來偵測「較短的名稱整串依序藏在較長的名稱裡面」(rolling array 版本, 只需要 O(min(m,n)) 額外空間)。
+    private int longestCommonSubsequence(String s1, String s2) {
+        int m = s1.length(), n = s2.length();
+        int[] prev = new int[n + 1];
+        int[] curr = new int[n + 1];
+        for (int i = 1; i <= m; i++) {
+            for (int j = 1; j <= n; j++) {
+                if (s1.charAt(i - 1) == s2.charAt(j - 1)) {
+                    curr[j] = prev[j - 1] + 1;
+                } else {
+                    curr[j] = Math.max(prev[j], curr[j - 1]);
+                }
+            }
+            int[] tmp = prev;
+            prev = curr;
+            curr = tmp;
+        }
+        return prev[n];
     }
 
     private int levenshteinDistance(String s1, String s2) {
@@ -264,13 +337,6 @@ public class AiParseService {
 
     private String emptyToNull(String s) {
         return (s == null || s.isBlank() || "null".equalsIgnoreCase(s)) ? null : s;
-    }
-
-    // 把使用者填的「行程重點資訊」包成一個明顯的區塊放在原始文字前面, 讓 AI 知道這段優先度較高
-    // (SYSTEM_PROMPT 裡有明確說明【行程重點資訊】這個標記的意義)
-    private String buildUserContent(String rawText, String extraContext) {
-        if (extraContext == null || extraContext.isBlank()) return rawText;
-        return "【行程重點資訊】\n" + extraContext.trim() + "\n\n【原始行程文字】\n" + rawText;
     }
 
     // 保險起見, AI 有時可能回傳不在預期範圍內的值, 一律 fallback 成 default
@@ -311,6 +377,16 @@ public class AiParseService {
     }
 
     /**
+     * 給 review 頁面用: 顯示「已比對」的項目實際會採用哪一筆 POI 資料庫的正式名稱
+     * (確認轉正式行程時就是用這個名稱, 不是 AI 解析出來的文字), 讓使用者確認前就能看到。
+     */
+    public String getMatchedPoiName(Integer matchedPid) {
+        if (matchedPid == null) return null;
+        Poi poi = poiDAO.findById(matchedPid);
+        return poi != null ? poi.getName() : null;
+    }
+
+    /**
      * 把 AI 解析出來的單一項目寫進公司 POI 資料庫 (時間預設 NULL, 之後線控自己補)
      * 加入後會把這個暫存項目的 matchedPid 更新成新建立的 POI, 畫面上會顯示「已比對」
      *
@@ -336,6 +412,7 @@ public class AiParseService {
                 : (aiImport != null ? firstToken(aiImport.getSuggestedRegion()) : null);
 
         Poi poi = new Poi(AID, category, item.getName(), country, region, null, null, null);
+        poi.setOriginalName(item.getNameEn());
 
         // 地理編碼 (先試 Places API 準確定位, 找不到再 fallback Geocoding API)、AI 停留時間估算、
         // AI 景點介紹說明生成三個平行呼叫, 都是外部 API/AI 呼叫, 依序做的話要等三次網路來回。
@@ -472,8 +549,19 @@ public class AiParseService {
                     .orElse(realDays.get(0)); // 保底: 找不到對應天數就丟第一天
 
             for (AiParsedItem item : aiParsedItemDAO.findByDay(day.getAPDID())) {
+                // 使用者反映: review 頁面顯示「已比對」, 但轉成正式行程後項目名稱還是 AI 自己解析出來的文字,
+                // 不是資料庫裡登記的正式名稱。原因: 這裡原本不管有沒有比對到 POI, 一律用 item.getName()
+                // (AI 生成的文字) 當顯示名稱。修正: 有比對到 POI 的話, 改用該筆 POI 資料庫裡的正式名稱,
+                // 真正做到「已比對=採用資料庫資料」, 沒比對到才維持用 AI 解析出來的文字。
+                String displayName = item.getName();
+                if (item.getMatchedPid() != null) {
+                    Poi matchedPoi = poiDAO.findById(item.getMatchedPid());
+                    if (matchedPoi != null && matchedPoi.getName() != null && !matchedPoi.getName().isBlank()) {
+                        displayName = matchedPoi.getName();
+                    }
+                }
                 itineraryService.addItem(realDay.getIDID(), item.getMatchedPid(), item.getItemType(),
-                        item.getName(), item.getStayMinutes(), item.getItemCountry(), item.getItemRegion(),
+                        displayName, item.getStayMinutes(), item.getItemCountry(), item.getItemRegion(),
                         item.getTimeSlot());
             }
 

@@ -2,6 +2,7 @@ package com.example.UsefulTravel.service;
 
 import com.example.UsefulTravel.DAO.AiImportDAO;
 import com.example.UsefulTravel.DAO.CountryCityCodeDAO;
+import com.example.UsefulTravel.DAO.ItineraryComponentDAO;
 import com.example.UsefulTravel.DAO.ItineraryDAO;
 import com.example.UsefulTravel.DAO.ItineraryDayDAO;
 import com.example.UsefulTravel.DAO.ItineraryItemDAO;
@@ -11,11 +12,13 @@ import com.example.UsefulTravel.DAO.QuotationDAO;
 import com.example.UsefulTravel.DAO.QuotationLineDAO;
 import com.example.UsefulTravel.DAO.RouteSegmentDAO;
 import com.example.UsefulTravel.entity.Itinerary;
+import com.example.UsefulTravel.entity.ItineraryComponent;
 import com.example.UsefulTravel.entity.ItineraryDay;
 import com.example.UsefulTravel.entity.ItineraryItem;
 import com.example.UsefulTravel.entity.ItineraryItemOption;
 import com.example.UsefulTravel.entity.Poi;
 import com.example.UsefulTravel.entity.Quotation;
+import com.example.UsefulTravel.entity.RouteSegment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +58,7 @@ public class ItineraryService {
     private final CountryCityCodeDAO countryCityCodeDAO;
     private final QuotationDAO quotationDAO;
     private final QuotationLineDAO quotationLineDAO;
+    private final ItineraryComponentDAO itineraryComponentDAO;
 
     @Autowired
     public ItineraryService(ItineraryDAO itineraryDAO, ItineraryDayDAO itineraryDayDAO,
@@ -63,7 +67,8 @@ public class ItineraryService {
                             RouteService routeService, PoiDAO poiDAO, AiImportDAO aiImportDAO,
                             GoogleMapsClient googleMapsClient, AnthropicClient anthropicClient,
                             ObjectMapper objectMapper, CountryCityCodeDAO countryCityCodeDAO,
-                            QuotationDAO quotationDAO, QuotationLineDAO quotationLineDAO) {
+                            QuotationDAO quotationDAO, QuotationLineDAO quotationLineDAO,
+                            ItineraryComponentDAO itineraryComponentDAO) {
         this.itineraryDAO = itineraryDAO;
         this.itineraryDayDAO = itineraryDayDAO;
         this.itineraryItemDAO = itineraryItemDAO;
@@ -78,6 +83,7 @@ public class ItineraryService {
         this.countryCityCodeDAO = countryCityCodeDAO;
         this.quotationDAO = quotationDAO;
         this.quotationLineDAO = quotationLineDAO;
+        this.itineraryComponentDAO = itineraryComponentDAO;
     }
 
     /**
@@ -1056,6 +1062,120 @@ public class ItineraryService {
             quotationDAO.delete(quotation);
         }
         itineraryDAO.deleteById(ITID);
+    }
+
+    // 首頁「釘選」行程 (像 LINE 聊天列表往右滑釘選)：切換 pinned 狀態，回傳切換後的新狀態。
+    // pinnedAt 跟 pinned 一定同步更新: 釘選時記錄現在時間 (讓多筆釘選的行程之間有排序依據),
+    // 取消釘選時清成 null，DAO 那邊 findByAgency() 會依 pinned DESC, pinnedAt DESC 排序。
+    public boolean togglePin(int ITID) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) return false;
+        boolean newState = !itinerary.isPinned();
+        itineraryDAO.updatePinnedState(ITID, newState, newState ? java.time.LocalDateTime.now() : null);
+        return newState;
+    }
+
+    // 首頁「複製行程」：把整個行程 (基本資料 + 每一天 + 每天的項目/候選點 + 拉車距離快取 + 掛的報價元件)
+    // 複製成一份全新的草稿行程，方便「同一條路線、下一團客人只是日期/人數不同」這種情境不用重新排一次。
+    //
+    // 不複製的東西：is_locked/locked_by/locked_at (新行程一定是未鎖定狀態)、pinned/pinnedAt (新行程
+    // 預設不釘選)、status 一律重設回 draft (即使原本已經 completed，複製出來的也是全新草稿要重新走流程)、
+    // 報價單 (quotation) 本身不複製——每一團的報價通常會不一樣，複製報價反而容易讓使用者誤用到舊金額，
+    // 需要報價的話請到新行程用「編輯報價」重新抓一次或手動輸入。
+    public Itinerary duplicateItinerary(int ITID, int UID) {
+        Itinerary original = itineraryDAO.findById(ITID);
+        if (original == null) throw new IllegalArgumentException("找不到這個行程");
+
+        Itinerary copy = new Itinerary();
+        copy.setAID(original.getAID());
+        copy.setCreatedBy(UID);
+        copy.setTitle(original.getTitle() + "（複製）");
+        copy.setCountry(original.getCountry());
+        copy.setRegion(original.getRegion());
+        copy.setDaysCount(original.getDaysCount());
+        copy.setStartDate(original.getStartDate());
+        copy.setEndDate(original.getEndDate());
+        copy.setGroupSize(original.getGroupSize());
+        copy.setStatus("draft");
+        copy.setTemplateStyle(original.getTemplateStyle());
+        copy.setArrangeMode(original.getArrangeMode());
+        copy.setDescription(original.getDescription());
+        itineraryDAO.save(copy);
+
+        // 舊 IIID -> 新 IIID 的對應表, 複製 route_segment (存的是「項目之間」的拉車距離) 要靠這個
+        // 把舊的 from_item_id/to_item_id 換算成新行程底下對應的項目 ID, 一定要等這一天的項目全部複製完才能用。
+        Map<Integer, Integer> itemIdMap = new HashMap<>();
+
+        for (ItineraryDay day : itineraryDayDAO.findByItinerary(ITID)) {
+            ItineraryDay dayCopy = new ItineraryDay();
+            dayCopy.setITID(copy.getITID());
+            dayCopy.setDayNumber(day.getDayNumber());
+            dayCopy.setDayDate(day.getDayDate());
+            dayCopy.setTheme(day.getTheme());
+            dayCopy.setPlannedCities(day.getPlannedCities());
+            dayCopy.setStartTime(day.getStartTime());
+            dayCopy.setTransportMode(day.getTransportMode());
+            itineraryDayDAO.save(dayCopy);
+
+            for (ItineraryItem item : itineraryItemDAO.findByDay(day.getIDID())) {
+                ItineraryItem itemCopy = new ItineraryItem();
+                itemCopy.setIDID(dayCopy.getIDID());
+                itemCopy.setPID(item.getPID());
+                itemCopy.setItemType(item.getItemType());
+                itemCopy.setCustomName(item.getCustomName());
+                itemCopy.setSortOrder(item.getSortOrder());
+                itemCopy.setStartTime(item.getStartTime());
+                itemCopy.setEndTime(item.getEndTime());
+                itemCopy.setStayDurationMin(item.getStayDurationMin());
+                itemCopy.setNote(item.getNote());
+                itemCopy.setLatitude(item.getLatitude());
+                itemCopy.setLongitude(item.getLongitude());
+                itemCopy.setItemCountry(item.getItemCountry());
+                itemCopy.setItemRegion(item.getItemRegion());
+                itemCopy.setTimeSlot(item.getTimeSlot());
+                itemCopy.setShowOnMap(item.getShowOnMap());
+                itemCopy.setFromLocation(item.getFromLocation());
+                itemCopy.setFromAddress(item.getFromAddress());
+                itemCopy.setToLocation(item.getToLocation());
+                itemCopy.setToAddress(item.getToAddress());
+                itemCopy.setTransportMethod(item.getTransportMethod());
+                itemCopy.setCommuteDurationMin(item.getCommuteDurationMin());
+                itemCopy.setExcludedImageIds(item.getExcludedImageIds());
+                itineraryItemDAO.save(itemCopy);
+                itemIdMap.put(item.getIIID(), itemCopy.getIIID());
+
+                for (ItineraryItemOption opt : itineraryItemOptionDAO.findByItem(item.getIIID())) {
+                    ItineraryItemOption optCopy = new ItineraryItemOption();
+                    optCopy.setIIID(itemCopy.getIIID());
+                    optCopy.setName(opt.getName());
+                    optCopy.setLatitude(opt.getLatitude());
+                    optCopy.setLongitude(opt.getLongitude());
+                    optCopy.setSelected(opt.isSelected());
+                    itineraryItemOptionDAO.save(optCopy);
+                }
+            }
+
+            // 這一天的拉車距離快取: 一定要等這一天所有項目都複製完 (itemIdMap 補齊對應) 才能轉換
+            // from_item_id/to_item_id, 所以放在項目的 for 迴圈外面、還在同一天的 for 迴圈裡面。
+            for (RouteSegment seg : routeSegmentDAO.findByDay(day.getIDID())) {
+                Integer newFrom = itemIdMap.get(seg.getFromItemId());
+                Integer newTo = itemIdMap.get(seg.getToItemId());
+                if (newFrom == null || newTo == null) continue; // 理論上不會發生, 保險起見跳過避免存進錯誤的參照
+                RouteSegment segCopy = new RouteSegment(dayCopy.getIDID(), newFrom, newTo,
+                        seg.getDistanceKm(), seg.getDurationMin(), seg.isBacktrack());
+                segCopy.setTransportMode(seg.getTransportMode());
+                segCopy.setCalculatedAt(seg.getCalculatedAt());
+                routeSegmentDAO.save(segCopy);
+            }
+        }
+
+        // 元件庫掛在這個行程上的報價元件 (遊覽車/導遊/保險等固定資源) 一併複製過去, 數量/單價覆寫也一起帶
+        for (ItineraryComponent ic : itineraryComponentDAO.findByItinerary(ITID)) {
+            itineraryComponentDAO.save(new ItineraryComponent(copy.getITID(), ic.getCPID(), ic.getDayNumber(),
+                    ic.getQuantity(), ic.getPriceOverride()));
+        }
+
+        return copy;
     }
 
     // 更新某一天的出發時間 (時間軸看板的起點, 例如「早上7點出發」)

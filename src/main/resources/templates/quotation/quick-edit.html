@@ -144,7 +144,30 @@
                     </span>
                 </div>
 
-                <form th:if="${canEdit}" class="misc-add-form" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines'}">
+                <!-- 使用者要求「簡易報價單可以拉元件庫內容，名稱價錢會自動帶入」——跟正式報價頁「新增報價項目」
+                     卡片的「從元件庫選擇」共用同一份元件清單、同一支後端端點 (from-component), 只是這裡
+                     用 back=quick 導回這一頁。選了元件後單價/計費方式會自動帶入 (見下面 applyQuickComponentDefaults()),
+                     使用者還是可以自己改掉這些預設值再送出。 -->
+                <form th:if="${canEdit and !components.isEmpty()}" class="misc-add-form" method="post"
+                      th:action="@{'/quotation/' + ${quotation.QID} + '/lines/from-component'}" style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-color);">
+                    <input type="hidden" name="back" value="quick" />
+                    <select name="componentId" id="qcComponentSelect" required onchange="applyQuickComponentDefaults()">
+                        <option value="" disabled selected>從元件庫選擇...</option>
+                        <option th:each="c : ${components}" th:value="${c.CPID}"
+                                th:attr="data-price=${c.defaultPrice},data-costtype=${c.costType}"
+                                th:text="${c.name} + '（' + (${c.costType == 'FIXED_GROUP'} ? '全團固定' : '按人頭') + '）— NT$ ' + ${c.defaultPrice}"></option>
+                    </select>
+                    <select name="costType" id="qcCostType" onchange="applyQuickComponentDefaults()">
+                        <option value="PER_PAX">按人頭計費</option>
+                        <option value="FIXED_GROUP">全團固定一口價</option>
+                    </select>
+                    <input type="number" step="0.01" name="unitPrice" id="qcUnitPrice" placeholder="單價" required />
+                    <input type="number" name="quantity" id="qcQuantity" placeholder="數量" value="1" min="1" />
+                    <button type="submit"><i class="fa-solid fa-layer-group"></i> 從元件庫掛上</button>
+                </form>
+
+                <form th:if="${canEdit}" class="misc-add-form" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/lines'}" style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-color);">
+                    <div style="font-size:12px; color:var(--text-gray); font-weight:600;">或手動輸入自訂雜費</div>
                     <input type="hidden" name="back" value="quick" />
                     <input type="text" name="itemName" placeholder="項目名稱（例：導遊薪資、保險）" required />
                     <select name="costType">
@@ -183,6 +206,27 @@
 </main>
 
 <script>
+    // 「從元件庫選擇」表單: 選了元件後單價/計費方式自動帶入 (使用者要求「簡易報價單可以拉元件庫內容,
+    // 名稱價錢會自動帶入」), 計費方式改成按人頭時數量預設帶入目前團體人數, 跟正式報價頁同一套邏輯。
+    var QUICK_GROUP_SIZE = /*[[${quotation.groupSize}]]*/ 1;
+
+    function applyQuickComponentDefaults() {
+        var componentSelect = document.getElementById('qcComponentSelect');
+        if (!componentSelect) return;
+        var costTypeSelect = document.getElementById('qcCostType');
+        var unitPriceInput = document.getElementById('qcUnitPrice');
+        var qtyInput = document.getElementById('qcQuantity');
+
+        var opt = componentSelect.options[componentSelect.selectedIndex];
+        if (opt) {
+            if (unitPriceInput && opt.dataset.price) unitPriceInput.value = opt.dataset.price;
+            if (costTypeSelect && opt.dataset.costtype) costTypeSelect.value = opt.dataset.costtype;
+        }
+        if (costTypeSelect && qtyInput) {
+            qtyInput.value = costTypeSelect.value === 'PER_PAX' ? QUICK_GROUP_SIZE : 1;
+        }
+    }
+
     (function () {
         let isBusy = false; // 防止操作進行中又觸發下一次送出, 造成畫面互相搶跑
 

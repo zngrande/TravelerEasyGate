@@ -84,10 +84,10 @@ public class QuotationLine {
     private BigDecimal rebateAmount = BigDecimal.ZERO; // 退傭金額
 
     @Column(name = "profit_trade")
-    private BigDecimal profitTrade = BigDecimal.ZERO;  // 利潤(同業)
+    private BigDecimal profitTrade = BigDecimal.ZERO;  // 利潤(同業) = 同業價 - 基本報價 (同業這一層疊加的利潤, 不含退傭/不是從成本算起的累積價差)
 
     @Column(name = "profit_retail")
-    private BigDecimal profitRetail = BigDecimal.ZERO; // 利潤(直售)
+    private BigDecimal profitRetail = BigDecimal.ZERO; // 利潤(直售) = 直售價 - 同業價 (直售這一層疊加的利潤, 不是從成本算起的累積價差)
 
     @Column(name = "note")
     private String note;

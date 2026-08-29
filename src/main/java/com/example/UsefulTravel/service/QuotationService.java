@@ -202,8 +202,11 @@ public class QuotationService {
         TravelComponent component = travelComponentDAO.findById(CPID);
         if (component == null) throw new IllegalArgumentException("找不到元件");
         String category = mapComponentTypeToCategory(component.getType());
+        // 計費方式: 沒有指定的話沿用元件庫自己設定的按人頭/全團固定一口價 (使用者要求「元件庫加入按人頭
+        // 或全團固定一口價」後, 拉進報價單就該直接套用這個預設值, 而不是每次都固定當成按人頭), 使用者
+        // 在表單上還是可以自己覆寫成另一種計費方式。
         return addLine(QID, CPID, component.getName(), category,
-                (costType == null || costType.isBlank()) ? "PER_PAX" : costType,
+                (costType == null || costType.isBlank()) ? component.getCostType() : costType,
                 (currencyCode == null || currencyCode.isBlank()) ? component.getCurrencyCode() : currencyCode,
                 unitPrice != null ? unitPrice : component.getDefaultPrice(),
                 quantity, BigDecimal.ZERO, BigDecimal.ZERO,
@@ -217,7 +220,8 @@ public class QuotationService {
             case "meal": return "meal";
             case "hotel_grade": return "hotel";
             case "optional_tour": return "optional";
-            default: return "other";
+            case "ticket": return "attraction"; // 門票/入場費歸類到「景點/門票」
+            default: return "other"; // 遊覽車/導遊/保險/其他固定項目, 報價單的類別選單沒有對應分類, 歸 other
         }
     }
 
@@ -949,6 +953,12 @@ public class QuotationService {
         // 區間價錢: 如果這個項目有設定人數級距, 依「目前團體人數」找出對應的級距價錢, 覆蓋掉單價欄位
         // (級距價錢代表「這個人數區間下的價錢」, 找不到對應級距時退回原本填的單價, 並不擋下計算,
         //  避免級距沒涵蓋到的人數直接讓報價單算不出來; 有沒有對到級距由前端另外提示使用者留意)
+        //
+        // 使用者回報「報價基礎設定的人數更改時, 報價項目明細的單價沒有跟著區間價錢管理的價錢更改」——
+        // 追下去發現 resolvedUnitPrice 這個算出來的「這個人數該用的單價」以前只拿去算 grossCost/netCost,
+        // 從來沒有寫回 line.unitPrice 這個欄位, 導致「報價項目明細」表格上顯示的單價 (綁定 line.unitPrice)
+        // 停留在新增這筆項目當下的舊價錢, 即使成本計算 (NNet/基本報價...) 其實已經正確套用新級距的價錢,
+        // 畫面上看起來卻像完全沒反應。這裡補上 setUnitPrice(), 讓畫面顯示跟實際算出來的成本用同一個數字。
         BigDecimal resolvedUnitPrice = nz(line.getUnitPrice());
         if (line.getQLID() != 0) {
             List<QuotationLineTier> tiers = quotationLineTierDAO.findByLine(line.getQLID());
@@ -959,6 +969,7 @@ public class QuotationService {
                 resolvedUnitPrice = nz(matched.getPrice());
             }
         }
+        line.setUnitPrice(resolvedUnitPrice);
 
         // 單項淨成本 = 單價 × 數量（機票另加燃油稅 + 稅金）, 換算成台幣
         BigDecimal perUnitCost = resolvedUnitPrice.add(nz(line.getFuelSurcharge())).add(nz(line.getTaxAmount()));
@@ -1092,8 +1103,14 @@ public class QuotationService {
             BigDecimal rebateAmount = rebateAmountTotal.multiply(weight).setScale(SCALE, RoundingMode.HALF_UP);
             line.setRebateAmount(rebateAmount);
 
-            line.setProfitRetail(retailPrice.subtract(nz(line.getNetCost())).setScale(SCALE, RoundingMode.HALF_UP));
-            line.setProfitTrade(tradePrice.subtract(nz(line.getNetCost())).subtract(rebateAmount).setScale(SCALE, RoundingMode.HALF_UP));
+            // 使用者回報「利潤(同業)好像不是同業價-基本報價」——追下去發現這裡以前算的是「同業價 - NNet - 退傭」
+            // (從成本一路累加到同業價的「總」價差, 又扣一次退傭), 但表格欄位順序、上面架構註解 (NNet → 基本報價
+            // (+基本利潤) → 同業價(+同業利潤) → 直售價(+直售利潤)) 講的都是「每一層自己疊加的那一段利潤」——
+            // 「利潤(同業)」該對應的是同業價這一層疊加的利潤, 也就是同業價 - 基本報價 這一段, 不是從成本算起的
+            // 累積價差。「利潤(直售)」同樣的道理改成直售價 - 同業價 (直售這一層疊加的利潤), 不再是直售價 - NNet。
+            // 退傭是另外獨立的一欄 (見上面「退傭」欄位), 這裡不重複扣一次, 避免利潤欄位的意義被混用。
+            line.setProfitTrade(tradePrice.subtract(basicPrice).setScale(SCALE, RoundingMode.HALF_UP));
+            line.setProfitRetail(retailPrice.subtract(tradePrice).setScale(SCALE, RoundingMode.HALF_UP));
 
             quotationLineDAO.save(line);
         }

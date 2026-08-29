@@ -67,6 +67,15 @@ public class Itinerary {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description; // 行程重點說明 (選填, 建立行程時填寫), 例如「五天四夜, 第一天到東京...」
 
+    // 使用者要求: 首頁行程列表可以「釘選」(像 LINE 聊天列表往右滑釘選), 釘選的行程要排在列表最上面。
+    // pinnedAt 記錄釘選的時間點, 讓多筆同時釘選的行程之間也能有穩定的排序 (最近釘選的排最前面),
+    // 取消釘選時清成 null, 跟 isPinned=false 兩者狀態一定同步, 不會有「pinnedAt 有值但 isPinned=false」這種情況。
+    @Column(name = "pinned")
+    private boolean pinned = false;
+
+    @Column(name = "pinned_at")
+    private LocalDateTime pinnedAt;
+
     public Itinerary() {}
 
     public Itinerary(int AID, int createdBy, String title, String country, int daysCount) {
@@ -133,4 +142,10 @@ public class Itinerary {
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+
+    public boolean isPinned() { return pinned; }
+    public void setPinned(boolean pinned) { this.pinned = pinned; }
+
+    public LocalDateTime getPinnedAt() { return pinnedAt; }
+    public void setPinnedAt(LocalDateTime pinnedAt) { this.pinnedAt = pinnedAt; }
 }

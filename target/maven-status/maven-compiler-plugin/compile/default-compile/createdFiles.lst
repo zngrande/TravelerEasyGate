@@ -51,6 +51,7 @@ com\example\UsefulTravel\controller\AuthController.class
 com\example\UsefulTravel\entity\Poi.class
 com\example\UsefulTravel\service\TemplateMergeService$ImageData.class
 com\example\UsefulTravel\DAO\StaffUserDAO.class
+com\example\UsefulTravel\service\ExchangeRateClient.class
 com\example\UsefulTravel\service\GoogleMapsClient$GeocodeResult.class
 com\example\UsefulTravel\entity\PoiCooperationLog.class
 com\example\UsefulTravel\entity\QuotationLine.class
@@ -109,6 +110,7 @@ com\example\UsefulTravel\DAO\QuotationDAOImpl.class
 com\example\UsefulTravel\DAO\ItineraryDAO.class
 com\example\UsefulTravel\entity\PriceTierTemplate.class
 com\example\UsefulTravel\controller\AiImportController.class
+com\example\UsefulTravel\service\ExchangeRateUpdateService.class
 com\example\UsefulTravel\DAO\ItineraryComponentDAO.class
 com\example\UsefulTravel\entity\CountryCityCode.class
 com\example\UsefulTravel\DAO\CountryCityCodeDAOImpl.class

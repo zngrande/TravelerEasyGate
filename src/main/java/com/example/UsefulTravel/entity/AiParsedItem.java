@@ -20,6 +20,9 @@ public class AiParsedItem {
     @Column(name = "name")
     private String name;
 
+    @Column(name = "name_en")
+    private String nameEn; // AI 解析時原文附帶的英文/外文名稱 (原文沒有就是 null), 用來比對 POI 的 original_name 提高命中率
+
     @Column(name = "time_slot")
     private String timeSlot; // morning / noon / afternoon / evening / breakfast / lunch / dinner
 
@@ -63,6 +66,9 @@ public class AiParsedItem {
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+
+    public String getNameEn() { return nameEn; }
+    public void setNameEn(String nameEn) { this.nameEn = nameEn; }
 
     public String getTimeSlot() { return timeSlot; }
     public void setTimeSlot(String timeSlot) { this.timeSlot = timeSlot; }

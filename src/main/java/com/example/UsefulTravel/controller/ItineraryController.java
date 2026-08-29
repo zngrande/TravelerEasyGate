@@ -357,6 +357,48 @@ public class ItineraryController {
         return ResponseEntity.ok().build();
     }
 
+    // POST /itinerary/{id}/duplicate → 首頁「複製行程」按鈕: 整份行程 (含每天/每個項目/拉車距離/報價元件)
+    // 複製成一份全新草稿, 常用於「同一條路線, 下一團客人只是日期/人數不同」不用重新排一次
+    @PostMapping("/{id}/duplicate")
+    public String duplicate(@PathVariable("id") int ITID, HttpSession session,
+                             org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        Integer UID = (Integer) session.getAttribute("UID");
+        String role = (String) session.getAttribute("role");
+        if (AID == null || UID == null) return "redirect:/login";
+        if (!permissionService.canEditItinerary(role)) {
+            redirectAttributes.addFlashAttribute("deleteError", "目前帳號角色沒有建立行程的權限");
+            return "redirect:/agency/dashboard";
+        }
+        Itinerary itinerary = itineraryService.getItinerary(ITID);
+        if (itinerary == null || itinerary.getAID() != AID) {
+            redirectAttributes.addFlashAttribute("deleteError", "找不到這個行程");
+            return "redirect:/agency/dashboard";
+        }
+        try {
+            itineraryService.duplicateItinerary(ITID, UID);
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("deleteError",
+                    "複製失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString()));
+        }
+        return "redirect:/agency/dashboard";
+    }
+
+    // POST /itinerary/{id}/pin → 首頁「釘選」切換 (像 LINE 聊天列表往右滑釘選), 回傳切換後的狀態給前端更新畫面
+    @PostMapping("/{id}/pin")
+    @ResponseBody
+    public ResponseEntity<?> togglePin(@PathVariable("id") int ITID, HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return ResponseEntity.status(401).build();
+        Itinerary itinerary = itineraryService.getItinerary(ITID);
+        if (itinerary == null || itinerary.getAID() != AID) return ResponseEntity.status(404).build();
+
+        boolean pinned = itineraryService.togglePin(ITID);
+        Map<String, Object> body = new HashMap<>();
+        body.put("pinned", pinned);
+        return ResponseEntity.ok(body);
+    }
+
     // POST /itinerary/{id}/delete → 刪除整個行程
     @PostMapping("/{id}/delete")
     public String delete(@PathVariable("id") int ITID, HttpSession session, org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {

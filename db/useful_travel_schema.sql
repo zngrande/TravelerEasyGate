@@ -208,6 +208,7 @@ CREATE TABLE ai_parsed_item (
     APDID INT NOT NULL,
     item_type VARCHAR(20) NOT NULL,      -- attraction / meal / hotel / transport / highlight
     name VARCHAR(200) NOT NULL,
+    name_en VARCHAR(200) DEFAULT NULL,   -- AI 解析時原文附帶的英文/外文名稱 (原文沒有就是 NULL), 用來比對 poi.original_name 提高命中率
     time_slot VARCHAR(20),               -- morning / noon / afternoon / evening / breakfast / lunch / dinner
     note VARCHAR(500),                   -- 餐標/房型/交通方式/注意事項等原文描述
     matched_pid INT DEFAULT NULL,        -- 自動比對到公司 POI 資料庫的結果 (找不到就是 NULL)

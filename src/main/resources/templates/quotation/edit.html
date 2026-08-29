@@ -562,7 +562,7 @@
                     <label class="form-label">從元件庫選擇</label>
                     <select name="componentId" id="fcComponentSelect" class="form-control" style="width:100%;" required onchange="applyComponentDefaults()">
                         <option th:each="c : ${components}" th:value="${c.CPID}"
-                                th:attr="data-currency=${c.currencyCode},data-price=${c.defaultPrice}"
+                                th:attr="data-currency=${c.currencyCode},data-price=${c.defaultPrice},data-costtype=${c.costType}"
                                 th:text="${c.name} + '（' + ${c.type} + '）— ' + ${c.currencyCode} + ' ' + ${c.defaultPrice}"></option>
                     </select>
                 </div>
@@ -891,6 +891,7 @@
         if (opt) {
             if (currencySelect && opt.dataset.currency) currencySelect.value = opt.dataset.currency;
             if (unitPriceInput && opt.dataset.price) unitPriceInput.value = opt.dataset.price;
+            if (costTypeSelect && opt.dataset.costtype) costTypeSelect.value = opt.dataset.costtype;
         }
         if (costTypeSelect && qtyInput) {
             if (costTypeSelect.value === 'PER_PAX') qtyInput.value = CURRENT_GROUP_SIZE;

@@ -166,6 +166,10 @@ public class QuotationController {
         model.addAttribute("currencies", currencyDAO.findAvailable(AID));
         model.addAttribute("totals", quotationService.getTotals(QID));
         model.addAttribute("canEdit", quotation.isEditable() && canQuote(session));
+        // 使用者要求「簡易報價單可以拉元件庫內容，名稱價錢會自動帶入」——跟正式報價頁「新增報價項目」
+        // 卡片的「從元件庫選擇」是同一份元件清單、同一支後端端點 (/quotation/{qid}/lines/from-component)，
+        // 差別只在 back=quick 導回這一頁而不是正式報價頁。
+        model.addAttribute("components", travelComponentDAO.findByAgency(AID));
         return null;
     }
 
@@ -316,6 +320,7 @@ public class QuotationController {
     }
 
     // POST /quotation/{qid}/lines/from-component → 從元件庫快速掛一筆 (可以覆寫計費方式/幣別/單價, 沒填就沿用元件庫的預設值)
+    // back="quick" 給簡易報價編輯頁用 (使用者要求「簡易報價單可以拉元件庫內容」), 不給的話 (正式報價頁原本的用法) 導回正式報價頁。
     @PostMapping("/quotation/{qid}/lines/from-component")
     public String addLineFromComponent(@PathVariable("qid") int QID,
                                        @RequestParam int componentId,
@@ -325,12 +330,13 @@ public class QuotationController {
                                        @RequestParam(defaultValue = "1") int quantity,
                                        @RequestParam(required = false, defaultValue = "0") int focRatio,
                                        @RequestParam(required = false) String note,
+                                       @RequestParam(required = false, defaultValue = "edit") String back,
                                        HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return redirectBack(QID, back);
 
         quotationService.addLineFromComponent(QID, componentId, costType, currencyCode, unitPrice, quantity, focRatio, note);
-        return "redirect:/quotation/" + QID;
+        return redirectBack(QID, back);
     }
 
     // POST /quotation/{qid}/lines/{qlid}/update → 編輯報價項目
