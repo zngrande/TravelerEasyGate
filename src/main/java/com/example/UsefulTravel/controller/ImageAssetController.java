@@ -2,6 +2,7 @@ package com.example.UsefulTravel.controller;
 
 import com.example.UsefulTravel.entity.ImageAsset;
 import com.example.UsefulTravel.service.ImageAssetService;
+import com.example.UsefulTravel.service.PermissionService;
 import com.example.UsefulTravel.service.PoiService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,11 +24,20 @@ public class ImageAssetController {
 
     private final ImageAssetService imageAssetService;
     private final PoiService poiService;
+    private final PermissionService permissionService;
 
     @Autowired
-    public ImageAssetController(ImageAssetService imageAssetService, PoiService poiService) {
+    public ImageAssetController(ImageAssetService imageAssetService, PoiService poiService, PermissionService permissionService) {
         this.imageAssetService = imageAssetService;
         this.poiService = poiService;
+        this.permissionService = permissionService;
+    }
+
+    // 圖片資料庫的管理動作 (列表/上傳/綁定/刪除) 對應側邊欄「資料庫管理」的顯示條件, 只有 ADMIN / EDITOR 能用。
+    // 純讀取/顯示用的端點 (listByPoi, file) 沒有用這個擋, 因為那些是給任何看得到行程/報價單內容的頁面
+    // 顯示縮圖用的, 限制太嚴格反而會讓其他角色連原本看得到的圖都看不到。
+    private boolean canEditItinerary(HttpSession session) {
+        return permissionService.canEditItinerary((String) session.getAttribute("role"));
     }
 
     // GET /images/by-poi/{PID} → 這個景點目前綁定的圖片清單 (給行程項目編輯表單顯示縮圖用)
@@ -45,6 +55,7 @@ public class ImageAssetController {
     public String list(@RequestParam(required = false) Boolean unlinkedOnly, HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         List<ImageAsset> images = (unlinkedOnly != null && unlinkedOnly)
                 ? imageAssetService.listUnlinked(AID)
@@ -67,6 +78,7 @@ public class ImageAssetController {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null) return ResponseEntity.status(401).build();
+        if (!canEditItinerary(session)) return ResponseEntity.status(403).build();
 
         int uploaded = 0;
         List<String> errors = new ArrayList<>();
@@ -93,6 +105,7 @@ public class ImageAssetController {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         List<String> errors = new ArrayList<>();
         for (MultipartFile file : files) {
@@ -136,6 +149,7 @@ public class ImageAssetController {
                           HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
         imageAssetService.linkToPoi(AID, IAID, poiId);
         return "redirect:/images";
     }
@@ -145,6 +159,7 @@ public class ImageAssetController {
     public String delete(@PathVariable("id") int IAID, HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
         imageAssetService.delete(AID, IAID);
         return "redirect:/images";
     }

@@ -47,6 +47,16 @@ public class AgencyExportTemplateDAOImpl implements AgencyExportTemplateDAO {
     }
 
     @Override
+    public List<AgencyExportTemplate> findByAgencyAndType(int AID, String type) {
+        return em.createQuery(
+                "SELECT t FROM AgencyExportTemplate t WHERE t.AID = :aid AND t.templateType = :type ORDER BY t.createdAt DESC",
+                AgencyExportTemplate.class)
+                .setParameter("aid", AID)
+                .setParameter("type", type)
+                .getResultList();
+    }
+
+    @Override
     public AgencyExportTemplate findDefaultByAgency(int AID) {
         return em.createQuery(
                 "SELECT t FROM AgencyExportTemplate t WHERE t.AID = :aid AND t.isDefault = true",
@@ -56,10 +66,29 @@ public class AgencyExportTemplateDAOImpl implements AgencyExportTemplateDAO {
     }
 
     @Override
+    public AgencyExportTemplate findDefaultByAgencyAndType(int AID, String type) {
+        return em.createQuery(
+                "SELECT t FROM AgencyExportTemplate t WHERE t.AID = :aid AND t.templateType = :type AND t.isDefault = true",
+                AgencyExportTemplate.class)
+                .setParameter("aid", AID)
+                .setParameter("type", type)
+                .getResultStream().findFirst().orElse(null);
+    }
+
+    @Override
     @Transactional
     public void clearDefault(int AID) {
         em.createQuery("UPDATE AgencyExportTemplate t SET t.isDefault = false WHERE t.AID = :aid")
                 .setParameter("aid", AID)
+                .executeUpdate();
+    }
+
+    @Override
+    @Transactional
+    public void clearDefault(int AID, String type) {
+        em.createQuery("UPDATE AgencyExportTemplate t SET t.isDefault = false WHERE t.AID = :aid AND t.templateType = :type")
+                .setParameter("aid", AID)
+                .setParameter("type", type)
                 .executeUpdate();
     }
 

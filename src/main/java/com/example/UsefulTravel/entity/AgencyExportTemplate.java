@@ -18,6 +18,10 @@ public class AgencyExportTemplate {
     @Column(name = "name")
     private String name;
 
+    // CUSTOMER (給客戶看的 .docx 企劃書範本) 或 AGENCY (給同業看的 .xlsx 報價單範本)
+    @Column(name = "template_type")
+    private String templateType = "CUSTOMER";
+
     @Column(name = "file_path")
     private String filePath;
 
@@ -39,6 +43,14 @@ public class AgencyExportTemplate {
         this.uploadedBy = uploadedBy;
     }
 
+    public AgencyExportTemplate(int AID, String name, String templateType, String filePath, Integer uploadedBy) {
+        this.AID = AID;
+        this.name = name;
+        this.templateType = templateType;
+        this.filePath = filePath;
+        this.uploadedBy = uploadedBy;
+    }
+
     public int getAETID() { return AETID; }
     public void setAETID(int AETID) { this.AETID = AETID; }
 
@@ -47,6 +59,9 @@ public class AgencyExportTemplate {
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+
+    public String getTemplateType() { return templateType; }
+    public void setTemplateType(String templateType) { this.templateType = templateType; }
 
     public String getFilePath() { return filePath; }
     public void setFilePath(String filePath) { this.filePath = filePath; }

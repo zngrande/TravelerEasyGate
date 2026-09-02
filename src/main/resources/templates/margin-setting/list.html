@@ -23,6 +23,37 @@
         .card-header { font-size: 16px; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
         .card-desc { font-size: 13px; color: var(--text-gray); margin-bottom: 16px; }
 
+        /* 「現有規則」上面的分類籤: 報價定價規則(上面) / NP、團費成本規則(下面), 切換時同步決定
+           下面兩張「新增...規則」卡片要顯示哪一張, 兩邊用同一個狀態控制, 不用各自切一次。 */
+        .rule-type-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .rule-type-tab {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #f8fafc;
+            color: var(--text-gray);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .rule-type-tab.active { background: #eff6ff; border-color: #bfdbfe; color: var(--primary-blue); }
+
+        /* 表格依目前選的分類籤只顯示對應的欄位, 不用維護兩份重複的表格 markup。 */
+        table.rule-table.mode-pricing .col-np, table.rule-table.mode-pricing .col-team { display: none; }
+        table.rule-table.mode-tier .col-basic, table.rule-table.mode-tier .col-trade,
+        table.rule-table.mode-tier .col-retail, table.rule-table.mode-tier .col-rebate { display: none; }
+
+        /* 使用者反映: 只新增「報價定價規則」的話, 那筆規則不應該也跑去 NP／團費成本規則籤出現 (反過來也一樣)——
+           每一列除了欄位以外, 這裡再依 data-haspricing / data-hastier 這兩個標記決定「這一列」該不該在目前
+           這個籤顯示, 一筆規則如果兩種資料都有 (混合規則) 才會兩邊都出現。 */
+        table.rule-table.mode-pricing tr[data-haspricing="false"] { display: none; }
+        table.rule-table.mode-tier tr[data-hastier="false"] { display: none; }
+        .rule-empty-hint { display: none; padding: 20px; text-align: center; color: var(--text-gray); font-size: 13px; }
+        .rule-empty-hint.show { display: block; }
+
         .table-container { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13.5px; }
         th { background: #f8fafc; padding: 12px 14px; font-size: 12.5px; color: var(--text-gray); font-weight: 600; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
@@ -96,22 +127,33 @@
             <span th:text="${deleteError}"></span>
         </div>
 
+        <!-- 計算方式分兩種, 用籤切換要看/要新增哪一種, 不用一次面對全部 7 個欄位。 -->
+        <div class="rule-type-tabs">
+            <div id="ruleTabPricing" class="rule-type-tab active" onclick="switchRuleType('pricing')">
+                <i class="fa-solid fa-tags"></i> 報價定價規則（基本／同業／直售／退傭）
+            </div>
+            <div id="ruleTabTier" class="rule-type-tab" onclick="switchRuleType('tier')">
+                <i class="fa-solid fa-layer-group"></i> NP／團費成本規則
+            </div>
+        </div>
+
         <div class="table-container" th:if="${!settings.isEmpty()}">
-            <table>
+            <table class="rule-table mode-pricing" id="ruleTable">
                 <thead>
                 <tr>
                     <th>名稱</th>
-                    <th>基本報價公式</th>
-                    <th>同業價公式</th>
-                    <th>直售價公式</th>
-                    <th>退傭金額公式</th>
-                    <th>NP 計算式</th>
-                    <th>團費成本計算式</th>
+                    <th class="col-basic">基本報價公式</th>
+                    <th class="col-trade">同業價公式</th>
+                    <th class="col-retail">直售價公式</th>
+                    <th class="col-rebate">退傭金額公式</th>
+                    <th class="col-np">NP 計算式</th>
+                    <th class="col-team">團費成本計算式</th>
                     <th></th>
                 </tr>
                 </thead>
                 <tbody>
-                <tr th:each="m : ${settings}">
+                <tr th:each="m : ${settings}"
+                    th:attr="data-haspricing=${!m.pureTierRule}, data-hastier=${m.npFormula != null or m.teamFormula != null}">
                     <td>
                         <strong th:text="${m.name}"></strong>
                         <span class="default-badge" th:if="${m.default}">預設</span>
@@ -120,35 +162,35 @@
                              會誤導使用者以為它有在用百分比算報價, 這種情況不顯示這個徽章。 -->
                         <span class="legacy-badge" th:if="${!m.formulaMode and !m.pureTierRule}" title="這組規則還是舊制百分比算法">舊制%</span>
                     </td>
-                    <td>
+                    <td class="col-basic">
                         <!-- 基本報價這一層沒有舊制%可以 fallback (MarginSetting 從來沒有 basicMarkupPct 欄位),
                              沒填就顯示「沿用報價單設定」, 提醒使用者這組規則不管基本報價、要去各張報價單自己調。 -->
                         <span class="formula-pill" th:if="${m.basicFormula != null}" th:text="${m.readableBasicFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.basicFormula == null}">沿用報價單設定</span>
                     </td>
-                    <td>
+                    <td class="col-trade">
                         <!-- 顯示 readableTradeFormula (看得懂的中文變數說明), 不要直接顯示 tradeFormula 原始欄位——
                              那是存給 FormulaEngine 解析器看的 {VAR_ID} 語法, 直接顯示給使用者看會變成一串
                              看不懂的大括號 (例如 "{NET_COST}*1.15")。 -->
                         <span class="formula-pill" th:if="${m.tradeFormula != null}" th:text="${m.readableTradeFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.tradeFormula == null}" th:text="'同業+' + ${m.tradeMarkupPct} + '%（舊制）'"></span>
                     </td>
-                    <td>
+                    <td class="col-retail">
                         <span class="formula-pill" th:if="${m.retailFormula != null}" th:text="${m.readableRetailFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.retailFormula == null}" th:text="'直售+' + ${m.retailMarkupPct} + '%（舊制）'"></span>
                     </td>
-                    <td>
+                    <td class="col-rebate">
                         <span class="formula-pill" th:if="${m.rebateFormula != null}" th:text="${m.readableRebateFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.rebateFormula == null}" th:text="'退傭' + ${m.rebatePct} + '%（舊制）'"></span>
                     </td>
-                    <td>
+                    <td class="col-np">
                         <!-- NP／團費成本是完全獨立的「整團人數級距報價結果」子功能, 沒有舊制%可以 fallback,
                              沒填就顯示「沿用報價單設定」, 提醒使用者要去各張報價單「整團人數級距報價結果」
                              卡片自己填 (或用「套用到全部級距」按鈕存的那組)。 -->
                         <span class="formula-pill" th:if="${m.npFormula != null}" th:text="${m.readableNpFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.npFormula == null}">沿用報價單設定</span>
                     </td>
-                    <td>
+                    <td class="col-team">
                         <span class="formula-pill" th:if="${m.teamFormula != null}" th:text="${m.readableTeamFormula}"></span>
                         <span class="formula-pill empty" th:if="${m.teamFormula == null}">沿用報價單設定</span>
                     </td>
@@ -161,6 +203,7 @@
                 </tr>
                 </tbody>
             </table>
+            <div class="rule-empty-hint" id="ruleEmptyHint">這個分類目前還沒有任何規則，往下用對應的表單建立一組。</div>
         </div>
 
         <div th:if="${settings.isEmpty()}" class="empty-state">
@@ -168,7 +211,7 @@
         </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="cardPricingForm">
         <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 新增報價定價規則</div>
         <div class="card-desc">①②③④基本報價／同業／直售／退傭這一組——把上方藍色的價格變數拖曳（或點一下）插入到下面選取中的公式欄位，插入後可以直接在欄位裡打運算子跟數字，例如「× 1.15 + 2000」。這組規則跟下面「NP／團費成本規則」是分開儲存的，報價單那邊也可以分開選——同一份報價單可以「基本報價套用 A 規則、NP/團費成本套用 B 規則」這樣混搭。</div>
 
@@ -239,7 +282,7 @@
         </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="cardTierForm" style="display:none;">
         <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 新增 NP／團費成本規則</div>
         <div class="card-desc">⑤⑥「整團人數級距報價結果」卡片專用的另一組計算式 (跟上面①②③④基本報價／同業／直售／退傭是完全獨立的另一組變數)，對應報價單裡「NP」跟「團費成本」這兩個結果。這組規則跟上面「報價定價規則」是分開儲存的，報價單那邊也可以分開選一組不一樣的規則來用。</div>
 
@@ -287,6 +330,31 @@
 </main>
 
 <script>
+// 「現有規則」的分類籤: 報價定價規則(上面) / NP、團費成本規則(下面), 切換時表格只顯示對應欄位,
+// 下面「新增...規則」兩張卡片也只顯示對應那一張 (使用者要求「下面編輯規則的只會跳出對應的規則」)。
+function switchRuleType(type) {
+    var isPricing = type === 'pricing';
+    document.getElementById('ruleTabPricing').classList.toggle('active', isPricing);
+    document.getElementById('ruleTabTier').classList.toggle('active', !isPricing);
+    var table = document.getElementById('ruleTable');
+    if (table) {
+        table.classList.toggle('mode-pricing', isPricing);
+        table.classList.toggle('mode-tier', !isPricing);
+        // 這個籤底下如果一列都沒有 (例如目前全部規則都是另一種類型), 顯示提示文字, 不要留一個只有
+        // 表頭、內容空空的表格。
+        var attr = isPricing ? 'data-haspricing' : 'data-hastier';
+        var rows = table.querySelectorAll('tbody tr');
+        var anyVisible = Array.prototype.some.call(rows, function (row) { return row.getAttribute(attr) === 'true'; });
+        var hint = document.getElementById('ruleEmptyHint');
+        if (hint) hint.classList.toggle('show', rows.length > 0 && !anyVisible);
+    }
+    var cardPricing = document.getElementById('cardPricingForm');
+    var cardTier = document.getElementById('cardTierForm');
+    if (cardPricing) cardPricing.style.display = isPricing ? '' : 'none';
+    if (cardTier) cardTier.style.display = isPricing ? 'none' : '';
+}
+switchRuleType('pricing'); // 一進頁面先跑一次, 初始化空狀態提示 (預設籤是「報價定價規則」)
+
 (function () {
     // ---------- 變數 / 運算子定義 ----------
     // varId 對應 QuotationService/FormulaEngine 的變數名稱 ({GROSS_COST} {NET_COST} {GROUP_SIZE} {BASIC_PRICE} {TRADE_PRICE})

@@ -148,11 +148,13 @@ public class ItineraryController {
                          @RequestParam int daysCount,
                          @RequestParam(required = false) String startDate,
                          @RequestParam(required = false) List<String> dayCities,
+                         @RequestParam(required = false) List<String> outFlightNo,
                          @RequestParam(required = false) List<String> outDepAirport,
                          @RequestParam(required = false) List<String> outDepTime,
                          @RequestParam(required = false) List<String> outArrAirport,
                          @RequestParam(required = false) List<String> outArrTime,
                          @RequestParam(required = false) List<String> outDepDay,
+                         @RequestParam(required = false) List<String> retFlightNo,
                          @RequestParam(required = false) List<String> retDepAirport,
                          @RequestParam(required = false) List<String> retDepTime,
                          @RequestParam(required = false) List<String> retArrAirport,
@@ -166,8 +168,8 @@ public class ItineraryController {
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
         Itinerary itinerary = itineraryService.createItinerary(AID, UID, title, country, region, daysCount, parsedDate, dayCities);
         itineraryService.attachFlightItems(itinerary.getITID(),
-                outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
-                retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+                outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
+                retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
         // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
         // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
         itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
@@ -186,11 +188,13 @@ public class ItineraryController {
                                     @RequestParam int daysCount,
                                     @RequestParam(required = false) String startDate,
                                     @RequestParam(required = false) List<String> dayCities,
+                                    @RequestParam(required = false) List<String> outFlightNo,
                                     @RequestParam(required = false) List<String> outDepAirport,
                                     @RequestParam(required = false) List<String> outDepTime,
                                     @RequestParam(required = false) List<String> outArrAirport,
                                     @RequestParam(required = false) List<String> outArrTime,
                                     @RequestParam(required = false) List<String> outDepDay,
+                                    @RequestParam(required = false) List<String> retFlightNo,
                                     @RequestParam(required = false) List<String> retDepAirport,
                                     @RequestParam(required = false) List<String> retDepTime,
                                     @RequestParam(required = false) List<String> retArrAirport,
@@ -216,8 +220,8 @@ public class ItineraryController {
         // 一定要等 createItineraryWithAiPlan() 內部的自動整理 (meal_time) 全部跑完才能插入去程/回程班機,
         // 不然剛插好的「第一筆/最後一筆」會被自動整理重新洗牌 (見 ItineraryService.attachFlightItems 說明)
         itineraryService.attachFlightItems(itinerary.getITID(),
-                outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
-                retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+                outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
+                retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
         // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
         // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
         itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
@@ -464,12 +468,13 @@ public class ItineraryController {
                          @RequestParam(required = false) String toLocation,
                          @RequestParam(required = false) String toAddress,
                          @RequestParam(required = false) String transportMethod,
+                         @RequestParam(required = false) String transportNumber,
                          @RequestParam(required = false) String commuteDuration,
                          @RequestParam(required = false) String startTime,
                          @RequestParam(required = false) String endTime,
                          @RequestParam(required = false) Integer commuteDurationMin) {
         itineraryService.updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
-                itemType, fromLocation, fromAddress, toLocation, toAddress, transportMethod, commuteDuration,
+                itemType, fromLocation, fromAddress, toLocation, toAddress, transportMethod, transportNumber, commuteDuration,
                 startTime, endTime, commuteDurationMin);
     }
 

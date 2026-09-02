@@ -29,6 +29,25 @@ public class AiParsedItem {
     @Column(name = "note")
     private String note;
 
+    // ---- 以下為 item_type = 'transport' (航班/高鐵/包車等) 專用欄位, 其餘類型一律是 null ----
+    @Column(name = "from_location")
+    private String fromLocation;
+
+    @Column(name = "to_location")
+    private String toLocation;
+
+    @Column(name = "transport_method")
+    private String transportMethod; // 飛機/高鐵/遊覽車/渡輪...
+
+    @Column(name = "transport_number")
+    private String transportNumber; // 航班/車次編號, 例如 CI100, 原文沒提到就是 null
+
+    @Column(name = "departure_time")
+    private java.time.LocalTime departureTime;
+
+    @Column(name = "arrival_time")
+    private java.time.LocalTime arrivalTime;
+
     @Column(name = "item_country")
     private String itemCountry; // 這個項目自己所在的國家 (跟整個行程共用的 country 分開, 更準確)
 
@@ -75,6 +94,24 @@ public class AiParsedItem {
 
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+
+    public String getFromLocation() { return fromLocation; }
+    public void setFromLocation(String fromLocation) { this.fromLocation = fromLocation; }
+
+    public String getToLocation() { return toLocation; }
+    public void setToLocation(String toLocation) { this.toLocation = toLocation; }
+
+    public String getTransportMethod() { return transportMethod; }
+    public void setTransportMethod(String transportMethod) { this.transportMethod = transportMethod; }
+
+    public String getTransportNumber() { return transportNumber; }
+    public void setTransportNumber(String transportNumber) { this.transportNumber = transportNumber; }
+
+    public java.time.LocalTime getDepartureTime() { return departureTime; }
+    public void setDepartureTime(java.time.LocalTime departureTime) { this.departureTime = departureTime; }
+
+    public java.time.LocalTime getArrivalTime() { return arrivalTime; }
+    public void setArrivalTime(java.time.LocalTime arrivalTime) { this.arrivalTime = arrivalTime; }
 
     public String getItemCountry() { return itemCountry; }
     public void setItemCountry(String itemCountry) { this.itemCountry = itemCountry; }

@@ -100,11 +100,52 @@
         #pageContent.is-busy { opacity: .55; pointer-events: none; }
         #pageContent.is-entering { opacity: 0; }
         ::view-transition-old(page-content), ::view-transition-new(page-content) { animation-duration: .18s; }
+
+        /* 幣別輸入框: 打字篩選幣別資料庫 (跟「建立新行程」機場欄位同一套 .cc-autocomplete-wrap /
+           .cc-suggest-list 樣式), 不用再從一長串下拉選單裡找。 */
+        .cc-autocomplete-wrap { position: relative; }
+        /* .form-control 全域有 min-width:160px, 但幣別欄位的外層容器通常只有 150px 寬 (要跟其他欄位並排),
+           兩個寬度打架會讓輸入框被撐開、蓋到隔壁「單價」欄位——這裡強制幣別輸入框跟著外層容器的寬度走,
+           不要被全域的 min-width 影響。 */
+        .currency-search-input { width: 100%; min-width: 0; box-sizing: border-box; }
+        .cc-suggest-list {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .cc-suggest-list.open { display: block; }
+        .cc-suggest-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .cc-suggest-item:hover { background: #eff6ff; }
+        .cc-suggest-item .cc-suggest-code {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            background: #eff6ff;
+            padding: 1px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
 
-<aside th:replace="~{fragments/sidebar :: sidebar(active='itinerary', userName=${session.name})}"></aside>
+<aside th:replace="~{fragments/sidebar :: sidebar(active='quotation', userName=${session.name})}"></aside>
 
 <main class="main-content">
     <div id="pageContent" th:fragment="pageContent" th:attr="data-fragment-url=@{'/quotation/' + ${quotation.QID} + '/fragment'},data-group-size=${quotation.groupSize}" style="view-transition-name: page-content;">
@@ -123,7 +164,7 @@
             <div class="header-actions">
                 <a th:href="@{'/itinerary/' + ${itinerary.ITID} + '/quotations'}"><i class="fa-solid fa-arrow-left"></i> 所有版本</a>
                 <a th:href="@{'/itinerary/' + ${itinerary.ITID} + '/board'}"><i class="fa-solid fa-chalkboard"></i> 排版看板</a>
-                <a th:if="${quotation.status != 'draft'}" th:href="@{'/quotation/' + ${quotation.QID} + '/export/excel'}"><i class="fa-solid fa-file-excel"></i> 匯出 Excel</a>
+                <a th:if="${quotation.status != 'draft'}" th:href="@{'/quotation/' + ${quotation.QID} + '/export/excel'(templateId=0)}"><i class="fa-solid fa-file-excel"></i> 匯出 Excel</a>
                 <span th:if="${quotation.status == 'draft'}" title="草稿階段金額還會變動, 請先上鎖凍結金額後再匯出給客戶" style="color:#cbd5e1;cursor:not-allowed;display:inline-flex;align-items:center;gap:6px;">
                 <i class="fa-solid fa-file-excel"></i> 匯出 Excel（上鎖後開放）
             </span>
@@ -199,13 +240,14 @@
                             （原本設定的計算公式規則已不存在，請重新選擇）
                         </option>
                         <option th:each="ms : ${marginSettings}"
+                                th:if="${!ms.pureTierRule}"
                                 th:value="${ms.MSID}"
                                 th:selected="${quotation.isPresetFormulaModeActive() and quotation.MSID == ms.MSID}"
                                 th:text="${ms.summary}"></option>
                         <option value="__custom__" th:selected="${!quotation.isPresetFormulaModeActive()}">自填</option>
                     </select>
-                    <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.isEmpty()}">
-                        目前還沒有已儲存的計算公式規則，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
+                    <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.?[!pureTierRule].isEmpty()}">
+                        目前還沒有已儲存的「報價定價規則」，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
                     </div>
                     <!-- ①基本報價這一層即使套用「已儲存的」規則, 那組規則也可能沒有設定基本報價公式 (MarginSetting.basicFormula
                          是選填的) ——這種情況下明確提示使用者「現在實際生效的基本報價設定是什麼」, 避免看不到①的 dropzone
@@ -383,9 +425,11 @@
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">幣別</label>
-                                        <select name="currencyCode" class="form-control" style="width:150px;">
-                                            <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'" th:selected="${cur.code == line.currencyCode}"></option>
-                                        </select>
+                                        <div class="cc-autocomplete-wrap" style="width:150px;">
+                                            <input type="text" class="form-control currency-search-input" placeholder="輸入代碼或名稱" autocomplete="off" />
+                                            <input type="hidden" name="currencyCode" class="currency-hidden-input" th:value="${line.currencyCode}" />
+                                            <div class="cc-suggest-list"></div>
+                                        </div>
                                         <span class="item-note" style="margin-top:4px;display:block;">目前匯率：<span th:text="${line.exchangeRate}"></span>（存檔後自動依幣別套用最新匯率，不可手動填）</span>
                                     </div>
                                     <div class="form-group">
@@ -575,9 +619,11 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">幣別</label>
-                    <select name="currencyCode" id="fcCurrency" class="form-control" style="width:150px;">
-                        <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'"></option>
-                    </select>
+                    <div class="cc-autocomplete-wrap" style="width:150px;">
+                        <input type="text" id="fcCurrencyText" class="form-control currency-search-input" placeholder="輸入代碼或名稱" autocomplete="off" />
+                        <input type="hidden" name="currencyCode" id="fcCurrency" class="currency-hidden-input" />
+                        <div class="cc-suggest-list"></div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">單價</label>
@@ -623,9 +669,11 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">幣別</label>
-                    <select name="currencyCode" class="form-control">
-                        <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'" th:selected="${cur.code == lastUsedCurrency}"></option>
-                    </select>
+                    <div class="cc-autocomplete-wrap" style="width:150px;">
+                        <input type="text" class="form-control currency-search-input" placeholder="輸入代碼或名稱" autocomplete="off" />
+                        <input type="hidden" name="currencyCode" class="currency-hidden-input" th:value="${lastUsedCurrency}" />
+                        <div class="cc-suggest-list"></div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">單價</label>
@@ -707,9 +755,11 @@
                 <form th:if="${canEdit and !groupTiers.isEmpty()}" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/currency'}"
                       style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;">
                     <label class="form-label" style="margin-bottom:0;white-space:nowrap;">幣別（全部級距共用）</label>
-                    <select name="currency" class="form-control" style="width:auto;min-width:0;padding:6px 8px;font-size:12.5px;" onchange="this.form.requestSubmit()">
-                        <option th:each="cur : ${currencies}" th:value="${cur.code}" th:text="${cur.code} + '（' + ${cur.name} + '）'" th:selected="${cur.code == groupTiers.get(0).currency}"></option>
-                    </select>
+                    <div class="cc-autocomplete-wrap" style="width:auto;min-width:160px;">
+                        <input type="text" class="form-control currency-search-input" style="padding:6px 8px;font-size:12.5px;" placeholder="輸入代碼或名稱" autocomplete="off" />
+                        <input type="hidden" name="currency" class="currency-hidden-input" th:value="${groupTiers.get(0).currency}" onchange="this.form.requestSubmit()" />
+                        <div class="cc-suggest-list"></div>
+                    </div>
                 </form>
 
                 <span class="item-note" style="margin:0;">開放區間（例如「32人以上」）沒有平均值/上限可算，一律用下限；選了幣別或人數模式就直接重新計算，不用按鈕</span>
@@ -785,13 +835,14 @@
                                 （原本設定的計算公式規則已不存在，請重新選擇）
                             </option>
                             <option th:each="ms : ${marginSettings}"
+                                    th:if="${ms.npFormula != null or ms.teamFormula != null}"
                                     th:value="${ms.MSID}"
                                     th:selected="${quotation.isTierPresetFormulaModeActive() and quotation.tierMSID == ms.MSID}"
                                     th:text="${ms.name}"></option>
                             <option value="__custom__" th:selected="${!quotation.isTierPresetFormulaModeActive()}">自填</option>
                         </select>
-                        <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.isEmpty()}">
-                            目前還沒有已儲存的計算公式規則，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
+                        <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.?[npFormula != null or teamFormula != null].isEmpty()}">
+                            目前還沒有已儲存的「NP／團費成本規則」，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
                         </div>
                         <input type="hidden" name="tierFormulaMode" id="ginput-tierFormulaMode" />
                         <input type="hidden" name="tierMarginSettingId" id="ginput-tierMarginSettingId" />
@@ -883,13 +934,17 @@
         var componentSelect = document.getElementById('fcComponentSelect');
         if (!componentSelect) return; // 這張報價單所屬旅行社目前元件庫是空的, 這個表單這次沒有渲染出來, 不用往下跑
         var costTypeSelect = document.getElementById('fcCostType');
-        var currencySelect = document.getElementById('fcCurrency');
+        var currencyHidden = document.getElementById('fcCurrency');
+        var currencyText = document.getElementById('fcCurrencyText');
         var unitPriceInput = document.getElementById('fcUnitPrice');
         var qtyInput = document.getElementById('fcQuantity');
 
         var opt = componentSelect.options[componentSelect.selectedIndex];
         if (opt) {
-            if (currencySelect && opt.dataset.currency) currencySelect.value = opt.dataset.currency;
+            if (currencyHidden && opt.dataset.currency) {
+                currencyHidden.value = opt.dataset.currency;
+                if (currencyText) currencyText.value = currencyDisplayFor(opt.dataset.currency);
+            }
             if (unitPriceInput && opt.dataset.price) unitPriceInput.value = opt.dataset.price;
             if (costTypeSelect && opt.dataset.costtype) costTypeSelect.value = opt.dataset.costtype;
         }
@@ -898,6 +953,90 @@
             else if (costTypeSelect.value === 'FIXED_GROUP') qtyInput.value = 1;
         }
     }
+
+    // ---------- 幣別輸入框: 打字篩選幣別資料庫, 取代原本落落長的下拉選單 (跟「建立新行程」機場欄位
+    // 同一套 .cc-autocomplete-wrap / .cc-suggest-list 樣式)。幣別清單本身不多 (平台共用+這間旅行社自訂),
+    // 直接把整批清單內嵌成 JS 陣列在前端篩選即可, 不需要每次打字都打一次 API。
+    // CURRENCY_LIST 宣告在這裡 (#pageContent 外面) 是刻意的: 「報價項目明細」的表格/表單每次存檔都是走
+    // refreshPageContent() 整塊換掉 #pageContent 的 innerHTML, 換進去的新 HTML 裡即使含有 <script> 標籤
+    // 也不會被瀏覽器執行 (innerHTML 插入的 script 不會自動跑), 這份清單放在外層的持續性 script 才能在每次
+    // 局部刷新之後還繼續被 initCurrencyAutocomplete() 用到, 不用重新宣告。 ----------
+    var CURRENCY_LIST = /*[[${currencies}]]*/ [];
+
+    function currencyDisplayFor(code) {
+        if (!code) return '';
+        var found = CURRENCY_LIST.find(function (c) { return c.code === code; });
+        return found ? (found.code + '（' + found.name + '）') : code;
+    }
+
+    function initCurrencyAutocomplete(wrap) {
+        if (!wrap || wrap.dataset.currencyBound === '1') return;
+        wrap.dataset.currencyBound = '1';
+
+        var textInput = wrap.querySelector('.currency-search-input');
+        var hiddenInput = wrap.querySelector('.currency-hidden-input');
+        var list = wrap.querySelector('.cc-suggest-list');
+        if (!textInput || !hiddenInput || !list) return;
+
+        textInput.value = currencyDisplayFor(hiddenInput.value);
+
+        var debounceTimer = null;
+        textInput.addEventListener('input', function () {
+            var keyword = textInput.value.trim().toLowerCase();
+            clearTimeout(debounceTimer);
+            if (!keyword) { closeList(); return; }
+            debounceTimer = setTimeout(function () { renderList(keyword); }, 120);
+        });
+        textInput.addEventListener('blur', function () {
+            setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+
+        function renderList(keyword) {
+            var matches = CURRENCY_LIST.filter(function (c) {
+                return c.code.toLowerCase().indexOf(keyword) !== -1
+                    || (c.name || '').toLowerCase().indexOf(keyword) !== -1;
+            }).slice(0, 20);
+            if (matches.length === 0) { closeList(); return; }
+            list.innerHTML = '';
+            matches.forEach(function (c) {
+                var row = document.createElement('div');
+                row.className = 'cc-suggest-item';
+                var nameSpan = document.createElement('span');
+                nameSpan.textContent = c.name;
+                var codeSpan = document.createElement('span');
+                codeSpan.className = 'cc-suggest-code';
+                codeSpan.textContent = c.code;
+                row.appendChild(nameSpan);
+                row.appendChild(codeSpan);
+                row.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    hiddenInput.value = c.code;
+                    textInput.value = c.code + '（' + c.name + '）';
+                    closeList();
+                    // 有些幣別欄位 (整團人數級距的幣別) 選了要自動送出表單, 靠 hidden input 的 onchange
+                    // 觸發, 但這裡是用 JS 直接改 .value, 瀏覽器不會自動發出 change 事件, 要手動補發一次。
+                    hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+                list.appendChild(row);
+            });
+            list.classList.add('open');
+        }
+
+        function closeList() {
+            list.classList.remove('open');
+            list.innerHTML = '';
+        }
+    }
+
+    function initAllCurrencyAutocompletes(root) {
+        (root || document).querySelectorAll('.cc-autocomplete-wrap').forEach(function (wrap) {
+            if (wrap.querySelector('.currency-search-input')) initCurrencyAutocomplete(wrap);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        initAllCurrencyAutocompletes(document);
+    });
 
     // ---------- 基本報價／同業／直售加成與退傭設定: 公式建構器 (跟 margin-setting/list.html 同一套邏輯) ----------
     // 這裡改成具名函式 (不是立即執行的 IIFE): 這個公式建構器的變數/運算子面板、dropzone 拖拉/點擊插入事件,
@@ -1772,6 +1911,9 @@
                 // 要整頁重新整理才會恢復; 同一個函式裡也會用剛更新好的 CURRENT_GROUP_SIZE 重新套一次「新增報價
                 // 項目」數量欄位的預設值。
                 initFormulaBuilders();
+                // 幣別輸入框也是同樣道理: 換進來的新內容裡雖然有 .cc-autocomplete-wrap，但 innerHTML 換進來的
+                // <script> 不會執行、事件也還沒綁, 要對新內容重新跑一次初始化, 不然新畫面上的幣別欄位打字完全沒反應。
+                initAllCurrencyAutocompletes(newContent);
                 window.scrollTo(0, scrollY);
                 // 下一畫格再拿掉 is-entering, 讓 opacity 0 -> 1 的 CSS transition 有機會播放
                 requestAnimationFrame(() => requestAnimationFrame(() => newContent.classList.remove('is-entering')));

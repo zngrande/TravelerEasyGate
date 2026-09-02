@@ -3,6 +3,7 @@ package com.example.UsefulTravel.controller;
 import com.example.UsefulTravel.DAO.MarginSettingDAO;
 import com.example.UsefulTravel.entity.MarginSetting;
 import com.example.UsefulTravel.service.FormulaEngine;
+import com.example.UsefulTravel.service.PermissionService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -23,16 +24,24 @@ import java.util.Map;
 public class MarginSettingController {
 
     private final MarginSettingDAO marginSettingDAO;
+    private final PermissionService permissionService;
 
     @Autowired
-    public MarginSettingController(MarginSettingDAO marginSettingDAO) {
+    public MarginSettingController(MarginSettingDAO marginSettingDAO, PermissionService permissionService) {
         this.marginSettingDAO = marginSettingDAO;
+        this.permissionService = permissionService;
+    }
+
+    // 計算公式是報價引擎的基礎設定, 對應側邊欄「計算公式」的顯示條件, 只有能報價的角色 (ADMIN/QUOTER) 能用。
+    private boolean canQuote(HttpSession session) {
+        return permissionService.canQuote((String) session.getAttribute("role"));
     }
 
     @GetMapping
     public String list(HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/agency/dashboard";
 
         model.addAttribute("settings", marginSettingDAO.findByAgency(AID));
         return "margin-setting/list";
@@ -58,6 +67,7 @@ public class MarginSettingController {
                          HttpSession session, RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/agency/dashboard";
 
         // 存檔前先用樣本數字驗證公式的格式跟變數是否合法, 錯的話擋下來不存, 回去畫面顯示錯誤。
         // 兩組公式完全獨立驗證: 這次表單沒有送到的那組欄位全部是 null, 對應的驗證區塊直接跳過, 不會因為
@@ -122,6 +132,7 @@ public class MarginSettingController {
                          org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canQuote(session)) return "redirect:/agency/dashboard";
 
         MarginSetting setting = marginSettingDAO.findById(MSID);
         if (setting == null) {

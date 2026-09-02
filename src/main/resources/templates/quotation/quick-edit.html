@@ -67,7 +67,7 @@
 </head>
 <body>
 
-<aside th:replace="~{fragments/sidebar :: sidebar(active='itinerary', userName=${session.name})}"></aside>
+<aside th:replace="~{fragments/sidebar :: sidebar(active='quotation', userName=${session.name})}"></aside>
 
 <main class="main-content">
 <div id="pageContent" th:fragment="pageContent" th:attr="data-fragment-url=@{'/quotation/' + ${quotation.QID} + '/quick-edit/fragment'}" style="view-transition-name: page-content;">

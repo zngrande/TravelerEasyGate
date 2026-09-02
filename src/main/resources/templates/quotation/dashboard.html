@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>報價單 - TRAVELER EASY GATE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-blue: #2563eb;
+            --primary-purple: #8b5cf6;
+            --bg-gray: #f8fafc;
+            --text-dark: #1e293b;
+            --text-gray: #64748b;
+            --border-color: #e2e8f0;
+            --sidebar-width: 200px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; }
+        a { text-decoration: none; color: inherit; }
+
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
+
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+
+        /* Section Title & 篩選框, 跟「我的行程」那頁同一套樣式 */
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .section-title { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .filter-box { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 14px; }
+        .filter-box i { color: var(--text-gray); font-size: 13px; }
+        .filter-box input { border: none; outline: none; font-size: 13px; width: 220px; font-family: inherit; color: var(--text-dark); }
+
+        /* Table Styles (跟「我的行程」那頁同一套樣式, 讓兩個列表看起來是同一個系統) */
+        .table-container { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: #f8fafc; padding: 16px 20px; font-size: 13px; color: var(--text-gray); font-weight: 500; border-bottom: 1px solid var(--border-color); }
+        td { padding: 16px 20px; border-bottom: 1px solid var(--border-color); vertical-align: middle; font-size: 14px; }
+        tr:last-child td { border-bottom: none; }
+        tr.itinerary-row { cursor: pointer; transition: background 0.12s ease; }
+        tr.itinerary-row:hover { background: #f8fafc; }
+
+        .itinerary-cell { display: flex; align-items: center; gap: 12px; font-weight: 500; }
+
+        .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block; }
+        .status-draft { background: #eff6ff; color: var(--primary-blue); }
+        .status-confirmed { background: #f0fdf4; color: #16a34a; }
+
+        .quote-count-badge { display: inline-flex; align-items: center; gap: 6px; background: #f3e8ff; color: var(--primary-purple); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .quote-count-badge.zero { background: #f1f5f9; color: var(--text-gray); }
+
+        .btn-text { color: var(--primary-blue); font-weight: 500; font-size: 13px; }
+
+        .empty-state { padding: 60px 20px; text-align: center; color: var(--text-gray); }
+        .empty-state i { font-size: 32px; color: #cbd5e1; margin-bottom: 12px; display: block; }
+    </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside th:replace="~{fragments/sidebar :: sidebar(active='quotation', userName=${session.name})}"></aside>
+
+<!-- Main Content -->
+<main class="main-content">
+    <div class="page-header">
+        <div class="page-title"><i class="fa-solid fa-file-invoice-dollar" style="color: var(--primary-blue);"></i> 報價單</div>
+    </div>
+
+    <div class="section-header">
+        <div class="section-title">
+            <i class="fa-solid fa-suitcase"></i> 我的報價單
+        </div>
+        <div class="filter-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="itineraryFilterInput" placeholder="篩選：名稱／國家／地區" oninput="filterItineraries()" />
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table th:if="${!itineraries.isEmpty()}">
+            <thead>
+            <tr>
+                <th>行程名稱</th>
+                <th>國家</th>
+                <th>天數</th>
+                <th>出發日期</th>
+                <th>狀態</th>
+                <th>報價單版本數</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="it : ${itineraries}" class="itinerary-row"
+                th:attr="data-title=${it.title}, data-country=${it.country}, data-region=${it.region}, data-itid=${it.ITID}"
+                onclick="goToQuotations(this)">
+                <td>
+                    <div class="itinerary-cell">
+                        <span th:text="${it.title}"></span>
+                    </div>
+                </td>
+                <td th:text="${it.country} + (${it.region} != null ? ' / ' + ${it.region} : '')"></td>
+                <td th:text="${it.daysCount} + ' 天'"></td>
+                <td>
+                    <i class="fa-regular fa-calendar" style="color: #94a3b8; margin-right: 4px;"></i>
+                    <span th:text="${it.startDate}"></span>
+                </td>
+                <td>
+                    <span th:if="${it.status == null or it.status == 'draft'}" class="status-badge status-draft">草稿</span>
+                    <span th:if="${it.status != null and it.status != 'draft'}" class="status-badge status-confirmed">已完成</span>
+                </td>
+                <td>
+                    <span th:if="${quotationCounts.get(it.ITID) > 0}" class="quote-count-badge">
+                        <i class="fa-solid fa-file-invoice-dollar"></i>
+                        <span th:text="${quotationCounts.get(it.ITID)} + ' 個版本'"></span>
+                    </span>
+                    <span th:if="${quotationCounts.get(it.ITID) == 0}" class="quote-count-badge zero">尚無報價單</span>
+                </td>
+                <td>
+                    <!-- 這裡的連結自己要擋掉列點擊事件冒泡, 不然會被整列的 onclick 連動觸發跳轉兩次 -->
+                    <a class="btn-text" th:href="@{'/itinerary/' + ${it.ITID} + '/quotations'}" onclick="event.stopPropagation();">查看報價單</a>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+
+        <div th:if="${itineraries.isEmpty()}" class="empty-state">
+            <i class="fa-regular fa-folder-open"></i>
+            目前還沒有任何行程，先到「行程列表」建立行程後就能在這裡管理報價單。
+        </div>
+    </div>
+
+</main>
+
+<script>
+    // 篩選: 用名稱/國家/地區即時過濾下面的行程列表, 純前端過濾不用重新整理頁面 (跟「我的行程」那頁同一套邏輯)
+    function filterItineraries() {
+        const keyword = document.getElementById('itineraryFilterInput').value.trim().toLowerCase();
+        document.querySelectorAll('tr.itinerary-row').forEach(row => {
+            const haystack = [
+                row.dataset.title || '',
+                row.dataset.country || '',
+                row.dataset.region || ''
+            ].join(' ').toLowerCase();
+            row.style.display = haystack.includes(keyword) ? '' : 'none';
+        });
+    }
+
+    // 點整行 (除了「查看報價單」連結本身) 都導去這個行程的報價單版本列表
+    function goToQuotations(row) {
+        location.href = '/itinerary/' + row.dataset.itid + '/quotations';
+    }
+</script>
+
+</body>
+</html>

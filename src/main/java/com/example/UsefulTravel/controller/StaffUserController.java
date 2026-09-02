@@ -83,7 +83,7 @@ public class StaffUserController {
         Integer AID = (Integer) session.getAttribute("AID");
         String role = (String) session.getAttribute("role");
         if (AID == null) return "redirect:/login";
-        if (!permissionService.canManageStaff(role)) return "redirect:/agency/dashboard";
+        if (!permissionService.canManageStaff(role)) return "redirect:/agency/dashboard?permissionError=1";
 
         List<StaffUser> staffList = staffUserDAO.findByAgency(AID);
         model.addAttribute("staffList", staffList);
@@ -97,14 +97,14 @@ public class StaffUserController {
                             @RequestParam(required = false) String phone,
                             @RequestParam String account,
                             @RequestParam String pw,
-                            @RequestParam String role,
+                            @RequestParam(required = false) List<String> roles,
                             HttpSession session,
                             RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         String sessionRole = (String) session.getAttribute("role");
         if (AID == null) return "redirect:/login";
-        if (!permissionService.canManageStaff(sessionRole)) return "redirect:/agency/dashboard";
-        if (!permissionService.isValidRole(role)) role = PermissionService.VIEWER;
+        if (!permissionService.canManageStaff(sessionRole)) return "redirect:/agency/dashboard?permissionError=1";
+        String role = permissionService.joinRoles(roles); // 沒勾選任何角色時 joinRoles() 內部會自動退回 VIEWER
 
         if (staffUserDAO.findByAccount(account) != null) {
             redirectAttributes.addFlashAttribute("staffError", "這個帳號已經被使用過了");
@@ -115,18 +115,15 @@ public class StaffUserController {
         return "redirect:/staff";
     }
 
-    // POST /staff/{uid}/role → 變更角色 (四級權限矩陣)
+    // POST /staff/{uid}/role → 變更角色 (四級權限矩陣, 支援多選——一個人可以同時掛好幾個角色)
     @PostMapping("/staff/{uid}/role")
-    public String updateRole(@PathVariable("uid") int UID, @RequestParam String role,
+    public String updateRole(@PathVariable("uid") int UID, @RequestParam(required = false) List<String> roles,
                               HttpSession session, RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         String sessionRole = (String) session.getAttribute("role");
         if (AID == null) return "redirect:/login";
-        if (!permissionService.canManageStaff(sessionRole)) return "redirect:/agency/dashboard";
-        if (!permissionService.isValidRole(role)) {
-            redirectAttributes.addFlashAttribute("staffError", "無效的角色");
-            return "redirect:/staff";
-        }
+        if (!permissionService.canManageStaff(sessionRole)) return "redirect:/agency/dashboard?permissionError=1";
+        String role = permissionService.joinRoles(roles);
 
         StaffUser target = staffUserDAO.findById(UID);
         if (target == null || target.getAID() != AID) return "redirect:/staff";
@@ -142,7 +139,7 @@ public class StaffUserController {
         Integer sessionUID = (Integer) session.getAttribute("UID");
         String sessionRole = (String) session.getAttribute("role");
         if (AID == null) return "redirect:/login";
-        if (!permissionService.canManageStaff(sessionRole)) return "redirect:/agency/dashboard";
+        if (!permissionService.canManageStaff(sessionRole)) return "redirect:/agency/dashboard?permissionError=1";
 
         StaffUser target = staffUserDAO.findById(UID);
         if (target == null || target.getAID() != AID) return "redirect:/staff";
@@ -162,7 +159,7 @@ public class StaffUserController {
         Integer AID = (Integer) session.getAttribute("AID");
         String sessionRole = (String) session.getAttribute("role");
         if (AID == null) return "redirect:/login";
-        if (!permissionService.canManageStaff(sessionRole)) return "redirect:/agency/dashboard";
+        if (!permissionService.canManageStaff(sessionRole)) return "redirect:/agency/dashboard?permissionError=1";
 
         StaffUser target = staffUserDAO.findById(UID);
         if (target == null || target.getAID() != AID) return "redirect:/staff";

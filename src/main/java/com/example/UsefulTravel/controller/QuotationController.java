@@ -63,6 +63,25 @@ public class QuotationController {
         return permissionService.canQuote(role);
     }
 
+    // GET /quotations → 報價單儀表板, 跟「我的行程」(agency/dashboard.html) 同一套版面,
+    // 列出這個帳號所有行程 + 每個行程目前有幾份報價單版本, 點一行就進去 /itinerary/{id}/quotations
+    @GetMapping("/quotations")
+    public String dashboard(HttpSession session, Model model) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return "redirect:/login";
+
+        List<Itinerary> itineraries = itineraryDAO.findByAgency(AID);
+        Map<Integer, Integer> quotationCounts = new HashMap<>();
+        for (Itinerary it : itineraries) {
+            quotationCounts.put(it.getITID(), quotationService.findByItinerary(it.getITID()).size());
+        }
+
+        model.addAttribute("itineraries", itineraries);
+        model.addAttribute("quotationCounts", quotationCounts);
+        model.addAttribute("name", session.getAttribute("name"));
+        return "quotation/dashboard";
+    }
+
     // GET /itinerary/{id}/quotations → 這個行程底下所有報價單版本列表
     @GetMapping("/itinerary/{id}/quotations")
     public String list(@PathVariable("id") int ITID, HttpSession session, Model model) {
@@ -86,7 +105,7 @@ public class QuotationController {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/itinerary/" + ITID + "/quotations";
+        if (!canQuote(session)) return "redirect:/itinerary/" + ITID + "/quotations?permissionError=1";
 
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary == null || itinerary.getAID() != AID) return "redirect:/agency/dashboard";
@@ -103,7 +122,7 @@ public class QuotationController {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/itinerary/" + ITID + "/board";
+        if (!canQuote(session)) return "redirect:/itinerary/" + ITID + "/board?permissionError=1";
 
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary == null || itinerary.getAID() != AID) return "redirect:/agency/dashboard";
@@ -282,7 +301,7 @@ public class QuotationController {
                                  HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
 
         // 團體人數變動會連動重新計算所有明細 (FOC 折抵), 交給 service 統一處理
         quotationService.updateGroupSize(QID, groupSize);
@@ -312,7 +331,7 @@ public class QuotationController {
                           @RequestParam(required = false, defaultValue = "edit") String back,
                           HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return redirectBack(QID, back);
+        if (!canQuote(session)) return redirectBackDenied(QID, back);
 
         quotationService.addLine(QID, componentId, itemName, category, costType, currencyCode, unitPrice, quantity,
                 fuelSurcharge, taxAmount, focRatio, refundable, note);
@@ -333,7 +352,7 @@ public class QuotationController {
                                        @RequestParam(required = false, defaultValue = "edit") String back,
                                        HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return redirectBack(QID, back);
+        if (!canQuote(session)) return redirectBackDenied(QID, back);
 
         quotationService.addLineFromComponent(QID, componentId, costType, currencyCode, unitPrice, quantity, focRatio, note);
         return redirectBack(QID, back);
@@ -356,7 +375,7 @@ public class QuotationController {
                              @RequestParam(required = false) String note,
                              HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
 
         quotationService.updateLine(QLID, itemName, category, costType, currencyCode, unitPrice, quantity,
                 fuelSurcharge, taxAmount, focRatio, refundable, note);
@@ -369,7 +388,7 @@ public class QuotationController {
                              @RequestParam(required = false, defaultValue = "edit") String back,
                              HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return redirectBack(QID, back);
+        if (!canQuote(session)) return redirectBackDenied(QID, back);
         quotationService.deleteLine(QLID);
         return redirectBack(QID, back);
     }
@@ -379,11 +398,19 @@ public class QuotationController {
         return "quick".equals(back) ? "redirect:/quotation/" + QID + "/quick-edit" : "redirect:/quotation/" + QID;
     }
 
+    // 跟 redirectBack 一樣, 但是給「權限不足擋下來」的分支專用: 額外帶一個 ?permissionError=1 的標記,
+    // 讓頁面 (quotation/edit.html、quick-edit.html) 讀到這個參數時彈出「你沒有這個操作的權限」的提示——
+    // 使用者反映 EDITOR 角色點「解鎖」這類按鈕時完全沒反應 (伺服器其實有正確擋下來, 只是靜靜導回原頁面,
+    // 使用者以為是按鈕壞掉), 這裡統一補上明確的提示。
+    private String redirectBackDenied(int QID, String back) {
+        return redirectBack(QID, back) + "?permissionError=1";
+    }
+
     // POST /quotation/{qid}/lock → 上鎖 (凍結金額, 可對外報價)
     @PostMapping("/quotation/{qid}/lock")
     public String lock(@PathVariable("qid") int QID, HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.lock(QID);
         return "redirect:/quotation/" + QID;
     }
@@ -392,7 +419,7 @@ public class QuotationController {
     @PostMapping("/quotation/{qid}/reopen")
     public String reopen(@PathVariable("qid") int QID, HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.reopen(QID);
         return "redirect:/quotation/" + QID;
     }
@@ -401,7 +428,7 @@ public class QuotationController {
     @PostMapping("/quotation/{qid}/confirm")
     public String confirm(@PathVariable("qid") int QID, HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.confirm(QID);
         return "redirect:/quotation/" + QID;
     }
@@ -412,7 +439,7 @@ public class QuotationController {
         if (session.getAttribute("AID") == null) return "redirect:/login";
         Quotation quotation = quotationService.findById(QID);
         int ITID = quotation != null ? quotation.getITID() : 0;
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.delete(QID);
         return "redirect:/itinerary/" + ITID + "/quotations";
     }
@@ -429,7 +456,7 @@ public class QuotationController {
                           @RequestParam BigDecimal price,
                           HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.addTier(QLID, minQty, maxQty, price);
         return "redirect:/quotation/" + QID;
     }
@@ -439,7 +466,7 @@ public class QuotationController {
     public String deleteTier(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
                              @PathVariable("qltid") int QLTID, HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.deleteTier(QLTID);
         return "redirect:/quotation/" + QID;
     }
@@ -453,7 +480,7 @@ public class QuotationController {
                              @RequestParam BigDecimal price,
                              HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.updateTier(QLTID, minQty, maxQty, price);
         return "redirect:/quotation/" + QID;
     }
@@ -464,7 +491,7 @@ public class QuotationController {
                                         @RequestParam(required = false, defaultValue = "false") boolean tierManaged,
                                         HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.updateLineTierManaged(QLID, tierManaged);
         return "redirect:/quotation/" + QID;
     }
@@ -491,7 +518,7 @@ public class QuotationController {
     public String applyTierTemplate(@PathVariable("qid") int QID, @PathVariable("qlid") int QLID,
                                     @RequestParam int templateId, HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.applyTemplateToLine(QLID, templateId);
         return "redirect:/quotation/" + QID;
     }
@@ -520,7 +547,7 @@ public class QuotationController {
                                @RequestParam(required = false) Integer marginSettingId,
                                HttpSession session, RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
 
         // 「已儲存的」模式下, ①②③④四層都改成套用選定的 MarginSetting (①如果那組規則沒填 basicFormula,
         // 交給 QuotationService 在計算時 fallback 回這張報價單自己的 basicMarkupMode/Value), 不驗證這次表單
@@ -567,7 +594,7 @@ public class QuotationController {
                                @RequestParam(required = false) Integer maxQty,
                                HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.addGroupTier(QID, minQty, maxQty);
         return "redirect:/quotation/" + QID;
     }
@@ -577,7 +604,7 @@ public class QuotationController {
     public String deleteGroupTier(@PathVariable("qid") int QID, @PathVariable("qgtid") int QGTID,
                                   HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.deleteGroupTier(QGTID);
         return "redirect:/quotation/" + QID;
     }
@@ -588,7 +615,7 @@ public class QuotationController {
                                                @RequestParam String mode,
                                                HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.updateGroupTierHeadcountMode(QID, mode);
         return "redirect:/quotation/" + QID;
     }
@@ -600,7 +627,7 @@ public class QuotationController {
                                           @RequestParam String currency,
                                           HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         quotationService.updateGroupTierCurrency(QID, currency);
         return "redirect:/quotation/" + QID;
     }
@@ -618,7 +645,7 @@ public class QuotationController {
                                                 @RequestParam(required = false) Integer tierMarginSettingId,
                                                 HttpSession session, RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
-        if (!canQuote(session)) return "redirect:/quotation/" + QID;
+        if (!canQuote(session)) return "redirect:/quotation/" + QID + "?permissionError=1";
         boolean tierPresetMode = "preset".equals(tierFormulaMode);
         try {
             quotationService.applyGroupTierFormulaSettings(QID,

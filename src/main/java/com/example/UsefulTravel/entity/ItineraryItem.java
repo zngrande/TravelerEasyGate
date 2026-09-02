@@ -75,6 +75,9 @@ public class ItineraryItem {
     @Column(name = "transport_method")
     private String transportMethod; // 交通工具 (例如: 高鐵/飛機/遊覽車/渡輪/計程車...)
 
+    @Column(name = "transport_number")
+    private String transportNumber; // 航班/車次編號 (例如: CI100、新幹線のぞみ23号), 選填, 只有交通類項目會用到
+
     @Column(name = "commute_duration")
     private String commuteDuration; // 通勤時間 (自由文字, 例如「約1小時30分」) —— 已改用下面 commuteDurationMin
                                      // (數字, 分鐘) 取代, 這個欄位保留只是為了不動舊資料, UI 已經不會再讀寫它
@@ -165,6 +168,9 @@ public class ItineraryItem {
 
     public String getTransportMethod() { return transportMethod; }
     public void setTransportMethod(String transportMethod) { this.transportMethod = transportMethod; }
+
+    public String getTransportNumber() { return transportNumber; }
+    public void setTransportNumber(String transportNumber) { this.transportNumber = transportNumber; }
 
     public String getCommuteDuration() { return commuteDuration; }
     public void setCommuteDuration(String commuteDuration) { this.commuteDuration = commuteDuration; }

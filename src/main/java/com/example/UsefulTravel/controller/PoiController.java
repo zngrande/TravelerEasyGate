@@ -3,6 +3,7 @@ package com.example.UsefulTravel.controller;
 import com.example.UsefulTravel.entity.Poi;
 import com.example.UsefulTravel.service.GoogleMapsClient;
 import com.example.UsefulTravel.service.ImageAssetService;
+import com.example.UsefulTravel.service.PermissionService;
 import com.example.UsefulTravel.service.PoiService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,12 +24,21 @@ public class PoiController {
     private final PoiService poiService;
     private final GoogleMapsClient googleMapsClient;
     private final ImageAssetService imageAssetService;
+    private final PermissionService permissionService;
 
     @Autowired
-    public PoiController(PoiService poiService, GoogleMapsClient googleMapsClient, ImageAssetService imageAssetService) {
+    public PoiController(PoiService poiService, GoogleMapsClient googleMapsClient,
+                          ImageAssetService imageAssetService, PermissionService permissionService) {
         this.poiService = poiService;
         this.googleMapsClient = googleMapsClient;
         this.imageAssetService = imageAssetService;
+        this.permissionService = permissionService;
+    }
+
+    // 景點資料庫是「編輯行程」的準備工作 (排版時要用), 對應側邊欄「資料庫管理」的顯示條件,
+    // 只有 ADMIN / EDITOR 能用；QUOTER / VIEWER 直接打網址進來也會被這裡擋掉、導回首頁。
+    private boolean canEditItinerary(HttpSession session) {
+        return permissionService.canEditItinerary((String) session.getAttribute("role"));
     }
 
     // GET /poi → 景點/飯店資料庫列表 (含搜尋)
@@ -39,6 +49,7 @@ public class PoiController {
                         HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         model.addAttribute("pois", poiService.search(AID, keyword, category, location));
         model.addAttribute("keyword", keyword);
@@ -51,6 +62,7 @@ public class PoiController {
     @GetMapping("/new")
     public String newForm(HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
         return "poi/new";
     }
 
@@ -72,6 +84,7 @@ public class PoiController {
                           HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         Poi poi = new Poi(AID, category, name, country, city, address, latitude, longitude);
         poi.setOriginalName(originalName);
@@ -107,6 +120,7 @@ public class PoiController {
                                           HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return ResponseEntity.status(401).build();
+        if (!canEditItinerary(session)) return ResponseEntity.status(403).build();
 
         List<Poi> matches = poiService.search(AID, keyword, category);
         List<Map<String, Object>> result = matches.stream()
@@ -137,6 +151,7 @@ public class PoiController {
     public ResponseEntity<?> countries(@RequestParam(required = false) String keyword, HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return ResponseEntity.status(401).build();
+        if (!canEditItinerary(session)) return ResponseEntity.status(403).build();
         String kw = keyword == null ? "" : keyword.trim();
         List<String> result = poiService.listCountries(AID).stream()
                 .filter(c -> kw.isEmpty() || c.contains(kw))
@@ -153,6 +168,7 @@ public class PoiController {
                                     HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return ResponseEntity.status(401).build();
+        if (!canEditItinerary(session)) return ResponseEntity.status(403).build();
         String kw = keyword == null ? "" : keyword.trim();
         List<String> result = poiService.listCitiesByCountry(AID, country).stream()
                 .filter(c -> kw.isEmpty() || c.contains(kw))
@@ -165,6 +181,7 @@ public class PoiController {
     @ResponseBody
     public ResponseEntity<?> getDescription(@PathVariable("id") int PID, HttpSession session) {
         if (session.getAttribute("AID") == null) return ResponseEntity.status(401).build();
+        if (!canEditItinerary(session)) return ResponseEntity.status(403).build();
         Poi poi = poiService.findById(PID);
         if (poi == null) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(java.util.Map.of("description", poi.getDescription() != null ? poi.getDescription() : ""));
@@ -181,6 +198,7 @@ public class PoiController {
                                                 HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return ResponseEntity.status(401).build();
+        if (!canEditItinerary(session)) return ResponseEntity.status(403).build();
         try {
             Poi saved = poiService.updateDescription(AID, PID, description, iiid);
             return ResponseEntity.ok(java.util.Map.of("pid", saved.getPID()));
@@ -194,6 +212,7 @@ public class PoiController {
     public String editForm(@PathVariable("id") int PID, HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         Poi poi = poiService.findById(PID);
         if (poi == null) return "redirect:/poi";
@@ -227,6 +246,7 @@ public class PoiController {
                         HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         Poi original = poiService.findById(PID);
         if (original == null) return "redirect:/poi";
@@ -292,6 +312,7 @@ public class PoiController {
                           org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
         Poi poi = poiService.findById(PID);
         if (poi == null) return "redirect:/poi";
         if (poi.getAID() != null && !poi.getAID().equals(AID)) return "redirect:/poi";

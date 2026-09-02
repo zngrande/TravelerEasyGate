@@ -217,6 +217,15 @@
         .unmatched-tag { font-size: 11px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; }
         .note { color: var(--text-gray); font-size: 12px; margin-top: 4px; }
 
+        /* 「加入景點資料庫」「編輯」這兩顆小按鈕: 顏色/文字跟行程排版看板 (itinerary/board.html 的
+           .btn-action.add-poi / .btn-action.edit) 統一, 不要各頁各用一套配色——綠色=加入資料庫這種
+           「確認/新增」的正面動作, 灰色=編輯這種中性次要動作, 全站都用同一套語意色。 */
+        .btn-small { font-size: 11px; padding: 3px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; border: 1px solid transparent; }
+        .btn-small.add-poi { background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
+        .btn-small.add-poi:hover { background: #d1fae5; }
+        .btn-small.edit-toggle { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+        .btn-small.edit-toggle:hover { background: #e2e8f0; }
+
         .edit-form { background: #fff; border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; margin-top: 10px; }
         .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .edit-form label { display: block; font-size: 11px; font-weight: bold; color: var(--text-gray); margin-bottom: 2px; }
@@ -314,12 +323,11 @@
 
                             <form th:if="${item.matchedPid == null and (item.itemType == 'attraction' or item.itemType == 'meal' or item.itemType == 'hotel')}"
                                   method="post" th:action="@{'/ai-import/item/' + ${item.APIID} + '/add-to-poi'}" style="display:inline;">
-                                <button type="submit" style="font-size:11px;padding:3px 8px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;">
-                                    + 新增至資料庫
+                                <button type="submit" class="btn-small add-poi">
+                                    ＋ 加入景點資料庫
                                 </button>
                             </form>
-                            <button type="button" th:onclick="'toggleEdit(' + ${item.APIID} + ')'"
-                                    style="font-size:11px;padding:3px 8px;background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;">
+                            <button type="button" class="btn-small edit-toggle" th:onclick="'toggleEdit(' + ${item.APIID} + ')'">
                                 ✎ 編輯
                             </button>
                         </span>
@@ -342,7 +350,7 @@
                             </div>
                             <div>
                                 <label>類型</label>
-                                <select name="itemType">
+                                <select name="itemType" th:id="'edit-type-' + ${item.APIID}" th:onchange="'onReviewTypeChange(' + ${item.APIID} + ')'">
                                     <option value="attraction" th:selected="${item.itemType == 'attraction'}">景點</option>
                                     <option value="meal" th:selected="${item.itemType == 'meal'}">餐廳</option>
                                     <option value="hotel" th:selected="${item.itemType == 'hotel'}">住宿</option>
@@ -350,7 +358,7 @@
                                     <option value="highlight" th:selected="${item.itemType == 'highlight'}">亮點文案</option>
                                 </select>
                             </div>
-                            <div>
+                            <div th:id="'edit-timeslot-wrap-' + ${item.APIID}">
                                 <label>時段</label>
                                 <select name="timeSlot">
                                     <option value="">未指定</option>
@@ -363,10 +371,45 @@
                                     <option value="dinner" th:selected="${item.timeSlot == 'dinner'}">晚餐</option>
                                 </select>
                             </div>
-                            <div>
+                            <div th:id="'edit-stay-wrap-' + ${item.APIID}">
                                 <label>預估停留(分鐘)</label>
                                 <input type="number" name="stayMinutes" th:value="${item.stayMinutes}" min="0" step="15" />
                             </div>
+                        </div>
+
+                        <!-- 交通專屬欄位: 只有類型是「交通」才顯示 (onReviewTypeChange 控制), 對應
+                             AiParsedItem 的 from_location/to_location/transport_method/transport_number/
+                             departure_time/arrival_time, confirmImport() 轉正式行程時會用這幾個欄位組出
+                             跟「建立新行程」手動填去程/回程班機一致的顯示格式。 -->
+                        <div th:id="'edit-transport-grid-' + ${item.APIID}" class="edit-grid"
+                             th:style="${item.itemType == 'transport'} ? '' : 'display:none;'" style="margin-top:8px;">
+                            <div>
+                                <label>起始點</label>
+                                <input type="text" name="fromLocation" th:value="${item.fromLocation}" placeholder="例：桃園國際機場" />
+                            </div>
+                            <div>
+                                <label>目的地</label>
+                                <input type="text" name="toLocation" th:value="${item.toLocation}" placeholder="例：東京成田機場" />
+                            </div>
+                            <div>
+                                <label>交通工具</label>
+                                <input type="text" name="transportMethod" th:value="${item.transportMethod}" placeholder="例：飛機/高鐵/遊覽車" />
+                            </div>
+                            <div>
+                                <label>航班/車次編號</label>
+                                <input type="text" name="transportNumber" th:value="${item.transportNumber}" placeholder="例：CI100" />
+                            </div>
+                            <div>
+                                <label>出發時間</label>
+                                <input type="time" name="departureTime" th:value="${item.departureTime}" />
+                            </div>
+                            <div>
+                                <label>抵達時間</label>
+                                <input type="time" name="arrivalTime" th:value="${item.arrivalTime}" />
+                            </div>
+                        </div>
+
+                        <div class="edit-grid" style="margin-top:8px;">
                             <div style="grid-column: 1 / -1;">
                                 <label>備註</label>
                                 <input type="text" name="note" th:value="${item.note}" />
@@ -391,6 +434,16 @@
     function toggleEdit(apiid) {
         const form = document.getElementById('edit-form-' + apiid);
         form.style.display = (form.style.display === 'none') ? 'block' : 'none';
+    }
+
+    // 類型切換成「交通」時顯示起始點/目的地/交通工具/編號/時間這組欄位, 切成其他類型時隱藏
+    // (欄位本身還在, 只是不顯示——不用擔心切換幾次後殘留的舊值, confirmImport() 只有 item_type=transport
+    // 才會讀這幾個欄位, 其他類型送出的殘留值不會被用到)。
+    function onReviewTypeChange(apiid) {
+        const typeSelect = document.getElementById('edit-type-' + apiid);
+        const transportGrid = document.getElementById('edit-transport-grid-' + apiid);
+        if (!typeSelect || !transportGrid) return;
+        transportGrid.style.display = (typeSelect.value === 'transport') ? 'grid' : 'none';
     }
 
     // 國家/城市通用代碼自動完成 (打字即時篩選, 選擇後把「名稱」填回輸入框; type=country 給國家輸入框,

@@ -177,7 +177,7 @@
         }
         .btn-ai-submit:hover { opacity: 0.95; }
 
-        /* 解析中 Loading 狀態提示 */
+        /* 解析中 Loading 狀態提示 (表單下方的小提示, 保留給不支援/停用了全螢幕遮罩時的退路) */
         .loading-hint {
             display: none;
             margin-top: 14px;
@@ -190,6 +190,43 @@
             padding: 12px;
             border-radius: 8px;
         }
+
+        /* 送出後蓋一層置中的讀取畫面 (跟「建立新行程」AI 安排行程同一套樣式), 比表單下方的小提示更明顯,
+           避免使用者以為沒反應而重複點擊、或以為當機——解析文件/長文字通常要等 5~30 秒不等。 */
+        .ai-loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(2px);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        .ai-loading-overlay.open { display: flex; }
+        .ai-loading-box {
+            background: #fff;
+            border-radius: 16px;
+            padding: 36px 44px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+            max-width: 320px;
+            text-align: center;
+        }
+        .ai-loading-spinner {
+            width: 44px;
+            height: 44px;
+            border: 4px solid #f3e8ff;
+            border-top-color: var(--primary-purple);
+            border-radius: 50%;
+            animation: ai-spin 0.8s linear infinite;
+        }
+        @keyframes ai-spin { to { transform: rotate(360deg); } }
+        .ai-loading-title { font-size: 15px; font-weight: 700; color: var(--text-dark); }
+        .ai-loading-sub { font-size: 12.5px; color: var(--text-gray); line-height: 1.6; }
     </style>
 </head>
 <body>
@@ -218,7 +255,7 @@
         </div>
 
         <!-- 上傳 PDF / Word (走 POST /ai-import/upload) -->
-        <form id="uploadForm" method="post" th:action="@{/ai-import/upload}" enctype="multipart/form-data" onsubmit="showLoading('loadingHintFile', this)">
+        <form id="uploadForm" method="post" th:action="@{/ai-import/upload}" enctype="multipart/form-data" onsubmit="showLoading('loadingHintFile', this, '正在解析檔案中…')">
             <div class="section-label"><i class="fa-solid fa-file-arrow-up"></i> 上傳 PDF / Word</div>
             <div class="upload-box" onclick="document.getElementById('fileInput').click()">
                 <i class="fa-solid fa-cloud-arrow-up"></i>
@@ -241,7 +278,7 @@
         <div class="or-divider">或</div>
 
         <!-- 貼上文字 (走 POST /ai-import/new) -->
-        <form id="parseForm" method="post" th:action="@{/ai-import/new}" onsubmit="showLoading('loadingHintText', this)">
+        <form id="parseForm" method="post" th:action="@{/ai-import/new}" onsubmit="showLoading('loadingHintText', this, '正在解析中…')">
             <div class="section-label"><i class="fa-solid fa-file-lines"></i> 貼上行程內容企劃文字</div>
             <div class="form-group" style="margin-bottom:14px;">
                 <textarea name="rawText" class="form-control" placeholder="例：
@@ -261,14 +298,29 @@ Day3：瑞穗牧場→花蓮機場送機 (含早餐)
     </div>
 </main>
 
+<!-- AI 解析讀取中畫面, 預設隱藏, 送出表單當下才顯示 (見下面 showLoading()) -->
+<div class="ai-loading-overlay" id="aiLoadingOverlay">
+    <div class="ai-loading-box">
+        <div class="ai-loading-spinner"></div>
+        <div class="ai-loading-title" id="aiLoadingTitle">正在解析中…</div>
+        <div class="ai-loading-sub">AI 正在拆解行程內容並比對景點資料庫，請稍候，通常需要 5~30 秒不等。</div>
+    </div>
+</div>
+
 <script th:inline="javascript">
-    function showLoading(id, form) {
+    function showLoading(id, form, title) {
         document.getElementById(id).style.display = 'block';
         const btn = form.querySelector('button[type="submit"]');
         if (btn) {
             btn.style.opacity = '0.6';
             btn.style.pointerEvents = 'none';
         }
+        // 全螢幕置中讀取畫面: 比表單下方的小提示更明顯, 也順便擋掉使用者重複點擊其他按鈕
+        // (遮罩蓋住整個畫面, 但表單本身照樣送出, 不會被這裡攔下)。
+        const titleEl = document.getElementById('aiLoadingTitle');
+        if (titleEl && title) titleEl.textContent = title;
+        const overlay = document.getElementById('aiLoadingOverlay');
+        if (overlay) overlay.classList.add('open');
     }
 </script>
 

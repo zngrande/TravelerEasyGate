@@ -89,6 +89,32 @@ public class QuotationService {
         q.setRetailMarkupValue(previous != null ? nz(previous.getRetailMarkupValue()) : BigDecimal.ZERO);
         q.setRebateMode(previous != null ? previous.getRebateMode() : "PERCENT");
         q.setRebatePct(previous != null ? nz(previous.getRebatePct()) : BigDecimal.ZERO);
+
+        // 「選擇計算方式」(已儲存的規則／自填) 使用者要求: 同一個行程建立新版本時, 沿用上一版選的是哪一組規則
+        // (①②③④基本報價這組、⑤⑥NP/團費成本這組各自獨立沿用); 完全沒有上一版可以沿用時 (這個行程第一次
+        // 建報價單), 改成自動帶入這間旅行社目前設定的「預設規則」(計算公式管理可以指定, 不用每次手動選)——
+        // 一組規則如果只設定了①②③④其中之一 (不是純 NP/團費成本規則) 才會拿來當基本報價這組的預設值,
+        // 反過來只要有設定⑤⑥其中之一才會拿來當 NP/團費成本這組的預設值, 兩者可能是同一組規則、也可能各自
+        // 沒有 (那就維持「自填」, 不勉強套用不相關的規則)。
+        if (previous != null) {
+            q.setFormulaMode(previous.getFormulaMode());
+            q.setMSID(previous.getMSID());
+            q.setTierFormulaMode(previous.getTierFormulaMode());
+            q.setTierMSID(previous.getTierMSID());
+        } else {
+            MarginSetting defaultSetting = marginSettingDAO.findDefault(AID);
+            if (defaultSetting != null) {
+                if (!defaultSetting.isPureTierRule()) {
+                    q.setFormulaMode("preset");
+                    q.setMSID(defaultSetting.getMSID());
+                }
+                if (defaultSetting.getNpFormula() != null || defaultSetting.getTeamFormula() != null) {
+                    q.setTierFormulaMode("preset");
+                    q.setTierMSID(defaultSetting.getMSID());
+                }
+            }
+        }
+
         quotationDAO.save(q);
         return q;
     }

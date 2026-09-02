@@ -57,7 +57,7 @@
 </head>
 <body>
 
-<aside th:replace="~{fragments/sidebar :: sidebar(active='itinerary', userName=${session.name})}"></aside>
+<aside th:replace="~{fragments/sidebar :: sidebar(active='quotation', userName=${session.name})}"></aside>
 
 <main class="main-content">
     <div class="page-header">
@@ -89,14 +89,6 @@
                     <span class="status-pill"
                           th:classappend="${q.expired} ? 'status-expired' : ('status-' + ${q.status})"
                           th:text="${q.expired} ? '已過期' : (${q.status == 'draft'} ? '草稿' : (${q.status == 'locked'} ? '已鎖定' : '已確認'))">
-                    </span>
-                    <a th:if="${q.status != 'draft'}" th:href="@{'/quotation/' + ${q.QID} + '/export/excel'}" title="匯出 Excel"
-                       style="margin-left:12px;color:var(--text-gray);font-size:16px;">
-                        <i class="fa-solid fa-file-excel"></i>
-                    </a>
-                    <span th:if="${q.status == 'draft'}" title="草稿階段金額還會變動, 請先上鎖後再匯出"
-                          style="margin-left:12px;color:#cbd5e1;font-size:16px;cursor:not-allowed;">
-                        <i class="fa-solid fa-file-excel"></i>
                     </span>
                     <!-- 刪除這個版本: 只開放草稿狀態刪 (已鎖定/已確認建議保留歷史, 後端 QuotationController#delete 的
                          註解也是這個建議), 按下去要求二次確認避免手滑刪錯。 -->

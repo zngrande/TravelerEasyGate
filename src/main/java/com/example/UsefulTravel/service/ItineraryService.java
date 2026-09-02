@@ -216,10 +216,26 @@ public class ItineraryService {
                 // 把別天的候選 pid 排進這天, 這裡也會直接濾掉, 不會讓景點錯誤地出現在不屬於它的城市那一天。
                 Set<Integer> allowedPids = aiPoolByDay.get(day.getDayNumber()).stream()
                         .map(Poi::getPID).collect(java.util.stream.Collectors.toSet());
+
+                // 使用者反映 AI 排的當天行程動線常常「一下最南一下最北」——因為 AI 只拿得到景點的名稱/類別,
+                // 完全沒有座標資訊, 只能憑名稱瞎猜先後順序。景點「要選哪些」交給 AI 判斷沒問題, 但「這天要
+                // 先去哪、再去哪」改成用實際經緯度算最近鄰路徑決定, 比純文字猜測準確很多。只重排 category=景點
+                // 這一類, 餐廳/飯店維持 AI 給的相對順序不動 (下面的自動整理只看「第幾個遇到的餐廳」決定
+                // 午餐/晚餐, 跟景點怎麼排序無關；飯店固定會被 autoArrangeDay 排到當天最後, 也不受影響)。
+                List<Poi> attractionsInOrder = new ArrayList<>();
+                List<Poi> othersInOrder = new ArrayList<>();
                 for (Integer pid : pids) {
                     if (!allowedPids.contains(pid)) continue;
                     Poi poi = candidateByPid.get(pid); // AI 幻覺出資料庫沒有的 PID 就直接跳過, 不要硬加
                     if (poi == null) continue;
+                    if ("景點".equals(poi.getCategory())) attractionsInOrder.add(poi);
+                    else othersInOrder.add(poi);
+                }
+                for (Poi poi : orderAttractionsByProximity(attractionsInOrder)) {
+                    addItem(day.getIDID(), poi.getPID(), mapPoiCategoryToItemType(poi.getCategory()),
+                            poi.getName(), poi.getSuggestedStayMin());
+                }
+                for (Poi poi : othersInOrder) {
                     addItem(day.getIDID(), poi.getPID(), mapPoiCategoryToItemType(poi.getCategory()),
                             poi.getName(), poi.getSuggestedStayMin());
                 }
@@ -397,6 +413,60 @@ public class ItineraryService {
     // token 清單, 跟 PoiDAOImpl.splitLocationTokens 是同一套規則 (那邊是 DAO 內部私有方法, 這裡建立行程
     // 時要用同一套規則拆 ItineraryDay.plannedCities, 所以在這裡另外寫一份, 避免把 DAO 內部方法改成 public
     // 只為了給 Service 呼叫)。
+    // 依景點實際經緯度做「最近鄰」路徑排序: 從清單第一個 (AI 選的第一個景點, 尊重 AI 對「今天先去哪」的
+    // 判斷) 開始, 每一步都選離目前位置最近的下一個景點, 直到全部排完。這是簡化版的 TSP 貪婪解法, 不保證
+    // 是理論上最短的路徑, 但比完全沒有座標依據的純文字猜測順序好非常多, 足以避免「一下最南一下最北」這種
+    // 明顯不順路的安排。沒有座標的景點 (極少數, 通常是還沒補地理編碼的自訂資料) 排不進最近鄰計算, 固定
+    // 放在最後面, 不影響其他有座標景點的排序結果。
+    private List<Poi> orderAttractionsByProximity(List<Poi> attractions) {
+        List<Poi> withCoords = new ArrayList<>();
+        List<Poi> withoutCoords = new ArrayList<>();
+        for (Poi p : attractions) {
+            if (p.getLatitude() != null && p.getLongitude() != null) withCoords.add(p);
+            else withoutCoords.add(p);
+        }
+        List<Poi> ordered = new ArrayList<>();
+        if (withCoords.size() <= 1) {
+            ordered.addAll(withCoords);
+        } else {
+            List<Poi> remaining = new ArrayList<>(withCoords);
+            Poi current = remaining.remove(0);
+            ordered.add(current);
+            while (!remaining.isEmpty()) {
+                Poi nearest = null;
+                double bestDist = Double.MAX_VALUE;
+                for (Poi candidate : remaining) {
+                    double dist = haversineDistanceKm(current, candidate);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        nearest = candidate;
+                    }
+                }
+                ordered.add(nearest);
+                remaining.remove(nearest);
+                current = nearest;
+            }
+        }
+        ordered.addAll(withoutCoords);
+        return ordered;
+    }
+
+    // Haversine 公式算兩個景點之間的直線距離 (公里)——只用來「比較誰比較近」決定造訪順序, 不是精確拉車
+    // 距離 (拉車距離另外由 RouteService/Google Distance Matrix API 算), 精度對這個用途來說已經足夠。
+    private double haversineDistanceKm(Poi a, Poi b) {
+        double lat1 = a.getLatitude().doubleValue();
+        double lon1 = a.getLongitude().doubleValue();
+        double lat2 = b.getLatitude().doubleValue();
+        double lon2 = b.getLongitude().doubleValue();
+        double earthRadiusKm = 6371.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double h = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * earthRadiusKm * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    }
+
     private List<String> splitCityTokens(String value) {
         if (value == null || value.isBlank()) return List.of();
         return java.util.Arrays.stream(value.split("[、,，/|\\s]+"))
@@ -448,26 +518,30 @@ public class ItineraryService {
     // 選填 —— 沒填/填錯/超出範圍的航段, 去程預設回到第一天、回程預設回到最後一天 (跟改版前的行為一致),
     // 這樣才能表達「出發當天先搭國內線轉機、隔天才搭跨國夜間班機」這種橫跨多天的去程/回程行程。
     public void attachFlightItems(int ITID,
+                                  List<String> outFlightNo,
                                   List<String> outDepAirport, List<String> outDepTime,
                                   List<String> outArrAirport, List<String> outArrTime,
                                   List<String> outDepDay,
+                                  List<String> retFlightNo,
                                   List<String> retDepAirport, List<String> retDepTime,
                                   List<String> retArrAirport, List<String> retArrTime,
                                   List<String> retDepDay) {
         List<ItineraryDay> days = itineraryDayDAO.findByItinerary(ITID); // 已依 day_number ASC 排序
         if (days.isEmpty()) return;
 
-        attachFlightLegsAcrossDays(days, true, "去程班機", outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay);
+        attachFlightLegsAcrossDays(days, true, "去程班機", outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay);
 
         // 回程跟去程分開兩批處理, 就算某一段回程跟某一段去程被分到同一天, 各自的 findByDay() 也是即時查詢,
         // 不會漏算對方剛剛插入的項目。
-        attachFlightLegsAcrossDays(days, false, "回程班機", retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+        attachFlightLegsAcrossDays(days, false, "回程班機", retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
     }
 
     // isOutbound=true (去程): 每個航段所在那一天, 這批同一天的航段固定插在「那一天」的最前面 (依填寫順序、維持先後關係,
     // 其餘項目全部往後推); false (回程): 依填寫順序 append 在「那一天」的最後面。
     // 四個內容 List 用同一個 index 對齊組成一個航段, 缺的欄位留空; dayIndexes 是每個航段對應的天數 (見上方欄位說明)。
+    // flightNumbers: 航班名稱/編號 (例如 CI100), 選填, 跟其他 List 用同一個 index 對齊組成一個航段。
     private void attachFlightLegsAcrossDays(List<ItineraryDay> days, boolean isOutbound, String label,
+                                            List<String> flightNumbers,
                                             List<String> depAirports, List<String> depTimes,
                                             List<String> arrAirports, List<String> arrTimes,
                                             List<String> dayIndexes) {
@@ -484,18 +558,20 @@ public class ItineraryService {
             java.time.LocalTime depTime = parseTimeOrNull(listGet(depTimes, i));
             String toAirport = listGet(arrAirports, i);
             java.time.LocalTime arrTime = parseTimeOrNull(listGet(arrTimes, i));
-            if (isBlank(fromAirport) && isBlank(toAirport) && depTime == null && arrTime == null) continue; // 這個航段整列都沒填, 跳過
+            String flightNo = listGet(flightNumbers, i);
+            if (isBlank(fromAirport) && isBlank(toAirport) && depTime == null && arrTime == null && isBlank(flightNo)) continue; // 這個航段整列都沒填, 跳過
 
             int dayIndex = parseDayIndexOrDefault(listGet(dayIndexes, i), defaultDayIndex, days.size());
             ItineraryDay targetDay = days.get(dayIndex - 1);
 
             // 只有一段就直接用「去程班機」；有多段 (轉機/跨日) 才加編號「去程班機1」「去程班機2」方便分辨先後順序
             String segmentLabel = legCount > 1 ? (label + (i + 1)) : label;
-            String customName = buildFlightLabel(segmentLabel, fromAirport, toAirport);
+            String customName = buildFlightLabel(segmentLabel, flightNo, fromAirport, toAirport);
             ItineraryItem item = new ItineraryItem(targetDay.getIDID(), null, "transport", customName, 0); // sort_order 最後統一算
             item.setFromLocation(isBlank(fromAirport) ? null : fromAirport.trim());
             item.setToLocation(isBlank(toAirport) ? null : toAirport.trim());
             item.setTransportMethod("飛機");
+            item.setTransportNumber(isBlank(flightNo) ? null : flightNo.trim());
             item.setStartTime(depTime);
             item.setEndTime(arrTime);
             // 機場欄位是自由文字 (沒有連結 POI/經緯度), 沒有座標可以畫在地圖上, 關掉顯示在地圖上避免出現錯誤定位點
@@ -637,14 +713,30 @@ public class ItineraryService {
         }
     }
 
-    // 組出項目清單上顯示的名稱, 例如「去程班機：桃園國際機場 → 東京成田機場」; 只填一邊機場就退化成「XX 出發」/「抵達 XX」
-    private String buildFlightLabel(String label, String fromAirport, String toAirport) {
+    // 組出項目清單上顯示的名稱, 一律維持「label：...」的格式 (例如「去程班機：...」)——這個前綴字串本身
+    // 是其他邏輯拿來辨識「這是哪一段去程/回程班機」的依據 (見 calculateAirportTransferSegments() 用
+    // customName.startsWith("去程班機"/"回程班機") 找去程最後一段/回程第一段來算機場銜接路線, 還有
+    // updateItemDetails() 對回程班機座標的特殊處理也是同一套判斷方式), 不能為了塞進航班編號就把它拿掉,
+    // 否則航班編號填了之後, 機場銜接路線功能會直接失效。
+    // 有填航班編號: 「去程班機：CI100 桃園國際機場 → 東京成田機場」；沒填則維持原本的
+    // 「去程班機：桃園國際機場 → 東京成田機場」格式，向下相容舊資料/沒填這個新欄位的情境。
+    private String buildFlightLabel(String label, String flightNo, String fromAirport, String toAirport) {
         boolean hasFrom = !isBlank(fromAirport);
         boolean hasTo = !isBlank(toAirport);
-        if (hasFrom && hasTo) return label + "：" + fromAirport.trim() + " → " + toAirport.trim();
-        if (hasFrom) return label + "：" + fromAirport.trim() + " 出發";
-        if (hasTo) return label + "：抵達 " + toAirport.trim();
-        return label;
+        String route;
+        if (hasFrom && hasTo) route = fromAirport.trim() + " → " + toAirport.trim();
+        else if (hasFrom) route = fromAirport.trim() + " 出發";
+        else if (hasTo) route = "抵達 " + toAirport.trim();
+        else route = null;
+
+        String routeWithFlightNo;
+        if (!isBlank(flightNo)) {
+            routeWithFlightNo = route != null ? (flightNo.trim() + " " + route) : flightNo.trim();
+        } else {
+            routeWithFlightNo = route;
+        }
+
+        return routeWithFlightNo != null ? (label + "：" + routeWithFlightNo) : label;
     }
 
     // 表單 <input type="time"> 送出的是 "HH:mm"，沒填就是空字串／null，兩種都當作沒填處理
@@ -1380,6 +1472,35 @@ public class ItineraryService {
     }
 
     /**
+     * 新增一筆交通類項目 (item_type=transport) 到某一天的行程尾端, 沿用跟 attachFlightLegsAcrossDays
+     * 一樣的顯示名稱規則 (buildFlightLabel: 有填航班/車次編號就顯示「編號 出發地→目的地」, 沒有就是
+     * 「label：出發地→目的地」)。目前給 AI 解析匯入 (AiParseService.confirmImport) 呼叫, 讓 AI 從
+     * 原始文件裡解析出來的航班/交通資訊也能用跟手動輸入去程/回程班機一致的方式呈現。
+     * label 沒特別指定「去程/回程」語意時傳入通用的「交通」即可。
+     */
+    public ItineraryItem addTransportItem(int IDID, String label, String transportMethod, String transportNumber,
+                                          String fromLocation, String toLocation,
+                                          java.time.LocalTime startTime, java.time.LocalTime endTime, String note) {
+        List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
+        int nextOrder = existing.size();
+
+        String customName = buildFlightLabel(label, transportNumber, fromLocation, toLocation);
+        ItineraryItem item = new ItineraryItem(IDID, null, "transport", customName, nextOrder);
+        item.setFromLocation(isBlank(fromLocation) ? null : fromLocation.trim());
+        item.setToLocation(isBlank(toLocation) ? null : toLocation.trim());
+        item.setTransportMethod(isBlank(transportMethod) ? "交通" : transportMethod.trim());
+        item.setTransportNumber(isBlank(transportNumber) ? null : transportNumber.trim());
+        item.setStartTime(startTime);
+        item.setEndTime(endTime);
+        item.setNote(note);
+        // 出發/抵達地點是自由文字 (沒有連結 POI/經緯度), 沒有座標可以畫在地圖上, 關掉顯示在地圖上避免出現錯誤定位點
+        item.setShowOnMap(false);
+
+        itineraryItemDAO.save(item);
+        return item;
+    }
+
+    /**
      * 把一個 POI (或自訂項目) 加到某一天的行程尾端
      */
     public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName) {
@@ -1568,7 +1689,7 @@ public class ItineraryService {
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
                                   String timeSlot, String note, Boolean showOnMap) {
         updateItemDetails(IIID, customName, stayDurationMin, locationHint, timeSlot, note, showOnMap,
-                null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -1579,6 +1700,7 @@ public class ItineraryService {
      *                         (沿用單一經緯度欄位) 對應到「抵達的目的地」
      * @param toAddress        交通項目專用: 目的地地址; 有填就直接採用, 沒填但有目的地名稱的話後端會自動查詢帶入
      * @param transportMethod  交通項目專用: 交通工具 (高鐵/飛機/遊覽車/渡輪/計程車...)
+     * @param transportNumber  交通項目專用: 航班/車次編號 (例如 CI100), 傳 null 代表不更動, 傳空字串會清空
      * @param commuteDuration  交通項目專用 (舊欄位, 已停用): 通勤時間 (自由文字, 例如「約1小時30分」)——
      *                         畫面已經改用下面的 commuteDurationMin, 這個參數保留只是不動舊呼叫點, 不會再有畫面傳值進來
      * @param startTime        交通項目專用: 出發時間 ("HH:mm", 選填); 傳 null 代表不更動, 傳空字串會清空。
@@ -1592,8 +1714,8 @@ public class ItineraryService {
     public void updateItemDetails(int IIID, String customName, Integer stayDurationMin, String locationHint,
                                   String timeSlot, String note, Boolean showOnMap,
                                   String itemType, String fromLocation, String fromAddress,
-                                  String toLocation, String toAddress, String transportMethod, String commuteDuration,
-                                  String startTime, String endTime, Integer commuteDurationMin) {
+                                  String toLocation, String toAddress, String transportMethod, String transportNumber,
+                                  String commuteDuration, String startTime, String endTime, Integer commuteDurationMin) {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
@@ -1652,6 +1774,9 @@ public class ItineraryService {
         }
         if (transportMethod != null) {
             item.setTransportMethod(transportMethod.isBlank() ? null : transportMethod.trim());
+        }
+        if (transportNumber != null) {
+            item.setTransportNumber(transportNumber.isBlank() ? null : transportNumber.trim());
         }
         if (commuteDuration != null) {
             item.setCommuteDuration(commuteDuration.isBlank() ? null : commuteDuration.trim());

@@ -7,15 +7,47 @@
   <aside th:replace="~{fragments/sidebar :: sidebar(active='poi')}"></aside>
 
   active 參數對應哪個 nav-item 要加 .active, 可傳:
-  'itinerary' | 'poi' | 'component' | 'margin-setting' | 'images' | 'export-template' | 'account' | 'staff'
+  'itinerary' | 'quotation' | 'poi' | 'component' | 'margin-setting' | 'images' | 'export-template' | 'account' | 'staff'
 
-  userName 參數是選填的: 有傳的話, 側邊欄最下面會多顯示登入者名稱 + 登出連結
-  (目前只有 agency/dashboard.html 有帶這個參數, 其他頁面不用傳這個變數,
-  fragment 內部會自己判斷 userName 是不是空的)
+  userName 參數是選填的: 有傳的話, 側邊欄最下面會多顯示登入者名稱 + 頭像 (點頭像/姓名進「帳號設定」/account,
+  點最右邊的登出圖示才是登出) + 登出連結。「帳號設定」原本是 nav-menu 裡的一個獨立項目, 現在移到這裡,
+  跟頭像/姓名合併成同一個入口, 所以這個參數雖然形式上是選填, 但實際上每一頁都應該要傳,
+  不然那一頁會完全沒有「帳號設定」的進入點。
 
   用這個 fragment 的頁面記得自己的 <style> 裡要有 .sidebar / .logo / .nav-menu /
   .nav-item / .help-box / .user-profile 這幾個 class 的樣式 (跟 agency/dashboard.html 對齊),
   這個檔案只負責統一「內容/連結」, 不重複帶樣式, 避免跟各頁面自己的 <style> 打架。
+
+  ------------------------------------------------------------------
+  側邊欄收合功能: 收合/展開的樣式跟腳本都寫在這個 fragment 裡面自己處理,
+  不用去改每一頁的 <style> (每頁各自在自己的 :root 定義 --sidebar-width,
+  .sidebar 跟 .main-content 都是 var(--sidebar-width) 算出來的, 所以只要
+  在這裡用 JS 動態改這個 CSS 變數的值, 所有頁面的版面就會一起跟著縮放,
+  不用一頁一頁改)。收合狀態存在 localStorage, 換頁後會記住。
+
+  「報價單」是一個普通連結, 連到 /quotations (QuotationController.dashboard()),
+  那是一個跟「我的行程」同一套版面的儀表板頁面, 列出這個帳號所有行程, 點進去
+  某一個行程就是 /itinerary/{id}/quotations (該行程底下所有報價單版本列表)。
+
+  ------------------------------------------------------------------
+  「需要協助嗎？」不是連去獨立頁面, 是開一個彈窗 (跟行程排版看板「地圖開啟大圖」那個彈窗同一種感覺:
+  半透明遮罩 + 置中面板 + 右上角圓形關閉鈕), 內容是可以點開/收合的手風琴清單 (跟排版看板左側工具列
+  「時間表/景點資料庫」那幾個可以點開的模組同一種互動)。這個彈窗的 CSS/HTML/JS 都直接寫在這個 fragment
+  裡面自己處理 (class 開頭都加 sbhelp- 前綴, 避免跟各頁面自己的 .accordion-trigger 等既有樣式打架),
+  所以每一頁只要有引入這個 sidebar fragment, 就自動有這個說明彈窗可以用, 不用另外寫頁面或路由。
+
+  ------------------------------------------------------------------
+  帳號角色看到的內容 (對應 PermissionService 的四級權限矩陣, staff_user.role):
+    ADMIN  (主管/全權限) → 全部項目都看得到
+    EDITOR (行程編輯者)   → 看得到「行程列表」「報價單」「資料庫管理」三個景點/元件/圖片, 看不到「計算公式」
+                            「行程輸出範本」「員工管理」(這幾個是報價/公司設定相關, 不是編輯行程要用的)
+    QUOTER (報價專員)     → 看得到「行程列表」「報價單」「計算公式」, 看不到「資料庫管理」(排版行程才要用)
+                            跟「行程輸出範本」「員工管理」
+    VIEWER (唯讀)         → 只看得到「行程列表」「報價單」, 其他都是需要編輯/報價/管理權限的功能, 不顯示
+  這裡只做「側邊欄看不看得到」的 UI 層級控制, 對應頁面本身 (poi/component/images/margin-setting/
+  export-templates) 目前還沒有在後端擋權限, 純粹隱藏入口不代表真的鎖住, 如果要防止使用者直接打網址
+  繞過, 還需要在對應的 Controller 裡加上 PermissionService 的檢查 (可參考 QuotationController 的
+  canQuote() 寫法)。
 -->
 <aside class="sidebar" th:fragment="sidebar(active, userName)">
 
@@ -30,63 +62,486 @@
             position: fixed;
             height: 100vh;
             z-index: 10;
+            transition: width 0.18s ease, padding 0.18s ease;
+            overflow: hidden;
         }
-        .logo { font-size: 20px; font-weight: 700; color: var(--primary-blue, #2563eb); margin-bottom: 40px; display: flex; align-items: center; gap: 10px; }
+        .logo { font-size: 20px; font-weight: 700; color: var(--primary-blue, #2563eb); margin-bottom: 32px; display: flex; align-items: center; gap: 10px; }
         .logo span { font-size: 10px; color: var(--text-gray, #64748b); display: block; font-weight: 400; letter-spacing: 1px; }
-        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-        .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-gray, #64748b); font-weight: 500; transition: all 0.2s; text-decoration: none; }
+        .logo-text { white-space: nowrap; }
+
+        /* 側邊欄收合按鈕 (長得像三條線 "☰"), 放在 logo 那一列最右邊 */
+        .sidebar-toggle-btn {
+            margin-left: auto;
+            background: none;
+            border: none;
+            color: var(--text-gray, #64748b);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            flex-shrink: 0;
+        }
+        .sidebar-toggle-btn:hover { background: #f1f5f9; color: var(--text-dark, #0f172a); }
+
+        .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; }
+
+        /* 分類標題 (行程作業 / 資料庫管理 / 系統設定) */
+        .nav-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin: 16px 10px 6px;
+            white-space: nowrap;
+        }
+        .nav-menu > .nav-section-title:first-child { margin-top: 0; }
+
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-radius: 8px; color: var(--text-gray, #64748b); font-weight: 500; transition: all 0.2s; text-decoration: none; white-space: nowrap; cursor: pointer; }
         .nav-item:hover { background: #f1f5f9; color: var(--text-dark, #0f172a); }
         .nav-item.active { background: #eff6ff; color: var(--primary-blue, #2563eb); font-weight: 600; }
-        .help-box { background: #f8fafc; border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 16px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; cursor: pointer; margin-bottom: 12px; }
-        .help-box i { color: var(--primary-blue, #2563eb); font-size: 20px; }
-        .user-profile { display: flex; align-items: center; gap: 10px; background: #fff; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border-color, #e2e8f0); font-size: 14px; font-weight: 500; }
+        .nav-item i.fa-fw-icon { width: 16px; text-align: center; flex-shrink: 0; }
+
+        .help-box { background: #f8fafc; border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 16px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; cursor: pointer; margin-bottom: 12px; margin-top: 12px; flex-shrink: 0; width: 100%; text-align: left; font-family: inherit; }
+        .help-box:hover { background: #eff6ff; border-color: #bfdbfe; }
+        .help-box i { color: var(--primary-blue, #2563eb); font-size: 20px; flex-shrink: 0; }
+        .user-profile { display: flex; align-items: center; gap: 10px; background: #fff; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border-color, #e2e8f0); font-size: 14px; font-weight: 500; flex-shrink: 0; white-space: nowrap; overflow: hidden; }
+        .user-profile-link { display: flex; align-items: center; gap: 10px; overflow: hidden; flex: 1; min-width: 0; border-radius: 12px; padding: 2px 4px; margin: -2px -4px; }
+        .user-profile-link:hover, .user-profile-link.active { background: #f1f5f9; }
+        .user-profile-text { overflow: hidden; text-overflow: ellipsis; }
+        .user-profile-logout { flex-shrink: 0; padding: 4px; border-radius: 6px; }
+        .user-profile-logout:hover { background: #f1f5f9; color: var(--text-dark, #0f172a) !important; }
+
+        /* ---------- 收合狀態 ---------- */
+        .sidebar.collapsed { width: 72px !important; padding-left: 14px; padding-right: 14px; }
+        .sidebar.collapsed .logo { justify-content: center; margin-bottom: 24px; }
+        .sidebar.collapsed .logo-text,
+        .sidebar.collapsed .nav-text,
+        .sidebar.collapsed .nav-section-title,
+        .sidebar.collapsed .help-box-text,
+        .sidebar.collapsed .user-profile-text,
+        .sidebar.collapsed .user-profile-logout { display: none !important; }
+        .sidebar.collapsed .sidebar-toggle-btn { margin-left: 0; }
+        .sidebar.collapsed .nav-item { justify-content: center; padding: 12px 0; }
+        .sidebar.collapsed .help-box { justify-content: center; padding: 12px; }
+        .sidebar.collapsed .user-profile { justify-content: center; padding: 8px; border-radius: 12px; }
+
+        /* ---------- 「需要協助嗎？」說明彈窗 (class 開頭都加 sbhelp- 前綴避免跟頁面自己的樣式衝突) ---------- */
+        .sbhelp-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,0.65);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1200;
+            padding: 24px;
+        }
+        .sbhelp-overlay.open { display: flex; }
+        .sbhelp-modal {
+            background: #fff;
+            border-radius: 16px;
+            width: min(720px, 100%);
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        .sbhelp-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-color, #e2e8f0);
+            flex-shrink: 0;
+        }
+        .sbhelp-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 10px; color: var(--text-dark, #0f172a); }
+        .sbhelp-title i { color: var(--primary-blue, #2563eb); }
+        .sbhelp-close {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: none;
+            background: #f1f5f9;
+            color: var(--text-gray, #64748b);
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .sbhelp-close:hover { background: #e2e8f0; color: var(--text-dark, #0f172a); }
+        .sbhelp-body { overflow-y: auto; padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 8px; }
+
+        .sbhelp-item { border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; overflow: hidden; }
+        .sbhelp-item-trigger {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            background: #fff;
+            border: none;
+            cursor: pointer;
+            text-align: left;
+            font-family: inherit;
+        }
+        .sbhelp-item-trigger:hover { background: #f8fafc; }
+        .sbhelp-item-num {
+            width: 24px; height: 24px; border-radius: 50%; background: #eff6ff; color: var(--primary-blue, #2563eb);
+            font-size: 11.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .sbhelp-item-title { flex: 1; font-size: 13.5px; font-weight: 700; color: var(--text-dark, #0f172a); }
+        .sbhelp-item-trigger i.sbhelp-caret { font-size: 11px; color: #94a3b8; transition: transform 0.15s ease; flex-shrink: 0; }
+        .sbhelp-item.open .sbhelp-item-trigger i.sbhelp-caret { transform: rotate(180deg); }
+        .sbhelp-item-panel { display: none; padding: 0 14px 14px 48px; font-size: 13px; color: var(--text-gray, #64748b); line-height: 1.75; }
+        .sbhelp-item.open .sbhelp-item-panel { display: block; }
+        .sbhelp-item-panel b { color: var(--text-dark, #0f172a); font-weight: 600; }
+        .sbhelp-item-panel .sbhelp-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: #f8fafc; color: #1d4ed8; border: 1px solid var(--border-color, #e2e8f0); padding: 1px 6px; border-radius: 5px; }
     </style>
 
     <div class="logo">
         <i class="fa-regular fa-compass"></i>
-        <div>
+        <div class="logo-text">
             TEG
             <span>TRAVELER EASY GATE</span>
         </div>
+        <button type="button" class="sidebar-toggle-btn" id="sidebarToggleBtn" title="收合/展開側邊欄">
+            <i class="fa-solid fa-bars"></i>
+        </button>
     </div>
-    <nav class="nav-menu">
-        <a th:href="@{/agency/dashboard}" class="nav-item" th:classappend="${active == 'itinerary'} ? ' active' : ''">
-            <i class="fa-solid fa-suitcase"></i> 行程列表
+    <nav class="nav-menu"
+         th:with="canEditItinerary=${@permissionService.canEditItinerary(session.role)},
+                   canQuote=${@permissionService.canQuote(session.role)},
+                   isAdmin=${@permissionService.canManageStaff(session.role)}">
+
+        <div class="nav-section-title">行程作業</div>
+        <a th:href="@{/agency/dashboard}" class="nav-item" th:classappend="${active == 'itinerary'} ? ' active' : ''" title="行程列表">
+            <i class="fa-solid fa-suitcase fa-fw-icon"></i> <span class="nav-text">行程列表</span>
         </a>
-        <a th:href="@{/poi}" class="nav-item" th:classappend="${active == 'poi'} ? ' active' : ''">
-            <i class="fa-solid fa-location-dot"></i> 景點資料庫
+        <a th:href="@{/quotations}" class="nav-item" th:classappend="${active == 'quotation'} ? ' active' : ''" title="報價單">
+            <i class="fa-solid fa-file-invoice-dollar fa-fw-icon"></i> <span class="nav-text">報價單</span>
         </a>
-        <a th:href="@{/component}" class="nav-item" th:classappend="${active == 'component'} ? ' active' : ''">
-            <i class="fa-solid fa-layer-group"></i> 元件資料庫
+
+        <!-- 資料庫管理: 排版行程用的素材, 只有能編輯行程的角色 (ADMIN/EDITOR) 才會用到 -->
+        <div class="nav-section-title" th:if="${canEditItinerary}">資料庫管理</div>
+        <a th:if="${canEditItinerary}" th:href="@{/poi}" class="nav-item" th:classappend="${active == 'poi'} ? ' active' : ''" title="景點資料庫">
+            <i class="fa-solid fa-location-dot fa-fw-icon"></i> <span class="nav-text">景點資料庫</span>
         </a>
-        <a th:href="@{/margin-setting}" class="nav-item" th:classappend="${active == 'margin-setting'} ? ' active' : ''">
-            <i class="fa-solid fa-calculator"></i> 計算公式
+        <a th:if="${canEditItinerary}" th:href="@{/component}" class="nav-item" th:classappend="${active == 'component'} ? ' active' : ''" title="元件資料庫">
+            <i class="fa-solid fa-layer-group fa-fw-icon"></i> <span class="nav-text">元件資料庫</span>
         </a>
-        <a th:href="@{/images}" class="nav-item" th:classappend="${active == 'images'} ? ' active' : ''">
-            <i class="fa-regular fa-image"></i> 圖片資料庫
+        <a th:if="${canEditItinerary}" th:href="@{/images}" class="nav-item" th:classappend="${active == 'images'} ? ' active' : ''" title="圖片資料庫">
+            <i class="fa-regular fa-image fa-fw-icon"></i> <span class="nav-text">圖片資料庫</span>
         </a>
-        <a th:href="@{/export-templates}" class="nav-item" th:classappend="${active == 'export-template'} ? ' active' : ''">
-            <i class="fa-solid fa-file-word"></i> 行程輸出範本
+
+        <!-- 系統設定: 計算公式跟報價相關, 只有能報價的角色 (ADMIN/QUOTER) 看得到; 範本管理跟員工管理是全公司共用的設定, 只有 ADMIN -->
+        <div class="nav-section-title" th:if="${canQuote or isAdmin}">系統設定</div>
+        <a th:if="${canQuote}" th:href="@{/margin-setting}" class="nav-item" th:classappend="${active == 'margin-setting'} ? ' active' : ''" title="計算公式">
+            <i class="fa-solid fa-calculator fa-fw-icon"></i> <span class="nav-text">計算公式</span>
         </a>
-        <a th:href="@{/account}" class="nav-item" th:classappend="${active == 'account'} ? ' active' : ''">
-            <i class="fa-solid fa-circle-user"></i> 帳號設定
+        <a th:if="${isAdmin}" th:href="@{/export-templates}" class="nav-item" th:classappend="${active == 'export-template'} ? ' active' : ''" title="行程輸出範本">
+            <i class="fa-solid fa-file-word fa-fw-icon"></i> <span class="nav-text">行程輸出範本</span>
         </a>
-        <a th:if="${session.role == 'ADMIN'}" th:href="@{/staff}" class="nav-item" th:classappend="${active == 'staff'} ? ' active' : ''">
-            <i class="fa-solid fa-users-gear"></i> 員工管理
+        <a th:if="${isAdmin}" th:href="@{/staff}" class="nav-item" th:classappend="${active == 'staff'} ? ' active' : ''" title="員工管理">
+            <i class="fa-solid fa-users-gear fa-fw-icon"></i> <span class="nav-text">員工管理</span>
         </a>
     </nav>
-    <div class="help-box">
-        <div>
+    <button type="button" class="help-box" id="sbhelpOpenBtn" onclick="sbhelpOpen()">
+        <div class="help-box-text">
             <div style="font-weight: 700; color: var(--text-dark);">需要協助嗎？</div>
             <div style="color: var(--text-gray); margin-top: 4px;">查看教學文件</div>
         </div>
         <i class="fa-solid fa-chevron-right" style="font-size: 12px;"></i>
-    </div>
+    </button>
+    <!-- 帳號設定入口改成放這裡: 點頭像/姓名直接進 /account, 不再是上面 nav-menu 裡的一個獨立項目 -->
     <div class="user-profile" th:if="${userName != null}">
-        <i class="fa-solid fa-circle-user" style="color: #cbd5e1; font-size: 24px;"></i>
-        <span th:text="${userName}">使用者名稱</span>
-        <a th:href="@{/logout}" style="margin-left: 8px; color: var(--text-gray);"><i class="fa-solid fa-sign-out-alt"></i></a>
+        <a class="user-profile-link" th:classappend="${active == 'account'} ? ' active' : ''" th:href="@{/account}" title="帳號設定">
+            <i class="fa-solid fa-circle-user user-profile-avatar" style="color: #cbd5e1; font-size: 24px; flex-shrink:0;"></i>
+            <span class="user-profile-text" th:text="${userName}">使用者名稱</span>
+        </a>
+        <a class="user-profile-logout" th:href="@{/logout}" style="margin-left: 8px; color: var(--text-gray);" title="登出"><i class="fa-solid fa-sign-out-alt"></i></a>
     </div>
+
+    <!-- 說明彈窗本身: 內容是可以點開/收合的手風琴清單, 依系統實際操作流程排列 -->
+    <div class="sbhelp-overlay" id="sbhelpOverlay" onclick="if(event.target===this) sbhelpClose()">
+        <div class="sbhelp-modal">
+            <div class="sbhelp-header">
+                <div class="sbhelp-title"><i class="fa-regular fa-circle-question"></i> 使用說明</div>
+                <button type="button" class="sbhelp-close" onclick="sbhelpClose()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="sbhelp-body" id="sbhelpBody">
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">1</span>
+                        <span class="sbhelp-item-title">建立行程</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        側邊欄「行程列表」<span class="sbhelp-path">/agency/dashboard</span> 是整個系統的首頁，
+                        點「＋ 建立新行程」手動輸入行程資料，或用「AI 匯入」上傳既有的 Word 文件自動拆解成逐日行程草稿。
+                        建立完成後會直接進入排版看板。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">2</span>
+                        <span class="sbhelp-item-title">排版行程內容</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        排版看板右側可以搜尋「景點資料庫」「元件資料庫」，點「＋ 加入」或直接拖曳放進對應日期。
+                        項目可以拖曳調整順序，系統會自動幫忙算路線並顯示在地圖上。還沒建過的景點/元件可以直接去對應資料庫新增，之後能重複使用。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">3</span>
+                        <span class="sbhelp-item-title">鎖定 / 完成行程</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        排版看板上方「鎖定行程」可隨時切換鎖定/解鎖，鎖定後內容不能再編輯，適合已跟客戶確認過的版本。
+                        「完成行程」是狀態標記，代表整趟作業已結束。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">4</span>
+                        <span class="sbhelp-item-title">匯出行程企劃書（Word）</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        排版看板右上角有<b>匯出客戶版 (Word)</b>跟<b>匯出同業版 (Word)</b>兩個按鈕，各自套用不同範本。
+                        按下去可以勾選要不要包含逐日行程/路線/地圖/圖片，並選擇系統內建版面或自訂範本（見第 9 項）。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">5</span>
+                        <span class="sbhelp-item-title">建立與管理報價單</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        側邊欄「報價單」<span class="sbhelp-path">/quotations</span> 列出所有行程，點某行程進入它的報價單版本列表，
+                        可以「建立新版本」並加入明細，系統會依「計算公式」自動算出成本/同業價/直售價。
+                        確認沒問題後把該版本「上鎖」或「確認」，金額就會被凍結。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">6</span>
+                        <span class="sbhelp-item-title">匯出同業報價單（Excel）</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        只能在報價單本身的頁面匯出（不是行程列表或版本列表），且狀態要是「已鎖定」或「已確認」（草稿不行）。
+                        會自動套用你設定的預設同業 Excel 版型，沒設定就用系統內建版面。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">7</span>
+                        <span class="sbhelp-item-title">資料庫管理</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        <b>景點資料庫</b>：有座標、會顯示在地圖上的景點/餐廳。
+                        <b>元件資料庫</b>：交通/住宿/票券等排版跟報價會用到的項目。
+                        <b>圖片資料庫</b>：企劃書會用到的圖片素材。建議先建好，排版時直接搜尋重複使用。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">8</span>
+                        <span class="sbhelp-item-title">計算公式</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        側邊欄「計算公式」用拖曳的公式建構器組出成本換算成售價的規則（支援分級加價），
+                        設成預設後，之後報價明細就會自動套用，也能單筆覆寫。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">9</span>
+                        <span class="sbhelp-item-title">行程輸出範本（自訂版型）</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        側邊欄「行程輸出範本」分三個分頁籤：給客戶的版型 (Word)、給同業的版型 (Word)、給同業的版型 (Excel)，
+                        分別對應第 4、6 項的匯出功能。每個分頁籤右側有「範本格式教學」說明範本檔案要放哪些標記文字，
+                        上傳後可設為預設範本，之後自動套用。
+                    </div>
+                </div>
+
+                <div class="sbhelp-item">
+                    <button type="button" class="sbhelp-item-trigger" onclick="sbhelpToggle(this)">
+                        <span class="sbhelp-item-num">10</span>
+                        <span class="sbhelp-item-title">帳號設定與員工管理</span>
+                        <i class="fa-solid fa-chevron-down sbhelp-caret"></i>
+                    </button>
+                    <div class="sbhelp-item-panel">
+                        側邊欄最下面的頭像/姓名點下去就是「帳號設定」，可以改密碼、聯絡資訊。
+                        管理者（ADMIN）角色會多看到「員工管理」，可以新增/停用同事帳號並指定權限。
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        (function () {
+            var STORAGE_KEY = 'tegSidebarCollapsed';
+            var sidebarEl = document.currentScript.closest('.sidebar');
+
+            // 這一行一定要在還沒有任何收合動作發生「之前」就先執行, 把頁面自己 <style> 裡宣告的
+            // --sidebar-width (展開時的寬度, 例如 200px/260px) 記下來當「基準寬度」。
+            // 之前的版本是等第一次「展開」的當下才臨時去讀 --sidebar-width, 但那時候如果剛好是
+            // 從收合狀態要展開回去, 讀到的其實已經是收合後的 72px, 之後不管再怎麼收合/展開都會卡在
+            // 72px 出不去 (畫面看起來就是「縮小後再展開會出錯」: class 已經拿掉了, 文字都跑出來了,
+            // 但寬度變數還停在 72px, 版面整個擠壞)。改成一進頁面就先讀一次, 完全不受後面收合動作影響。
+            var baseWidthValue = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width').trim() || '260px';
+
+            function applyCollapsed(collapsed) {
+                if (!sidebarEl) return;
+                sidebarEl.classList.toggle('collapsed', collapsed);
+                document.documentElement.style.setProperty('--sidebar-width', collapsed ? '72px' : baseWidthValue);
+            }
+
+            // 一進頁面就先套用上次記住的收合狀態, 減少畫面「先展開再收合」的閃爍
+            var saved = false;
+            try { saved = window.localStorage.getItem(STORAGE_KEY) === '1'; } catch (e) {}
+            if (saved) applyCollapsed(true);
+
+            var toggleBtn = sidebarEl ? sidebarEl.querySelector('#sidebarToggleBtn') : null;
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', function () {
+                    var next = !sidebarEl.classList.contains('collapsed');
+                    applyCollapsed(next);
+                    try { window.localStorage.setItem(STORAGE_KEY, next ? '1' : '0'); } catch (e) {}
+                });
+            }
+        })();
+
+        // 「需要協助嗎？」說明彈窗: 開/關 + 手風琴 (單一開啟, 點別的項目會把前一個收起來)
+        function sbhelpOpen() {
+            var overlay = document.getElementById('sbhelpOverlay');
+            if (overlay) overlay.classList.add('open');
+        }
+        function sbhelpClose() {
+            var overlay = document.getElementById('sbhelpOverlay');
+            if (overlay) overlay.classList.remove('open');
+        }
+        function sbhelpToggle(triggerBtn) {
+            var item = triggerBtn.closest('.sbhelp-item');
+            var body = document.getElementById('sbhelpBody');
+            var wasOpen = item.classList.contains('open');
+            body.querySelectorAll('.sbhelp-item.open').forEach(function (el) { el.classList.remove('open'); });
+            if (!wasOpen) item.classList.add('open');
+        }
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') sbhelpClose();
+        });
+
+        // ---------- 全站共用的輕量提示 (toast) ----------
+        // 目的: 有些按鈕點了「沒反應」其實是後端正確擋下沒有權限的操作, 只是靜靜導回原頁面,
+        // 使用者會誤以為按鈕壞掉 (例如 EDITOR 角色點報價單的「解鎖」按鈕)。統一做法: 後端在
+        // 權限判斷失敗要導回原頁面時, 導回的網址加上 ?permissionError=1, 這裡在頁面載入時偵測到
+        // 這個標記就跳一個「沒有權限」的提示, 顯示完馬上把網址上的標記清掉 (history.replaceState),
+        // 這樣重新整理/上一頁不會重複跳出來。往後如果有其他種類的提示, 也可以直接呼叫 window.showToast()
+        // (第二個參數是 'error' | 'success' | 'info', 決定顏色)。
+        (function () {
+            if (!document.getElementById('sbToastContainer')) {
+                var container = document.createElement('div');
+                container.id = 'sbToastContainer';
+                container.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:3000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;';
+                document.body.appendChild(container);
+            }
+
+            window.showToast = function (message, type) {
+                var container = document.getElementById('sbToastContainer');
+                if (!container) return;
+                var colors = {
+                    error: { bg: '#fef2f2', border: '#fecaca', text: '#991b1b', icon: 'fa-circle-exclamation' },
+                    success: { bg: '#f0fdf4', border: '#bbf7d0', text: '#166534', icon: 'fa-circle-check' },
+                    info: { bg: '#eff6ff', border: '#bfdbfe', text: '#1d4ed8', icon: 'fa-circle-info' }
+                };
+                var c = colors[type] || colors.info;
+                var toast = document.createElement('div');
+                toast.style.cssText = 'pointer-events:auto;display:flex;align-items:center;gap:10px;'
+                    + 'background:' + c.bg + ';border:1px solid ' + c.border + ';color:' + c.text + ';'
+                    + 'padding:12px 18px;border-radius:10px;font-size:13.5px;font-weight:600;'
+                    + 'box-shadow:0 8px 20px rgba(0,0,0,0.12);max-width:420px;opacity:0;transition:opacity .2s ease, transform .2s ease;transform:translateY(-8px);';
+                toast.innerHTML = '<i class="fa-solid ' + c.icon + '"></i><span></span>';
+                toast.querySelector('span').textContent = message;
+                container.appendChild(toast);
+                requestAnimationFrame(function () {
+                    toast.style.opacity = '1';
+                    toast.style.transform = 'translateY(0)';
+                });
+                setTimeout(function () {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateY(-8px)';
+                    setTimeout(function () { toast.remove(); }, 220);
+                }, 3600);
+            };
+
+            var params = new URLSearchParams(window.location.search);
+            if (params.get('permissionError') === '1') {
+                window.showToast('你沒有這個操作的權限，請聯絡管理者調整權限', 'error');
+                params.delete('permissionError');
+                var newSearch = params.toString();
+                var newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+                window.history.replaceState({}, '', newUrl);
+            }
+        })();
+
+        // ---------- 送出表單後保留原本的捲動位置, 不要整頁重新整理跳回最頂端 ----------
+        // 使用者反映: 網站上很多操作 (例如 AI 解析結果頁按「加入景點資料庫」) 都是傳統表單送出 → 伺服器處理完
+        // 導回同一頁 → 瀏覽器整頁重新整理, 瀏覽器預設行為就是重新整理後捲動位置歸零, 使用者往下滑到某個項目
+        // 按下按鈕後, 畫面卻跳回最上面, 要重新滑下去找剛剛在看的地方, 體驗很差。
+        // 解法: 表單送出「當下」(還沒真的離開頁面前) 先把目前的捲動位置存進 sessionStorage, key 是「目前這頁的
+        // 網址路徑」; 新頁面載入後, 如果讀到「這個路徑」有存過的捲動位置, 就自動捲回去, 讀完馬上清掉 (避免下次
+        // 單純重新整理/直接輸入網址進來時也被捲動, 那種情況應該從頂端開始看)。
+        // 只綁「表單送出」這個時機 (不是所有連結點擊都存): 使用者抱怨的情境全部都是「按下動作按鈕、伺服器處理完
+        // 導回同一頁」這種表單驅動的模式, 換去別的頁面 (點側邊欄、點連結) 本來就應該從頂端開始看, 不用特地保留。
+        document.addEventListener('submit', function (e) {
+            try {
+                sessionStorage.setItem('tegScrollPos:' + window.location.pathname, String(window.scrollY));
+            } catch (err) { /* 無痕模式等環境可能會擋 sessionStorage, 擋了就當作沒這個功能, 不影響表單照常送出 */ }
+        }, true);
+
+        (function () {
+            try {
+                var key = 'tegScrollPos:' + window.location.pathname;
+                var saved = sessionStorage.getItem(key);
+                if (saved === null) return;
+                sessionStorage.removeItem(key);
+                var y = parseInt(saved, 10);
+                if (isNaN(y)) return;
+                // 延一格 (requestAnimationFrame) 再捲動, 確保瀏覽器已經把整頁版面排完, 不然算出來的
+                // 可捲動範圍可能還不準 (常見於頁面內容是靠 JS 動態長出來的情況, 例如報價單明細列表)。
+                requestAnimationFrame(function () {
+                    window.scrollTo(0, y);
+                });
+            } catch (err) {}
+        })();
+    </script>
 </aside>
 
 </body>

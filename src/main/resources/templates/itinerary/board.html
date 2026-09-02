@@ -908,10 +908,10 @@
                 <i class="fa-solid fa-circle-check"></i> 完成行程
             </a>
             <a href="#" onclick="openExportModal('b2c'); return false;" class="btn-nav b2c">
-                <i class="fa-regular fa-file-lines"></i> 匯出客戶版 (B2C)
+                <i class="fa-regular fa-file-lines"></i> 匯出客戶版 (Word)
             </a>
             <a href="#" onclick="openExportModal('b2b'); return false;" class="btn-nav b2b">
-                <i class="fa-solid fa-file-invoice-dollar"></i> 匯出同業報價單 (B2B)
+                <i class="fa-solid fa-file-word"></i> 匯出同業版 (Word)
             </a>
             <a th:href="@{/agency/dashboard}" class="btn-nav">
                 <i class="fa-solid fa-arrow-left"></i> 回行程列表
@@ -1682,8 +1682,10 @@
                 </div>
 
                 <div id="edit-transport-fields-${item.IIID}" style="display:${isTransportType ? 'block' : 'none'};">
-                    <label>名稱 (選填, 留空會依「交通工具：起始點 → 目的地」自動產生)</label>
+                    <label>名稱 (選填, 留空會依「交通工具：起始點 → 目的地」自動產生; 有填航班/車次編號則會自動用「編號 起始點 → 目的地」)</label>
                     <input type="text" id="edit-transport-name-${item.IIID}" value="${esc(item.customName)}" placeholder="例如: 前往機場的接駁車" />
+                    <label>航班/車次編號 (選填)</label>
+                    <input type="text" id="edit-transportnumber-${item.IIID}" value="${esc(item.transportNumber)}" placeholder="例如: CI100" />
                     <label>起始點</label>
                     <input type="text" id="edit-fromloc-${item.IIID}" value="${esc(suggestedFromLocation)}" placeholder="例如: 桃園機場" />
                     <label>起始地址 (選填, 沒填會依起始點自動帶入)</label>
@@ -1933,6 +1935,16 @@
             }
             if (end < start) end += 24 * 60; // 抵達時間字面上比出發時間早 → 隔夜/跨日班機, 視為隔天抵達
 
+            if (i === 0 && startInput) {
+                // 同步「出發時間」輸入框, 顯示成第一個項目實際算出來的開始時間, 不要繼續顯示 day.startTime
+                // 這個獨立存在資料庫、從來沒跟項目同步過的欄位——這正是使用者反映「早餐 8 點, 但出發時間
+                // 顯示 9 點, 對不上」的成因: 早餐項目本身有真實的 08:00 起始時間, 但輸入框讀的是另一個完全
+                // 沒關聯的欄位 (預設 09:00)。這裡只是「顯示」同步, 不會反過來寫回資料庫; 使用者如果真的要
+                // 改當天預設出發時間 (影響「完全沒有真實時間的項目」該從幾點開始估算), 一樣用這個輸入框
+                // 手動改、觸發下面的 updateStartTime()。
+                startInput.value = minutesToTime(start);
+            }
+
             const displayType = isFlightItem(item) ? 'flight' : item.itemType;
             const node = document.createElement('div');
             node.className = `timeline-node item-${displayType}`;
@@ -2078,10 +2090,12 @@
     }
 
     // 帶入這家旅行社上傳的範本清單, 讓使用者選要用哪一份 (或維持內建版面)
+    // 依目前要匯出的 format 決定要抓哪一種類型的範本: b2c → CUSTOMER (客戶版型), b2b → AGENCY_WORD (同業版型)
     function loadExportTemplates() {
         const select = document.getElementById('exportTemplateId');
         select.innerHTML = '';
-        fetch('/export-templates/api')
+        const type = exportFormatPending === 'b2b' ? 'AGENCY_WORD' : 'CUSTOMER';
+        fetch('/export-templates/api?type=' + type)
             .then(res => res.ok ? res.json() : [])
             .then(templates => {
                 let defaultAETID = null;
@@ -2488,6 +2502,7 @@
 
         if (itemType === 'transport') {
             const customNameInput = document.getElementById('edit-transport-name-' + iiid).value.trim();
+            const transportNumber = document.getElementById('edit-transportnumber-' + iiid).value.trim();
             const fromLocation = document.getElementById('edit-fromloc-' + iiid).value.trim();
             const fromAddress = document.getElementById('edit-fromaddr-' + iiid).value.trim();
             const toLocation = document.getElementById('edit-toloc-' + iiid).value.trim();
@@ -2498,21 +2513,25 @@
             const endTime = document.getElementById('edit-endtime-' + iiid).value.trim();
             if (!fromLocation || !toLocation) { alert('請至少輸入起始點與目的地'); return; }
 
-            // 名稱留空時自動用「交通工具：起始點 → 目的地」帶入——但如果這本來是去程/回程班機項目
-            // (customName 開頭是「去程班機」/「回程班機」, 見 ItineraryService.attachFlightLegsAcrossDays()
-            // 的命名規則), 要保留原本的方向字首, 不能直接套用一般交通的命名規則, 不然機場銜接功能
-            // (calculateAirportTransferSegments()/updateItemDetails() 判斷回程班機的地方) 會認不出這個項目。
+            // 名稱留空時自動帶入——如果這本來是去程/回程班機項目 (customName 開頭是「去程班機」/「回程班機」,
+            // 見 ItineraryService.attachFlightLegsAcrossDays() 的命名規則), 要保留原本的方向字首,
+            // 不能直接套用一般交通的命名規則, 不然機場銜接功能 (calculateAirportTransferSegments()/
+            // updateItemDetails() 判斷回程班機的地方) 會認不出這個項目。有填「航班/車次編號」的話插在
+            // 字首後面、路線前面 (跟 ItineraryService.buildFlightLabel() 同一套格式)。
             const flightPrefixMatch = (currentItem && currentItem.transportMethod === '飛機' && currentItem.customName)
                 ? currentItem.customName.match(/^(去程班機\d*|回程班機\d*)/)
                 : null;
+            const route = fromLocation + ' → ' + toLocation;
+            const routeWithNumber = transportNumber ? (transportNumber + ' ' + route) : route;
             let autoName;
             if (flightPrefixMatch) {
-                autoName = flightPrefixMatch[0] + '：' + fromLocation + ' → ' + toLocation;
+                autoName = flightPrefixMatch[0] + '：' + routeWithNumber;
             } else {
                 const namePrefix = transportMethod ? (transportMethod + '：') : '';
-                autoName = namePrefix + fromLocation + ' → ' + toLocation;
+                autoName = namePrefix + routeWithNumber;
             }
             overrides.customName = customNameInput || autoName;
+            overrides.transportNumber = transportNumber || null;
             overrides.fromLocation = fromLocation;
             overrides.fromAddress = fromAddress || null; // 空白代表「沒填」, 後端會依起始點自動查詢帶入
             overrides.toLocation = toLocation;
@@ -2742,6 +2761,7 @@
                 setIfPresent('toLocation', edit.toLocation);
                 setIfPresent('toAddress', edit.toAddress);
                 setIfPresent('transportMethod', edit.transportMethod);
+                setIfPresent('transportNumber', edit.transportNumber);
                 setIfPresent('startTime', edit.startTime);
                 setIfPresent('endTime', edit.endTime);
                 const res = await fetch(`/itinerary/day/${idid}/items/${iiid}/edit?` + params.toString(), { method: 'POST' });

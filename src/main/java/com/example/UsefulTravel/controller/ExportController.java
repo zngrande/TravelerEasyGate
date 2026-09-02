@@ -5,6 +5,7 @@ import com.example.UsefulTravel.DAO.ItineraryDAO;
 import com.example.UsefulTravel.entity.AgencyExportTemplate;
 import com.example.UsefulTravel.entity.Itinerary;
 import com.example.UsefulTravel.entity.Quotation;
+import com.example.UsefulTravel.service.ExcelTemplateMergeService;
 import com.example.UsefulTravel.service.ExportService;
 import com.example.UsefulTravel.service.ImageStorageService;
 import com.example.UsefulTravel.service.QuotationExportService;
@@ -28,6 +29,7 @@ public class ExportController {
 
     private final ExportService exportService;
     private final TemplateMergeService templateMergeService;
+    private final ExcelTemplateMergeService excelTemplateMergeService;
     private final AgencyExportTemplateDAO templateDAO;
     private final ItineraryDAO itineraryDAO;
     private final ImageStorageService storageService;
@@ -36,11 +38,13 @@ public class ExportController {
 
     @Autowired
     public ExportController(ExportService exportService, TemplateMergeService templateMergeService,
+                            ExcelTemplateMergeService excelTemplateMergeService,
                             AgencyExportTemplateDAO templateDAO, ItineraryDAO itineraryDAO,
                             ImageStorageService storageService, QuotationExportService quotationExportService,
                             QuotationService quotationService) {
         this.exportService = exportService;
         this.templateMergeService = templateMergeService;
+        this.excelTemplateMergeService = excelTemplateMergeService;
         this.templateDAO = templateDAO;
         this.itineraryDAO = itineraryDAO;
         this.storageService = storageService;
@@ -68,7 +72,7 @@ public class ExportController {
 
         byte[] fileBytes;
 
-        AgencyExportTemplate template = resolveTemplate(templateId, AID);
+        AgencyExportTemplate template = resolveTemplate(templateId, AID, format);
         if (template != null) {
             Itinerary itinerary = itineraryDAO.findById(ITID);
             if (itinerary == null) return ResponseEntity.notFound().build();
@@ -97,17 +101,32 @@ public class ExportController {
                 .body(fileBytes);
     }
 
-    // templateId 沒傳 → null (用內建版面); templateId = 0 → 用該旅行社的預設範本; 其他 → 用指定的那份範本
-    private AgencyExportTemplate resolveTemplate(Integer templateId, Integer AID) {
+    // templateId 沒傳 → null (用內建版面); templateId = 0 → 用該旅行社「這個 format 對應類型」的預設範本; 其他 → 用指定的那份範本
+    // format=b2c → 找 CUSTOMER 類型範本 (給客戶看的企劃書); format=b2b → 找 AGENCY_WORD 類型範本 (給同業看的企劃書)
+    // 同業 Excel 報價單是完全不同的東西, 走 resolveAgencyTemplate / 另一支 API
+    private AgencyExportTemplate resolveTemplate(Integer templateId, Integer AID, String format) {
         if (templateId == null || AID == null) return null;
-        if (templateId == 0) return templateDAO.findDefaultByAgency(AID);
+        String type = "b2b".equals(format) ? "AGENCY_WORD" : "CUSTOMER";
+        if (templateId == 0) return templateDAO.findDefaultByAgencyAndType(AID, type);
         AgencyExportTemplate t = templateDAO.findById(templateId);
-        return (t != null && t.getAID() == AID) ? t : null;
+        return (t != null && t.getAID() == AID && type.equals(t.getTemplateType())) ? t : null;
     }
 
-    // GET /quotation/{qid}/export/excel → 把這份報價單匯出成 Excel (內建固定版型, 對應紙本報價單那張單據)
+    // templateId 沒傳 → null (用系統內建固定版型); templateId = 0 → 用該旅行社的預設「同業版型」範本; 其他 → 指定的那份
+    private AgencyExportTemplate resolveAgencyTemplate(Integer templateId, Integer AID) {
+        if (templateId == null || AID == null) return null;
+        if (templateId == 0) return templateDAO.findDefaultByAgencyAndType(AID, "AGENCY");
+        AgencyExportTemplate t = templateDAO.findById(templateId);
+        return (t != null && t.getAID() == AID && "AGENCY".equals(t.getTemplateType())) ? t : null;
+    }
+
+    // GET /quotation/{qid}/export/excel → 把這份報價單匯出成 Excel
+    // templateId 沒傳/找不到範本 → 走系統內建固定版型 (原本的行為); 傳了且有對應的「同業版型」自訂範本 →
+    // 讀取那份 .xlsx 範本做合併 (ExcelTemplateMergeService), 版面完全照旅行社自己設計的長相輸出
     @GetMapping("/quotation/{qid}/export/excel")
-    public ResponseEntity<byte[]> exportQuotationExcel(@PathVariable("qid") int QID, HttpSession session) throws Exception {
+    public ResponseEntity<byte[]> exportQuotationExcel(@PathVariable("qid") int QID,
+                                                        @RequestParam(required = false) Integer templateId,
+                                                        HttpSession session) throws Exception {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return ResponseEntity.status(401).build();
 
@@ -117,7 +136,18 @@ public class ExportController {
         // 草稿階段金額還沒凍結, 隨時可能再變, 不開放匯出以免業務把還會變動的數字寄給客戶
         if ("draft".equals(quotation.getStatus())) return ResponseEntity.status(409).body(null);
 
-        byte[] fileBytes = quotationExportService.generateExcel(QID);
+        byte[] fileBytes;
+        AgencyExportTemplate agencyTemplate = resolveAgencyTemplate(templateId, AID);
+        if (agencyTemplate != null) {
+            Itinerary itinerary = itineraryDAO.findById(quotation.getITID());
+            byte[] templateBytes = storageService.load(agencyTemplate.getFilePath());
+            ExcelTemplateMergeService.ExcelTemplateData data =
+                    excelTemplateMergeService.buildTemplateData(quotation, itinerary);
+            fileBytes = excelTemplateMergeService.merge(templateBytes, data);
+        } else {
+            fileBytes = quotationExportService.generateExcel(QID);
+        }
+
         String filename = "quotation_" + QID + "_v" + quotation.getVersion() + ".xlsx";
 
         HttpHeaders headers = new HttpHeaders();

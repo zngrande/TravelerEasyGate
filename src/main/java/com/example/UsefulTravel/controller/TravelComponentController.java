@@ -4,6 +4,7 @@ import com.example.UsefulTravel.DAO.ItineraryComponentDAO;
 import com.example.UsefulTravel.DAO.TravelComponentDAO;
 import com.example.UsefulTravel.entity.ItineraryComponent;
 import com.example.UsefulTravel.entity.TravelComponent;
+import com.example.UsefulTravel.service.PermissionService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -20,6 +21,7 @@ public class TravelComponentController {
 
     private final TravelComponentDAO travelComponentDAO;
     private final ItineraryComponentDAO itineraryComponentDAO;
+    private final PermissionService permissionService;
 
     // 元件類型的固定分類：使用者要求把「遊覽車、導遊、保險」這類每次出團都需要的固定資源
     // 也建成標準元件，跟原本的航班/餐食/住宿等級/自費項目放在同一個下拉選單裡。
@@ -39,9 +41,18 @@ public class TravelComponentController {
     }
 
     @Autowired
-    public TravelComponentController(TravelComponentDAO travelComponentDAO, ItineraryComponentDAO itineraryComponentDAO) {
+    public TravelComponentController(TravelComponentDAO travelComponentDAO, ItineraryComponentDAO itineraryComponentDAO,
+                                      PermissionService permissionService) {
         this.travelComponentDAO = travelComponentDAO;
         this.itineraryComponentDAO = itineraryComponentDAO;
+        this.permissionService = permissionService;
+    }
+
+    // 元件資料庫 (公司元件庫本身的管理) 對應側邊欄「資料庫管理」的顯示條件, 只有 ADMIN / EDITOR 能用。
+    // 注意: 這跟下面「掛元件到某個行程」(/itinerary/{id}/components, 用於 B2B 報價表) 是不同功能,
+    // 那個是報價流程的一部分, 不受這個限制。
+    private boolean canEditItinerary(HttpSession session) {
+        return permissionService.canEditItinerary((String) session.getAttribute("role"));
     }
 
     // GET /component → 公司元件庫列表 (航班/遊覽車/導遊/保險/餐食/住宿/自費項目...固定資源)
@@ -49,6 +60,7 @@ public class TravelComponentController {
     public String list(HttpSession session, Model model) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         model.addAttribute("components", travelComponentDAO.findByAgency(AID));
         model.addAttribute("componentTypeLabels", TYPE_LABELS);
@@ -65,6 +77,7 @@ public class TravelComponentController {
                           HttpSession session) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         TravelComponent component = new TravelComponent(AID, type, name, defaultPrice, description);
         component.setCostType(costType);
@@ -84,6 +97,7 @@ public class TravelComponentController {
                         RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         TravelComponent component = travelComponentDAO.findById(CPID);
         if (component == null || component.getAID() != AID) {
@@ -107,6 +121,7 @@ public class TravelComponentController {
     public String delete(@PathVariable("id") int CPID, HttpSession session, RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         if (AID == null) return "redirect:/login";
+        if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         TravelComponent component = travelComponentDAO.findById(CPID);
         if (component == null || component.getAID() != AID) {

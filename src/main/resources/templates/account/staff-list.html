@@ -28,6 +28,11 @@
         td { padding: 12px 14px; border-bottom: 1px solid var(--border-color); vertical-align: middle; white-space: nowrap; }
         tr:last-child td { border-bottom: none; }
         .role-select { padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 12.5px; }
+        /* 角色改成多選 checkbox, 取代原本單選的下拉選單 */
+        .role-checkbox-form { display: flex; flex-direction: column; gap: 4px; }
+        .role-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-dark); cursor: pointer; white-space: nowrap; }
+        .role-check input[disabled] { cursor: not-allowed; }
+        .role-checkbox-group { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; }
         .status-pill { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
         .status-active { background: #ecfdf5; color: var(--green); }
         .status-inactive { background: #f1f5f9; color: var(--text-gray); }
@@ -81,13 +86,29 @@
                         </td>
                         <td th:text="${s.account}"></td>
                         <td>
-                            <form method="post" th:action="@{'/staff/' + ${s.UID} + '/role'}" style="display:inline;">
-                                <select name="role" class="role-select" onchange="this.form.submit()" th:disabled="${s.UID == currentUID}">
-                                    <option value="ADMIN" th:selected="${s.role == 'ADMIN'}">ADMIN 全權限</option>
-                                    <option value="EDITOR" th:selected="${s.role == 'EDITOR'}">EDITOR 行程編輯者</option>
-                                    <option value="QUOTER" th:selected="${s.role == 'QUOTER'}">QUOTER 報價專員</option>
-                                    <option value="VIEWER" th:selected="${s.role == 'VIEWER'}">VIEWER 唯讀</option>
-                                </select>
+                            <!-- 角色改成多選 (使用者要求): 一個人可以同時掛好幾個角色, 不用整個升成 ADMIN
+                                 才能同時編輯行程又報價。每個 checkbox 勾/取消勾都直接自動送出這個表單。 -->
+                            <form method="post" th:action="@{'/staff/' + ${s.UID} + '/role'}" class="role-checkbox-form">
+                                <label class="role-check">
+                                    <input type="checkbox" name="roles" value="ADMIN"
+                                           th:checked="${@permissionService.splitRoles(s.role).contains('ADMIN')}"
+                                           th:disabled="${s.UID == currentUID}" onchange="this.form.requestSubmit()" /> ADMIN 全權限
+                                </label>
+                                <label class="role-check">
+                                    <input type="checkbox" name="roles" value="EDITOR"
+                                           th:checked="${@permissionService.splitRoles(s.role).contains('EDITOR')}"
+                                           th:disabled="${s.UID == currentUID}" onchange="this.form.requestSubmit()" /> EDITOR 行程編輯者
+                                </label>
+                                <label class="role-check">
+                                    <input type="checkbox" name="roles" value="QUOTER"
+                                           th:checked="${@permissionService.splitRoles(s.role).contains('QUOTER')}"
+                                           th:disabled="${s.UID == currentUID}" onchange="this.form.requestSubmit()" /> QUOTER 報價專員
+                                </label>
+                                <label class="role-check">
+                                    <input type="checkbox" name="roles" value="VIEWER"
+                                           th:checked="${@permissionService.splitRoles(s.role).contains('VIEWER')}"
+                                           th:disabled="${s.UID == currentUID}" onchange="this.form.requestSubmit()" /> VIEWER 唯讀
+                                </label>
                             </form>
                         </td>
                         <td>
@@ -143,13 +164,13 @@
                     <input type="password" name="pw" class="form-control" minlength="6" required />
                 </div>
                 <div class="form-group">
-                    <label class="form-label">角色</label>
-                    <select name="role" class="form-control" required>
-                        <option value="EDITOR" selected>EDITOR 行程編輯者</option>
-                        <option value="QUOTER">QUOTER 報價專員</option>
-                        <option value="VIEWER">VIEWER 唯讀</option>
-                        <option value="ADMIN">ADMIN 全權限</option>
-                    </select>
+                    <label class="form-label">角色（可複選）</label>
+                    <div class="role-checkbox-group">
+                        <label class="role-check"><input type="checkbox" name="roles" value="EDITOR" checked /> EDITOR 行程編輯者</label>
+                        <label class="role-check"><input type="checkbox" name="roles" value="QUOTER" /> QUOTER 報價專員</label>
+                        <label class="role-check"><input type="checkbox" name="roles" value="VIEWER" /> VIEWER 唯讀</label>
+                        <label class="role-check"><input type="checkbox" name="roles" value="ADMIN" /> ADMIN 全權限</label>
+                    </div>
                 </div>
                 <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增帳號</button>
             </form>

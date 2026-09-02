@@ -43,6 +43,7 @@ com\example\UsefulTravel\controller\QuotationController.class
 com\example\UsefulTravel\service\TemplateMergeService$TemplateData.class
 com\example\UsefulTravel\entity\AiImport.class
 com\example\UsefulTravel\DAO\AiParsedDayDAOImpl.class
+com\example\UsefulTravel\service\ExcelTemplateMergeService$ExcelTemplateData.class
 com\example\UsefulTravel\DAO\AiImportDAOImpl.class
 com\example\UsefulTravel\DAO\QuotationGroupTierDAOImpl.class
 com\example\UsefulTravel\entity\RouteSegment.class
@@ -52,6 +53,7 @@ com\example\UsefulTravel\entity\Poi.class
 com\example\UsefulTravel\service\TemplateMergeService$ImageData.class
 com\example\UsefulTravel\DAO\StaffUserDAO.class
 com\example\UsefulTravel\service\ExchangeRateClient.class
+com\example\UsefulTravel\service\ExcelTemplateMergeService$RowSnapshot.class
 com\example\UsefulTravel\service\GoogleMapsClient$GeocodeResult.class
 com\example\UsefulTravel\entity\PoiCooperationLog.class
 com\example\UsefulTravel\entity\QuotationLine.class
@@ -110,6 +112,7 @@ com\example\UsefulTravel\DAO\QuotationDAOImpl.class
 com\example\UsefulTravel\DAO\ItineraryDAO.class
 com\example\UsefulTravel\entity\PriceTierTemplate.class
 com\example\UsefulTravel\controller\AiImportController.class
+com\example\UsefulTravel\service\ExcelTemplateMergeService.class
 com\example\UsefulTravel\service\ExchangeRateUpdateService.class
 com\example\UsefulTravel\DAO\ItineraryComponentDAO.class
 com\example\UsefulTravel\entity\CountryCityCode.class

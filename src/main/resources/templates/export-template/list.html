@@ -55,13 +55,28 @@
         .msg.error { color: #dc2626; }
         .msg.success { color: #16a34a; }
 
+        /* 客戶版型(Word) / 同業版型(Excel) 分頁籤 */
+        .type-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-shrink: 0; }
+        .type-tab {
+            display: flex; align-items: center; gap: 8px;
+            padding: 10px 18px; border-radius: 8px; border: 1px solid var(--border-color);
+            background: #fff; color: var(--text-gray); font-size: 13.5px; font-weight: 600;
+            cursor: pointer;
+        }
+        .type-tab i { font-size: 14px; }
+        .type-tab.active { background: #eff6ff; border-color: #bfdbfe; color: var(--primary-blue); }
+        .type-panel { display: none; }
+        .type-panel.active { display: block; }
+
         /* 左側主要內容 (上傳/範本清單) | 右側教學文件, 雙欄版面
            兩欄都固定高度、各自內部捲動, 不會把整頁撐高需要捲動 (跟行程排版看板/景點資料維護同一套做法) */
         .page-grid { display: grid; grid-template-columns: 1fr 380px; gap: 24px; align-items: stretch; flex: 1; min-height: 0; }
         .page-grid-left { height: 100%; min-height: 0; overflow-y: auto; padding-right: 4px; }
 
         /* 右側「教學文件」展開式模組, 跟行程排版看板 / 景點資料維護的手風琴設計同一套樣式 */
-        .tools-col { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; overflow: hidden; }
+        .tools-col { height: 100%; min-height: 0; overflow: hidden; }
+        .tools-col-inner { display: none; flex-direction: column; gap: 12px; height: 100%; min-height: 0; overflow: hidden; }
+        .tools-col-inner.active { display: flex; }
         .accordion-trigger {
             background: #fff;
             border: 1px solid var(--border-color);
@@ -150,58 +165,177 @@
 
     <div class="page-grid">
 
-        <!-- 左側：上傳範本 / 我的範本 -->
+        <!-- 左側：上傳範本 / 我的範本, 分「給客戶(Word)」「給同業(Excel)」兩個分頁籤 -->
         <div class="page-grid-left">
-            <div class="card">
-                <h2>上傳新範本</h2>
-                <div class="form-row">
-                    <label>範本名稱</label>
-                    <input type="text" id="templateName" placeholder="例如：北海道熱門版" />
+
+            <div class="type-tabs">
+                <div id="tabCustomer" class="type-tab active" onclick="switchTemplateType('customer')">
+                    <i class="fa-solid fa-file-word"></i> 給客戶的版型（Word）
                 </div>
-                <div class="form-row">
-                    <label>檔案</label>
-                    <input type="file" id="templateFile" accept=".docx" />
+                <div id="tabAgencyWord" class="type-tab" onclick="switchTemplateType('agencyWord')">
+                    <i class="fa-solid fa-file-word"></i> 給同業的版型（Word）
                 </div>
-                <div class="form-row">
-                    <label></label>
-                    <label style="width:auto; display:flex; align-items:center; gap:6px;">
-                        <input type="checkbox" id="templateSetDefault" /> 設為預設範本
-                    </label>
+                <div id="tabAgency" class="type-tab" onclick="switchTemplateType('agency')">
+                    <i class="fa-solid fa-file-excel"></i> 給同業的版型（Excel）
                 </div>
-                <button class="btn" onclick="uploadTemplate()">上傳</button>
-                <div class="hint">
-                    範本要照特定標記規則製作（{{title}}、{{day_start}}...{{day_end}} 等），
-                    規則說明請參考右側「範本格式教學」。
-                </div>
-                <div id="uploadMsg" class="msg"></div>
             </div>
 
-            <div class="card">
-                <h2>我的範本</h2>
-                <table th:if="${not #lists.isEmpty(templates)}">
-                    <thead>
-                    <tr><th>名稱</th><th>上傳時間</th><th>狀態</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                    <tr th:each="t : ${templates}">
-                        <td th:text="${t.name}">範本名稱</td>
-                        <td th:text="${#temporals.format(t.createdAt, 'yyyy/MM/dd HH:mm')}">2026/01/01</td>
-                        <td>
-                            <span th:if="${t.default}" class="badge">預設</span>
-                        </td>
-                        <td>
-                            <button th:if="${!t.default}" class="btn ghost" th:onclick="'setDefault(' + ${t.AETID} + ')'">設為預設</button>
-                            <button class="btn danger" th:onclick="'deleteTemplate(' + ${t.AETID} + ')'">刪除</button>
-                        </td>
-                    </tr>
-                    </tbody>
-                </table>
-                <div class="empty" th:if="${#lists.isEmpty(templates)}">還沒有上傳任何範本，上傳後就能在匯出行程時選用。</div>
+            <!-- 客戶版型 (Word / .docx) -->
+            <div id="panelCustomer" class="type-panel active">
+                <div class="card">
+                    <h2>上傳新範本（.docx）</h2>
+                    <div class="form-row">
+                        <label>範本名稱</label>
+                        <input type="text" id="customerTemplateName" placeholder="例如：北海道熱門版" />
+                    </div>
+                    <div class="form-row">
+                        <label>檔案</label>
+                        <input type="file" id="customerTemplateFile" accept=".docx" />
+                    </div>
+                    <div class="form-row">
+                        <label></label>
+                        <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="customerTemplateSetDefault" /> 設為預設範本
+                        </label>
+                    </div>
+                    <button class="btn" onclick="uploadTemplate('CUSTOMER')">上傳</button>
+                    <div class="hint">
+                        給客戶看的行程企劃書範本，要照特定標記規則製作（{{title}}、{{day_start}}...{{day_end}} 等），
+                        規則說明請參考右側「範本格式教學」。
+                    </div>
+                    <div id="customerUploadMsg" class="msg"></div>
+                </div>
+
+                <div class="card">
+                    <h2>我的客戶版型</h2>
+                    <table th:if="${not #lists.isEmpty(customerTemplates)}">
+                        <thead>
+                        <tr><th>名稱</th><th>上傳時間</th><th>狀態</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="t : ${customerTemplates}">
+                            <td th:text="${t.name}">範本名稱</td>
+                            <td th:text="${#temporals.format(t.createdAt, 'yyyy/MM/dd HH:mm')}">2026/01/01</td>
+                            <td>
+                                <span th:if="${t.default}" class="badge">預設</span>
+                            </td>
+                            <td>
+                                <button th:if="${!t.default}" class="btn ghost" th:onclick="'setDefault(' + ${t.AETID} + ')'">設為預設</button>
+                                <button class="btn danger" th:onclick="'deleteTemplate(' + ${t.AETID} + ')'">刪除</button>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <div class="empty" th:if="${#lists.isEmpty(customerTemplates)}">還沒有上傳任何客戶版型，上傳後就能在匯出行程企劃書時選用。</div>
+                </div>
+            </div>
+
+            <!-- 同業版型 (Word / .docx) -->
+            <div id="panelAgencyWord" class="type-panel">
+                <div class="card">
+                    <h2>上傳新範本（.docx）</h2>
+                    <div class="form-row">
+                        <label>範本名稱</label>
+                        <input type="text" id="agencyWordTemplateName" placeholder="例如：同業企劃書標準版" />
+                    </div>
+                    <div class="form-row">
+                        <label>檔案</label>
+                        <input type="file" id="agencyWordTemplateFile" accept=".docx" />
+                    </div>
+                    <div class="form-row">
+                        <label></label>
+                        <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="agencyWordTemplateSetDefault" /> 設為預設範本
+                        </label>
+                    </div>
+                    <button class="btn" onclick="uploadTemplate('AGENCY_WORD')">上傳</button>
+                    <div class="hint">
+                        給同業(B2B 夥伴)看的行程企劃書範本，對應行程排版看板的「匯出同業版 (Word)」。
+                        標記規則跟左邊的客戶版型完全一樣（{{title}}、{{day_start}}...{{day_end}} 等），
+                        規則說明請參考右側「範本格式教學」，兩種版型只是套用的場合不同、範本檔案各自獨立管理。
+                    </div>
+                    <div id="agencyWordUploadMsg" class="msg"></div>
+                </div>
+
+                <div class="card">
+                    <h2>我的同業版型（Word）</h2>
+                    <table th:if="${not #lists.isEmpty(agencyWordTemplates)}">
+                        <thead>
+                        <tr><th>名稱</th><th>上傳時間</th><th>狀態</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="t : ${agencyWordTemplates}">
+                            <td th:text="${t.name}">範本名稱</td>
+                            <td th:text="${#temporals.format(t.createdAt, 'yyyy/MM/dd HH:mm')}">2026/01/01</td>
+                            <td>
+                                <span th:if="${t.default}" class="badge">預設</span>
+                            </td>
+                            <td>
+                                <button th:if="${!t.default}" class="btn ghost" th:onclick="'setDefault(' + ${t.AETID} + ')'">設為預設</button>
+                                <button class="btn danger" th:onclick="'deleteTemplate(' + ${t.AETID} + ')'">刪除</button>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <div class="empty" th:if="${#lists.isEmpty(agencyWordTemplates)}">還沒有上傳任何同業版型（Word），上傳後就能在匯出行程企劃書（同業版）時選用。</div>
+                </div>
+            </div>
+
+            <!-- 同業版型 (Excel / .xlsx) -->
+            <div id="panelAgency" class="type-panel">
+                <div class="card">
+                    <h2>上傳新範本（.xlsx）</h2>
+                    <div class="form-row">
+                        <label>範本名稱</label>
+                        <input type="text" id="agencyTemplateName" placeholder="例如：同業報價標準版" />
+                    </div>
+                    <div class="form-row">
+                        <label>檔案</label>
+                        <input type="file" id="agencyTemplateFile" accept=".xlsx" />
+                    </div>
+                    <div class="form-row">
+                        <label></label>
+                        <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="agencyTemplateSetDefault" /> 設為預設範本
+                        </label>
+                    </div>
+                    <button class="btn" onclick="uploadTemplate('AGENCY')">上傳</button>
+                    <div class="hint">
+                        給同業(B2B 夥伴)看的報價單版型，範本要照特定標記規則製作（{{group_name}}、{{line_start}}...{{line_end}} 等），
+                        規則說明請參考右側「範本格式教學」。上傳並設為預設後，報價單列表的「匯出 Excel」就會自動套用這份版型；
+                        沒有設定的話則維持系統內建的固定版面。
+                    </div>
+                    <div id="agencyUploadMsg" class="msg"></div>
+                </div>
+
+                <div class="card">
+                    <h2>我的同業版型</h2>
+                    <table th:if="${not #lists.isEmpty(agencyTemplates)}">
+                        <thead>
+                        <tr><th>名稱</th><th>上傳時間</th><th>狀態</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="t : ${agencyTemplates}">
+                            <td th:text="${t.name}">範本名稱</td>
+                            <td th:text="${#temporals.format(t.createdAt, 'yyyy/MM/dd HH:mm')}">2026/01/01</td>
+                            <td>
+                                <span th:if="${t.default}" class="badge">預設</span>
+                            </td>
+                            <td>
+                                <button th:if="${!t.default}" class="btn ghost" th:onclick="'setDefault(' + ${t.AETID} + ')'">設為預設</button>
+                                <button class="btn danger" th:onclick="'deleteTemplate(' + ${t.AETID} + ')'">刪除</button>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <div class="empty" th:if="${#lists.isEmpty(agencyTemplates)}">還沒有上傳任何同業版型，上傳後可以在同業報價單裡選用。</div>
+                </div>
             </div>
         </div>
 
-        <!-- 右側：範本格式教學 (展開式模組, 跟其他頁面的手風琴設計同一套) -->
+        <!-- 右側：範本格式教學 (展開式模組, 跟其他頁面的手風琴設計同一套), 跟著左邊分頁籤切換內容 -->
         <div class="tools-col">
+        <div id="toolsCustomer" class="tools-col-inner active">
 
             <!-- 模組一：一次性欄位 -->
             <div id="triggerOnce" class="accordion-trigger" onclick="toggleDocAccordion('Once')">
@@ -346,7 +480,146 @@
                     </ul>
                 </div>
             </div>
+            <!-- 範例範本下載: 客戶版型/同業版型(Word) 各自獨立顯示, 依目前選的分頁籤決定顯示哪一個 -->
+            <div id="downloadCustomerWord" class="doc-text" style="flex:0 0 auto;">
+                <p style="font-weight:700;color:var(--text-dark);margin-bottom:8px;">範例範本下載</p>
+                <a href="/sample-templates/customer_word_sample.docx" download
+                   style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+                          color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
+                          padding:8px 14px;border-radius:8px;">
+                    <i class="fa-solid fa-download"></i> 下載客戶版型範例（.docx）
+                </a>
+            </div>
 
+            <div id="downloadAgencyWord" class="doc-text" style="flex:0 0 auto; display:none;">
+                <p style="font-weight:700;color:var(--text-dark);margin-bottom:8px;">範例範本下載</p>
+                <a href="/sample-templates/agency_word_sample.docx" download
+                   style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+                          color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
+                          padding:8px 14px;border-radius:8px;">
+                    <i class="fa-solid fa-download"></i> 下載同業版型範例（.docx）
+                </a>
+            </div>
+        </div>
+
+        <div id="toolsAgency" class="tools-col-inner">
+
+            <!-- 模組一：一次性欄位 -->
+            <div id="triggerALine" class="accordion-trigger" onclick="toggleAgencyDocAccordion('ALine')">
+                <div class="trigger-left">
+                    <div class="trigger-icon"><i class="fa-solid fa-tag"></i></div>
+                    <div>
+                        <div class="trigger-text">一次性欄位</div>
+                        <div class="trigger-sub">團體名稱、天數、總計...</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelALine" class="accordion-panel">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-solid fa-tag" style="color:#4f46e5;"></i> 一次性欄位</div>
+                    <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="doc-text">
+                    <p>整份範本任何儲存格都可以用，出現一次就換一次：</p>
+                    <table class="doc-table">
+                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                        <tbody>
+                        <tr><td><span class="doc-tag">{{group_name}}</span></td><td>團體名稱（行程標題＋第幾版）</td></tr>
+                        <tr><td><span class="doc-tag">{{country}}</span></td><td>國家/地區</td></tr>
+                        <tr><td><span class="doc-tag">{{days_count}}</span></td><td>天數</td></tr>
+                        <tr><td><span class="doc-tag">{{date_range}}</span></td><td>出發～回程日期</td></tr>
+                        <tr><td><span class="doc-tag">{{group_size}}</span></td><td>團體人數</td></tr>
+                        <tr><td><span class="doc-tag">{{status}}</span></td><td>報價狀態（草稿/已鎖定/已確認）</td></tr>
+                        <tr><td><span class="doc-tag">{{note}}</span></td><td>報價單備註</td></tr>
+                        <tr><td><span class="doc-tag">{{total.gross_cost}}</span></td><td>總成本（Net）</td></tr>
+                        <tr><td><span class="doc-tag">{{total.net_cost}}</span></td><td>總淨成本（NNet）</td></tr>
+                        <tr><td><span class="doc-tag">{{total.basic_price}}</span></td><td>基本報價</td></tr>
+                        <tr><td><span class="doc-tag">{{total.trade_price}}</span></td><td>總同業價</td></tr>
+                        <tr><td><span class="doc-tag">{{total.retail_price}}</span></td><td>總直售價</td></tr>
+                        <tr><td><span class="doc-tag">{{total.rebate_amount}}</span></td><td>總退傭</td></tr>
+                        <tr><td><span class="doc-tag">{{total.profit_trade}}</span></td><td>利潤（同業）</td></tr>
+                        <tr><td><span class="doc-tag">{{total.profit_retail}}</span></td><td>利潤（直售）</td></tr>
+                        </tbody>
+                    </table>
+                    <p>如果儲存格「整格」剛好只放一個數字類標記（例如整格只有 <span class="doc-tag">{{total.trade_price}}</span>），系統會直接寫成數字儲存格，範本裡的 SUM 公式才能正常加總；跟其他文字混在同一格則一律當文字處理。</p>
+                </div>
+            </div>
+
+            <!-- 模組二：明細列區塊 -->
+            <div id="triggerAOnce" class="accordion-trigger" onclick="toggleAgencyDocAccordion('AOnce')">
+                <div class="trigger-left">
+                    <div class="trigger-icon"><i class="fa-solid fa-table-list"></i></div>
+                    <div>
+                        <div class="trigger-text">明細列區塊</div>
+                        <div class="trigger-sub">依報價單項目數自動重複</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelAOnce" class="accordion-panel">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-solid fa-table-list" style="color:#4f46e5;"></i> 明細列區塊</div>
+                    <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="doc-text">
+                    <p>用兩「列」（row）各自獨立當「起點」跟「終點」標記，A 欄整列只放這個標記：</p>
+                    <div class="doc-code">第1列：{{line_start}}
+第2列：（這一列放你想要的一筆明細版面，可以用下面的欄位）
+第3列：{{line_end}}</div>
+                    <p>系統會把 <span class="doc-tag">{{line_start}}</span> 和 <span class="doc-tag">{{line_end}}</span> 中間的那一列（或多列）版面，依這份報價單實際的明細筆數複製多份，並把裡面的標記換成每一筆的資料：</p>
+                    <table class="doc-table">
+                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                        <tbody>
+                        <tr><td><span class="doc-tag">{{line.name}}</span></td><td>項目名稱</td></tr>
+                        <tr><td><span class="doc-tag">{{line.category}}</span></td><td>類別</td></tr>
+                        <tr><td><span class="doc-tag">{{line.unit_price}}</span></td><td>單價</td></tr>
+                        <tr><td><span class="doc-tag">{{line.quantity}}</span></td><td>數量</td></tr>
+                        <tr><td><span class="doc-tag">{{line.gross_cost}}</span></td><td>Net（成本）</td></tr>
+                        <tr><td><span class="doc-tag">{{line.net_cost}}</span></td><td>NNet（淨成本）</td></tr>
+                        <tr><td><span class="doc-tag">{{line.basic_price}}</span></td><td>基本報價</td></tr>
+                        <tr><td><span class="doc-tag">{{line.trade_price}}</span></td><td>同業價</td></tr>
+                        <tr><td><span class="doc-tag">{{line.retail_price}}</span></td><td>直售價</td></tr>
+                        </tbody>
+                    </table>
+                    <p>複製出來的每一份都會套用模板列原本的儲存格樣式（字型、框線、合併儲存格），標記列本身輸出時會變成空白列。</p>
+                </div>
+            </div>
+
+            <!-- 模組三：注意事項 -->
+            <div id="triggerANote" class="accordion-trigger" onclick="toggleAgencyDocAccordion('ANote')">
+                <div class="trigger-left">
+                    <div class="trigger-icon"><i class="fa-solid fa-circle-info"></i></div>
+                    <div>
+                        <div class="trigger-text">注意事項</div>
+                        <div class="trigger-sub">製作範本前務必看一下</div>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+            </div>
+            <div id="panelANote" class="accordion-panel">
+                <div class="panel-header">
+                    <div class="panel-title"><i class="fa-solid fa-circle-info" style="color:#4f46e5;"></i> 注意事項</div>
+                    <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="doc-text">
+                    <ul class="doc-list">
+                        <li><span class="doc-tag">{{line_start}}</span> / <span class="doc-tag">{{line_end}}</span> 這兩個標記，每個工作表（分頁）裡<strong>只能各出現一次</strong>，而且該列裡<strong>只能有這個標記</strong>，不要跟其他文字/欄位混在同一列。</li>
+                        <li>如果範本有多個分頁，目前只有第一個放了 <span class="doc-tag">{{line_start}}</span>／<span class="doc-tag">{{line_end}}</span> 的分頁會展開明細列，其他分頁只會做一般的一次性欄位替換。</li>
+                        <li>上傳範本後建議實際下載一次匯出結果，確認欄寬、框線、SUM 公式都跟預期一致。</li>
+                        <li>把上傳的範本設為「預設範本」後，報價單列表的「匯出 Excel」就會自動套用；沒有設定預設範本的話，會維持系統內建的固定版面。</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="doc-text">
+                <a href="/sample-templates/agency_excel_sample.xlsx" download
+                   style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+              color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
+              padding:8px 14px;border-radius:8px;margin-bottom:12px;">
+                    <i class="fa-solid fa-download"></i> 下載範例範本（.xlsx）
+                </a>
+            </div>
+        </div>
         </div>
 
     </div>
@@ -370,18 +643,61 @@
         });
     }
 
-    function uploadTemplate() {
-        const fileInput = document.getElementById('templateFile');
-        const name = document.getElementById('templateName').value.trim();
-        const setDefault = document.getElementById('templateSetDefault').checked;
-        const msg = document.getElementById('uploadMsg');
+    // 「給客戶(Word)」「給同業(Word)」「給同業(Excel)」三個分頁籤切換 (連同右側教學面板一起切換)
+    // 右側教學面板只有兩份內容: Word 標記規則 (客戶版型/同業版型 Word 共用同一套) 跟 Excel 標記規則,
+    // 所以「給客戶(Word)」跟「給同業(Word)」這兩個分頁籤都對應同一個 toolsCustomer 教學面板。
+    function switchTemplateType(type) {
+        document.getElementById('tabCustomer').classList.toggle('active', type === 'customer');
+        document.getElementById('tabAgencyWord').classList.toggle('active', type === 'agencyWord');
+        document.getElementById('tabAgency').classList.toggle('active', type === 'agency');
+        document.getElementById('panelCustomer').classList.toggle('active', type === 'customer');
+        document.getElementById('panelAgencyWord').classList.toggle('active', type === 'agencyWord');
+        document.getElementById('panelAgency').classList.toggle('active', type === 'agency');
 
-        if (!fileInput.files.length) { showMsg(msg, '請選擇 .docx 檔案', true); return; }
+        const isWord = type === 'customer' || type === 'agencyWord';
+        document.getElementById('toolsCustomer').classList.toggle('active', isWord);
+        document.getElementById('toolsAgency').classList.toggle('active', !isWord);
+
+        // 客戶版型/同業版型(Word) 共用同一個教學面板 (toolsCustomer), 這裡依實際選的是哪個分頁籤,
+        // 只顯示對應那一個下載連結, 不要兩個一起出現
+        document.getElementById('downloadCustomerWord').style.display = (type === 'customer') ? 'block' : 'none';
+        document.getElementById('downloadAgencyWord').style.display = (type === 'agencyWord') ? 'block' : 'none';
+    }
+
+    // 右側「同業版型格式教學」手風琴 (跟 toggleDocAccordion 邏輯一樣, id 前綴不同避免衝突)
+    function toggleAgencyDocAccordion(type) {
+        const types = ['ALine', 'AOnce', 'ANote'];
+        types.forEach(t => {
+            const trigger = document.getElementById('trigger' + t);
+            const panel = document.getElementById('panel' + t);
+            if (t === type) {
+                const isOpen = panel.style.display === 'flex';
+                panel.style.display = isOpen ? 'none' : 'flex';
+                trigger.style.display = isOpen ? 'flex' : 'none';
+            } else {
+                panel.style.display = 'none';
+                trigger.style.display = 'flex';
+            }
+        });
+    }
+
+    // templateType: 'CUSTOMER' (給客戶, .docx) / 'AGENCY_WORD' (給同業企劃書, .docx) / 'AGENCY' (給同業報價單, .xlsx)
+    function uploadTemplate(templateType) {
+        const prefixMap = { CUSTOMER: 'customer', AGENCY_WORD: 'agencyWord', AGENCY: 'agency' };
+        const prefix = prefixMap[templateType] || 'customer';
+        const fileInput = document.getElementById(prefix + 'TemplateFile');
+        const name = document.getElementById(prefix + 'TemplateName').value.trim();
+        const setDefault = document.getElementById(prefix + 'TemplateSetDefault').checked;
+        const msg = document.getElementById(prefix + 'UploadMsg');
+        const expectedExt = templateType === 'AGENCY' ? '.xlsx' : '.docx';
+
+        if (!fileInput.files.length) { showMsg(msg, '請選擇 ' + expectedExt + ' 檔案', true); return; }
         if (!name) { showMsg(msg, '請輸入範本名稱', true); return; }
 
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         formData.append('name', name);
+        formData.append('type', templateType);
         formData.append('setDefault', setDefault);
 
         fetch('/export-templates/upload', { method: 'POST', body: formData })

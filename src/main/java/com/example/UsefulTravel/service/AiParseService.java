@@ -50,14 +50,20 @@ public class AiParseService {
               "theme": "當天主題簡短描述 (例如: 台北市區文化巡禮)",
               "items": [
                 {
-                  "item_type": "attraction | meal | hotel | highlight",
-                  "name": "景點/餐廳/飯店的中文名稱(或原文語言, 找不到中文就用原文)",
+                  "item_type": "attraction | meal | hotel | transport | highlight",
+                  "name": "景點/餐廳/飯店的中文名稱(或原文語言, 找不到中文就用原文); item_type=transport 時可以留空字串, 顯示名稱會由系統依 transport_number/from_location/to_location 自動組成",
                   "name_en": "這個地點的英文名稱或該國常見的外文原名 (例如日文景點給日文原名、英文景點/連鎖店給英文), 原文裡有出現才填, 完全沒有就給 null; 不要自己音譯猜測",
                   "item_country": "這一個項目實際所在的國家 (不是整趟行程的國家, 是這一項自己的), 例如多國行程裡某個景點在「不丹」某個在「印度」就分別標註, 判斷不出來給 null",
                   "item_region": "這一個項目實際所在的地區/城市, 判斷不出來給 null",
                   "time_slot": "morning | noon | afternoon | evening | breakfast | lunch | dinner | null",
                   "note": "原文中的補充說明 (例如: 含早餐、五星飯店、注意事項等), 沒有就給空字串",
-                  "stay_minutes": "預估在這個地方會停留幾分鐘 (數字, 15的倍數, 例如 90); attraction/meal 一定要給估計值, hotel 給 null (入住時間另外算)"
+                  "stay_minutes": "預估在這個地方會停留幾分鐘 (數字, 15的倍數, 例如 90); attraction/meal 一定要給估計值, hotel/transport 給 null",
+                  "transport_method": "只有 item_type=transport 才需要: 交通工具, 例如「飛機」「高鐵」「遊覽車」「渡輪」「計程車」, 判斷不出來就填「交通」, 其他 item_type 一律給 null",
+                  "transport_number": "只有 item_type=transport 才需要: 航班/車次編號, 例如「CI100」「新幹線のぞみ23号」, 原文沒提到就給 null, 其他 item_type 一律給 null",
+                  "from_location": "只有 item_type=transport 才需要: 出發地點 (機場/車站/飯店名稱等), 判斷不出來給 null, 其他 item_type 一律給 null",
+                  "to_location": "只有 item_type=transport 才需要: 抵達地點, 判斷不出來給 null, 其他 item_type 一律給 null",
+                  "departure_time": "只有 item_type=transport 才需要: 出發時間, 24小時制 HH:mm 格式 (例如 09:30), 原文沒提到就給 null, 其他 item_type 一律給 null",
+                  "arrival_time": "只有 item_type=transport 才需要: 抵達時間, 24小時制 HH:mm 格式, 原文沒提到就給 null, 其他 item_type 一律給 null"
                 }
               ]
             }
@@ -65,10 +71,10 @@ public class AiParseService {
         }
 
         規則:
-        - item_type=attraction 是景點/活動; meal 是餐食; hotel 是住宿;
-          highlight 是行銷亮點文案或注意事項(不屬於實體地點的敘述)。
-        - 完全略過航班/高鐵/包車接送等交通資訊: 原文裡提到的機場接送、航班班次、高鐵車次、
-          包車移動等內容, 不要拆解成任何項目, 也不要放進其他項目的 note 裡, 當作沒看到即可。
+        - item_type=attraction 是景點/活動; meal 是餐食; hotel 是住宿; transport 是航班/高鐵/包車接送等
+          交通移動資訊; highlight 是行銷亮點文案或注意事項(不屬於實體地點的敘述)。
+        - 原文裡提到的機場接送、航班班次、高鐵車次、包車移動等交通資訊，都要拆解成 item_type=transport
+          的項目 (依原文出現的位置放進對應的天數/順序即可)，不要略過、也不要只放進其他項目的 note 裡。
         - 依照原文出現的天數順序拆解，若原文沒有明確分天，你要合理推斷。
         - 名稱要精簡(例如「故宮博物院」而不是整句話)，細節放到 note。
         - stay_minutes 依常識估算: 大型景點/博物館約90~180分鐘, 一般景點約60~90分鐘,
@@ -138,17 +144,25 @@ public class AiParseService {
 
                 int sortOrder = 0;
                 for (JsonNode itemNode : dayNode.path("items")) {
+                    String itemType = itemNode.path("item_type").asText("attraction");
                     String name = itemNode.path("name").asText("");
                     String nameEn = emptyToNull(itemNode.path("name_en").asText(null));
-                    // 比對範圍優先用這個項目自己判斷的國家 (比較精確, 多國行程時才不會跨國誤配),
-                    // 項目自己沒有判斷出國家就退回整份行程共用的國家 (見下方 findMatchingPoi 的模糊比對說明)
-                    String itemScopeCountry = emptyToNull(itemNode.path("item_country").asText(null));
-                    Integer matchedPid = findMatchingPoi(AID, name, nameEn,
-                            itemScopeCountry != null ? itemScopeCountry : aiImport.getSuggestedCountry());
+                    boolean isTransport = "transport".equals(itemType);
+
+                    // 交通項目是「從A到B」的移動資訊, 不是實體地點, 不會也不應該去比對公司 POI 資料庫
+                    // (硬要比對反而可能誤配到同名的機場/車站景點資料)
+                    Integer matchedPid = null;
+                    if (!isTransport) {
+                        // 比對範圍優先用這個項目自己判斷的國家 (比較精確, 多國行程時才不會跨國誤配),
+                        // 項目自己沒有判斷出國家就退回整份行程共用的國家 (見下方 findMatchingPoi 的模糊比對說明)
+                        String itemScopeCountry = emptyToNull(itemNode.path("item_country").asText(null));
+                        matchedPid = findMatchingPoi(AID, name, nameEn,
+                                itemScopeCountry != null ? itemScopeCountry : aiImport.getSuggestedCountry());
+                    }
 
                     AiParsedItem item = new AiParsedItem(
                             day.getAPDID(),
-                            itemNode.path("item_type").asText("attraction"),
+                            itemType,
                             name,
                             emptyToNull(itemNode.path("time_slot").asText(null)),
                             itemNode.path("note").asText(""),
@@ -163,6 +177,23 @@ public class AiParseService {
                     JsonNode stayNode = itemNode.path("stay_minutes");
                     if (stayNode.isNumber()) {
                         item.setStayMinutes(stayNode.asInt());
+                    }
+
+                    if (isTransport) {
+                        item.setFromLocation(emptyToNull(itemNode.path("from_location").asText(null)));
+                        item.setToLocation(emptyToNull(itemNode.path("to_location").asText(null)));
+                        item.setTransportMethod(emptyToNull(itemNode.path("transport_method").asText(null)));
+                        item.setTransportNumber(emptyToNull(itemNode.path("transport_number").asText(null)));
+                        item.setDepartureTime(parseTimeOrNull(itemNode.path("departure_time").asText(null)));
+                        item.setArrivalTime(parseTimeOrNull(itemNode.path("arrival_time").asText(null)));
+                        // AI 通常會把 transport 項目的 name 留空 (顯示名稱交給系統組), review 頁面的
+                        // 項目清單是直接顯示 item.getName(), 空字串會讓那一列看起來像壞掉的資料;
+                        // 這裡先組一個跟正式匯入後 (buildFlightLabel) 同樣格式的顯示名稱存進去，
+                        // 讓使用者在確認匯入之前就能看到「CI100 桃園國際機場 → 東京成田機場」這種完整資訊。
+                        if (emptyToNull(name) == null) {
+                            item.setName(buildTransportDisplayName(item.getTransportNumber(),
+                                    item.getFromLocation(), item.getToLocation()));
+                        }
                     }
 
                     aiParsedItemDAO.save(item);
@@ -339,6 +370,43 @@ public class AiParseService {
         return (s == null || s.isBlank() || "null".equalsIgnoreCase(s)) ? null : s;
     }
 
+    // 跟 ItineraryService.buildFlightLabel() 同一套顯示格式 (那邊是私有方法, 服務不同、犯不著為了共用
+    // 十幾行邏輯特地改成 public), 只在這裡給 review 頁面「還沒確認匯入之前」預先組一個看得懂的顯示名稱用:
+    // 一律維持「交通：...」前綴 (有填編號則是「交通：CI100 出發地→目的地」)。
+    private String buildTransportDisplayName(String transportNumber, String fromLocation, String toLocation) {
+        boolean hasFrom = !isBlankStr(fromLocation);
+        boolean hasTo = !isBlankStr(toLocation);
+        String route;
+        if (hasFrom && hasTo) route = fromLocation.trim() + " → " + toLocation.trim();
+        else if (hasFrom) route = fromLocation.trim() + " 出發";
+        else if (hasTo) route = "抵達 " + toLocation.trim();
+        else route = null;
+
+        String routeWithNumber;
+        if (!isBlankStr(transportNumber)) {
+            routeWithNumber = route != null ? (transportNumber.trim() + " " + route) : transportNumber.trim();
+        } else {
+            routeWithNumber = route;
+        }
+
+        return routeWithNumber != null ? ("交通：" + routeWithNumber) : "交通";
+    }
+
+    private boolean isBlankStr(String s) {
+        return s == null || s.isBlank();
+    }
+
+    // AI 依提示詞要求輸出 24 小時制 "HH:mm" (也容錯 "HH:mm:ss"), 格式不對或沒填就當作沒有這個時間,
+    // 不要讓整筆解析失敗——只是這個交通項目少了時間資訊而已, 使用者在 review 頁面還是能手動補。
+    private java.time.LocalTime parseTimeOrNull(String time) {
+        if (time == null || time.isBlank() || "null".equalsIgnoreCase(time)) return null;
+        try {
+            return java.time.LocalTime.parse(time.trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     // 保險起見, AI 有時可能回傳不在預期範圍內的值, 一律 fallback 成 default
     private String normalizeStyle(String style) {
         if (style == null) return "default";
@@ -507,9 +575,14 @@ public class AiParseService {
 
     /**
      * 編輯 AI 解析出來、還沒確認轉正式行程的項目 (讓線控可以在 review 頁面直接修正)
+     * fromLocation/toLocation/transportMethod/transportNumber/departureTime/arrivalTime 只有
+     * itemType=transport 才有意義, 其他類型傳了也不會有效果 (confirmImport() 只有 transport 才會讀取)。
      */
     public void updateParsedItem(int APIID, String name, String itemType, String timeSlot,
-                                 String note, Integer stayMinutes) {
+                                 String note, Integer stayMinutes,
+                                 String fromLocation, String toLocation,
+                                 String transportMethod, String transportNumber,
+                                 String departureTime, String arrivalTime) {
         AiParsedItem item = aiParsedItemDAO.findById(APIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
@@ -518,6 +591,14 @@ public class AiParseService {
         item.setTimeSlot(timeSlot == null || timeSlot.isBlank() ? null : timeSlot);
         item.setNote(note);
         item.setStayMinutes(stayMinutes);
+
+        item.setFromLocation(emptyToNull(fromLocation));
+        item.setToLocation(emptyToNull(toLocation));
+        item.setTransportMethod(emptyToNull(transportMethod));
+        item.setTransportNumber(emptyToNull(transportNumber));
+        item.setDepartureTime(parseTimeOrNull(departureTime));
+        item.setArrivalTime(parseTimeOrNull(arrivalTime));
+
         aiParsedItemDAO.save(item);
     }
 
@@ -549,6 +630,18 @@ public class AiParseService {
                     .orElse(realDays.get(0)); // 保底: 找不到對應天數就丟第一天
 
             for (AiParsedItem item : aiParsedItemDAO.findByDay(day.getAPDID())) {
+                if ("transport".equals(item.getItemType())) {
+                    // 交通項目 (航班/高鐵/包車等): 不連結 POI, 直接用跟「建立新行程」手動填去程/回程班機
+                    // 一致的方式組成項目 (ItineraryService.addTransportItem → buildFlightLabel), 顯示格式
+                    // 統一是「航班/車次編號 出發地→目的地」(沒填編號就退回「交通：出發地→目的地」)。
+                    itineraryService.addTransportItem(realDay.getIDID(), "交通",
+                            item.getTransportMethod(), item.getTransportNumber(),
+                            item.getFromLocation(), item.getToLocation(),
+                            item.getDepartureTime(), item.getArrivalTime(),
+                            item.getNote());
+                    continue;
+                }
+
                 // 使用者反映: review 頁面顯示「已比對」, 但轉成正式行程後項目名稱還是 AI 自己解析出來的文字,
                 // 不是資料庫裡登記的正式名稱。原因: 這裡原本不管有沒有比對到 POI, 一律用 item.getName()
                 // (AI 生成的文字) 當顯示名稱。修正: 有比對到 POI 的話, 改用該筆 POI 資料庫裡的正式名稱,

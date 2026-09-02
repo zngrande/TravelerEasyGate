@@ -53,7 +53,9 @@
             <div class="form-group">
                 <label class="form-label">目前角色</label>
                 <div>
-                    <span class="role-pill" th:text="${staff.role}"></span>
+                    <!-- 角色支援多選, staff.role 存的是逗號分隔字串 (例如 "EDITOR,QUOTER"), 拆開後每個角色各自
+                         顯示一個徽章, 不要整串原始文字塞在同一個徽章裡。 -->
+                    <span class="role-pill" th:each="r : ${@permissionService.splitRoles(staff.role)}" th:text="${r}" style="margin-right:6px;"></span>
                 </div>
             </div>
             <div class="form-group">

@@ -90,11 +90,18 @@ public class AiImportController {
                            @RequestParam(required = false) String timeSlot,
                            @RequestParam(required = false) String note,
                            @RequestParam(required = false) Integer stayMinutes,
+                           @RequestParam(required = false) String fromLocation,
+                           @RequestParam(required = false) String toLocation,
+                           @RequestParam(required = false) String transportMethod,
+                           @RequestParam(required = false) String transportNumber,
+                           @RequestParam(required = false) String departureTime,
+                           @RequestParam(required = false) String arrivalTime,
                            HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
 
         int IPID = aiParseService.getIpidByItem(APIID);
-        aiParseService.updateParsedItem(APIID, name, itemType, timeSlot, note, stayMinutes);
+        aiParseService.updateParsedItem(APIID, name, itemType, timeSlot, note, stayMinutes,
+                fromLocation, toLocation, transportMethod, transportNumber, departureTime, arrivalTime);
         return "redirect:/ai-import/" + IPID + "/review";
     }
 
