@@ -5,7 +5,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 echo ============================================
-echo   Useful Travel - 完整重啟
+echo   TRAVELER EASY GATE - 完整重啟
 echo ============================================
 echo.
 echo 提醒: 如果你有另外開著 watch-and-compile.bat 的視窗,

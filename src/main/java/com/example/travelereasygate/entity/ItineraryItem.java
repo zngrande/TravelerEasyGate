@@ -1,0 +1,200 @@
+package com.example.travelereasygate.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalTime;
+
+@Entity
+@Table(name = "itinerary_item")
+public class ItineraryItem {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "IIID")
+    private int IIID;
+
+    @Column(name = "IDID")
+    private int IDID;
+
+    @Column(name = "PID")
+    private Integer PID; // 對應 poi, 自訂項目時可為 null
+
+    @Column(name = "item_type")
+    private String itemType; // attraction / meal / hotel / transport / optional / free_time
+
+    @Column(name = "custom_name")
+    private String customName;
+
+    @Column(name = "sort_order")
+    private int sortOrder;
+
+    @Column(name = "start_time")
+    private LocalTime startTime;
+
+    @Column(name = "end_time")
+    private LocalTime endTime;
+
+    @Column(name = "stay_duration_min")
+    private Integer stayDurationMin;
+
+    @Column(name = "note")
+    private String note;
+
+    @Column(name = "latitude")
+    private java.math.BigDecimal latitude; // 這個項目自己的座標, 不一定要連結 POI 資料庫才有
+
+    @Column(name = "longitude")
+    private java.math.BigDecimal longitude;
+
+    @Column(name = "item_country")
+    private String itemCountry; // 這個項目自己所在的國家 (從 AI 解析帶過來, 比行程層級的國家精確)
+
+    @Column(name = "item_region")
+    private String itemRegion; // 這個項目自己所在的地區/城市
+
+    @Column(name = "time_slot")
+    private String timeSlot; // breakfast/lunch/dinner/morning/noon/afternoon/evening, 用於自動整理排序 (早餐固定第一個/中午午餐/晚上晚餐/飯店排最後)
+
+    @jakarta.persistence.Column(name = "show_on_map")
+    private Boolean showOnMap = true; // 這個項目要不要顯示在地圖上 (可個別關掉, 不影響行程內容本身)
+
+    // ---- 以下為「交通」類型項目 (item_type = transport) 專用的欄位 ----
+    // 一般景點/餐廳/住宿只有單一地點, 但交通是「從A到B」, 所以另外存起始/目的地資訊,
+    // 跟原本的 latitude/longitude (借用來代表「目的地」座標, 方便沿用同一套地圖渲染邏輯) 分開管理。
+    @Column(name = "from_location")
+    private String fromLocation; // 起始點名稱
+
+    @Column(name = "from_address")
+    private String fromAddress; // 起始地址 (沒填的話後端會依起始點名稱自動查詢帶入)
+
+    @Column(name = "to_location")
+    private String toLocation; // 目的地名稱
+
+    @Column(name = "to_address")
+    private String toAddress; // 目的地地址 (沒填的話後端會依目的地名稱自動查詢帶入)
+
+    @Column(name = "transport_method")
+    private String transportMethod; // 交通工具 (例如: 高鐵/飛機/遊覽車/渡輪/計程車...)
+
+    @Column(name = "transport_number")
+    private String transportNumber; // 航班/車次編號 (例如: CI100、新幹線のぞみ23号), 選填, 只有交通類項目會用到
+
+    @Column(name = "commute_duration")
+    private String commuteDuration; // 通勤時間 (自由文字, 例如「約1小時30分」) —— 已改用下面 commuteDurationMin
+                                     // (數字, 分鐘) 取代, 這個欄位保留只是為了不動舊資料, UI 已經不會再讀寫它
+
+    @Column(name = "commute_duration_min")
+    private Integer commuteDurationMin; // 通勤時間 (分鐘, 數字), 取代上面的自由文字欄位: 跟停留時間 (stayDurationMin)
+                                         // 一樣是數字, 才能真的帶入行程時間表計算——如果這個項目有填出發/抵達時間
+                                         // (startTime/endTime), 行程時間表會優先用那兩個, 這個欄位只在兩者都沒填時
+                                         // 當作估算的通勤時長 (見 board.html renderTimeline() 的說明)
+
+    // 使用者要求: 圖片預設「全部輸出」(縮圖預設都要有綠框/打勾), 使用者可以點掉某幾張排除, 不想要每次
+    // 都要手動一張一張點選才會輸出。存的是「使用者排除掉的圖片」(image_asset.IAID, 逗號分隔字串)，
+    // 而不是「使用者選了哪幾張」——這樣沒有互動過的項目 (excludedImageIds 是 null/空字串) 自然就是
+    // 「全部輸出」的預設狀態，不需要額外判斷「有沒有選過」。那張圖片如果之後被刪除/換綁到別的 POI，
+    // 之後查詢這個 POI 綁定的圖片清單裡就不會再出現這個 IAID，等於自動失去意義，不會出錯。
+    @Column(name = "excluded_image_ids", length = 500)
+    private String excludedImageIds;
+
+    public ItineraryItem() {}
+
+    public ItineraryItem(int IDID, Integer PID, String itemType, String customName, int sortOrder) {
+        this.IDID = IDID;
+        this.PID = PID;
+        this.itemType = itemType;
+        this.customName = customName;
+        this.sortOrder = sortOrder;
+    }
+
+    public int getIIID() { return IIID; }
+    public void setIIID(int IIID) { this.IIID = IIID; }
+
+    public int getIDID() { return IDID; }
+    public void setIDID(int IDID) { this.IDID = IDID; }
+
+    public Integer getPID() { return PID; }
+    public void setPID(Integer PID) { this.PID = PID; }
+
+    public String getItemType() { return itemType; }
+    public void setItemType(String itemType) { this.itemType = itemType; }
+
+    public String getCustomName() { return customName; }
+    public void setCustomName(String customName) { this.customName = customName; }
+
+    public int getSortOrder() { return sortOrder; }
+    public void setSortOrder(int sortOrder) { this.sortOrder = sortOrder; }
+
+    public LocalTime getStartTime() { return startTime; }
+    public void setStartTime(LocalTime startTime) { this.startTime = startTime; }
+
+    public LocalTime getEndTime() { return endTime; }
+    public void setEndTime(LocalTime endTime) { this.endTime = endTime; }
+
+    public Integer getStayDurationMin() { return stayDurationMin; }
+    public void setStayDurationMin(Integer stayDurationMin) { this.stayDurationMin = stayDurationMin; }
+
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
+
+    public java.math.BigDecimal getLatitude() { return latitude; }
+    public void setLatitude(java.math.BigDecimal latitude) { this.latitude = latitude; }
+
+    public java.math.BigDecimal getLongitude() { return longitude; }
+    public void setLongitude(java.math.BigDecimal longitude) { this.longitude = longitude; }
+
+    public String getItemCountry() { return itemCountry; }
+    public void setItemCountry(String itemCountry) { this.itemCountry = itemCountry; }
+
+    public String getItemRegion() { return itemRegion; }
+    public void setItemRegion(String itemRegion) { this.itemRegion = itemRegion; }
+
+    public String getTimeSlot() { return timeSlot; }
+    public void setTimeSlot(String timeSlot) { this.timeSlot = timeSlot; }
+
+    public Boolean getShowOnMap() { return showOnMap; }
+    public void setShowOnMap(Boolean showOnMap) { this.showOnMap = showOnMap; }
+
+    public String getFromLocation() { return fromLocation; }
+    public void setFromLocation(String fromLocation) { this.fromLocation = fromLocation; }
+
+    public String getFromAddress() { return fromAddress; }
+    public void setFromAddress(String fromAddress) { this.fromAddress = fromAddress; }
+
+    public String getToLocation() { return toLocation; }
+    public void setToLocation(String toLocation) { this.toLocation = toLocation; }
+
+    public String getToAddress() { return toAddress; }
+    public void setToAddress(String toAddress) { this.toAddress = toAddress; }
+
+    public String getTransportMethod() { return transportMethod; }
+    public void setTransportMethod(String transportMethod) { this.transportMethod = transportMethod; }
+
+    public String getTransportNumber() { return transportNumber; }
+    public void setTransportNumber(String transportNumber) { this.transportNumber = transportNumber; }
+
+    public String getCommuteDuration() { return commuteDuration; }
+    public void setCommuteDuration(String commuteDuration) { this.commuteDuration = commuteDuration; }
+    public Integer getCommuteDurationMin() { return commuteDurationMin; }
+    public void setCommuteDurationMin(Integer commuteDurationMin) { this.commuteDurationMin = commuteDurationMin; }
+
+    public String getExcludedImageIds() { return excludedImageIds; }
+    public void setExcludedImageIds(String excludedImageIds) { this.excludedImageIds = excludedImageIds; }
+
+    /** 把逗號分隔的 excludedImageIds 字串解析成 Set&lt;Integer&gt;，格式錯誤的片段直接跳過忽略。
+     *  ExportService/TemplateMergeService/ItineraryService 共用同一份解析邏輯，只寫一次。 */
+    @Transient
+    public java.util.Set<Integer> getExcludedImageIdSet() {
+        java.util.LinkedHashSet<Integer> set = new java.util.LinkedHashSet<>();
+        if (excludedImageIds == null || excludedImageIds.isBlank()) return set;
+        for (String token : excludedImageIds.split(",")) {
+            token = token.trim();
+            if (token.isEmpty()) continue;
+            try {
+                set.add(Integer.parseInt(token));
+            } catch (NumberFormatException ignored) {
+                // 忽略格式錯誤的片段, 不影響其他正常的 ID
+            }
+        }
+        return set;
+    }
+}

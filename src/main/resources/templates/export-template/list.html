@@ -480,26 +480,7 @@
                     </ul>
                 </div>
             </div>
-            <!-- 範例範本下載: 客戶版型/同業版型(Word) 各自獨立顯示, 依目前選的分頁籤決定顯示哪一個 -->
-            <div id="downloadCustomerWord" class="doc-text" style="flex:0 0 auto;">
-                <p style="font-weight:700;color:var(--text-dark);margin-bottom:8px;">範例範本下載</p>
-                <a href="/sample-templates/customer_word_sample.docx" download
-                   style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
-                          color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
-                          padding:8px 14px;border-radius:8px;">
-                    <i class="fa-solid fa-download"></i> 下載客戶版型範例（.docx）
-                </a>
-            </div>
 
-            <div id="downloadAgencyWord" class="doc-text" style="flex:0 0 auto; display:none;">
-                <p style="font-weight:700;color:var(--text-dark);margin-bottom:8px;">範例範本下載</p>
-                <a href="/sample-templates/agency_word_sample.docx" download
-                   style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
-                          color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
-                          padding:8px 14px;border-radius:8px;">
-                    <i class="fa-solid fa-download"></i> 下載同業版型範例（.docx）
-                </a>
-            </div>
         </div>
 
         <div id="toolsAgency" class="tools-col-inner">
@@ -611,14 +592,7 @@
                     </ul>
                 </div>
             </div>
-            <div class="doc-text">
-                <a href="/sample-templates/agency_excel_sample.xlsx" download
-                   style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
-              color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
-              padding:8px 14px;border-radius:8px;margin-bottom:12px;">
-                    <i class="fa-solid fa-download"></i> 下載範例範本（.xlsx）
-                </a>
-            </div>
+
         </div>
         </div>
 
@@ -657,11 +631,6 @@
         const isWord = type === 'customer' || type === 'agencyWord';
         document.getElementById('toolsCustomer').classList.toggle('active', isWord);
         document.getElementById('toolsAgency').classList.toggle('active', !isWord);
-
-        // 客戶版型/同業版型(Word) 共用同一個教學面板 (toolsCustomer), 這裡依實際選的是哪個分頁籤,
-        // 只顯示對應那一個下載連結, 不要兩個一起出現
-        document.getElementById('downloadCustomerWord').style.display = (type === 'customer') ? 'block' : 'none';
-        document.getElementById('downloadAgencyWord').style.display = (type === 'agencyWord') ? 'block' : 'none';
     }
 
     // 右側「同業版型格式教學」手風琴 (跟 toggleDocAccordion 邏輯一樣, id 前綴不同避免衝突)

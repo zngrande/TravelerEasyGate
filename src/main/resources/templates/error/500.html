@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系統發生錯誤 - TRAVELER EASY GATE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-blue: #2563eb;
+            --bg-gray: #f8fafc;
+            --text-dark: #1e293b;
+            --text-gray: #64748b;
+            --border-color: #e2e8f0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Noto Sans TC', sans-serif; background-color: var(--bg-gray); color: var(--text-dark);
+            display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px;
+        }
+        a { text-decoration: none; }
+        .error-card {
+            width: 100%; max-width: 460px; background: #fff; text-align: center;
+            border: 1px solid var(--border-color); border-radius: 16px; padding: 44px 36px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);
+        }
+        .logo { font-size: 20px; font-weight: 700; color: var(--primary-blue); display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 32px; }
+        .logo span { font-size: 10px; color: var(--text-gray); display: block; font-weight: 400; letter-spacing: 1px; }
+        .error-icon {
+            width: 72px; height: 72px; border-radius: 50%; background: #fef2f2; color: #dc2626;
+            display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 20px;
+        }
+        h1 { font-size: 19px; font-weight: 700; margin-bottom: 10px; }
+        p { font-size: 13.5px; color: var(--text-gray); line-height: 1.7; margin-bottom: 20px; }
+        .error-id-box {
+            background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px;
+            padding: 10px 14px; font-size: 12px; color: var(--text-gray); margin-bottom: 28px;
+        }
+        .error-id-box code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-dark); font-weight: 600; }
+        .btn-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+        .btn-home, .btn-retry {
+            display: inline-flex; align-items: center; gap: 8px;
+            font-size: 13.5px; font-weight: 600; padding: 11px 22px; border-radius: 8px;
+        }
+        .btn-home { background: var(--primary-blue); color: #fff; }
+        .btn-home:hover { background: #1d4ed8; }
+        .btn-retry { background: #fff; color: var(--text-dark); border: 1px solid var(--border-color); }
+        .btn-retry:hover { background: #f8fafc; }
+    </style>
+</head>
+<body>
+
+<div class="error-card">
+    <div class="logo">
+        <i class="fa-regular fa-compass"></i>
+        <div>TEG<span>TRAVELER EASY GATE</span></div>
+    </div>
+    <div class="error-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+    <h1>系統發生錯誤</h1>
+    <p>這不是你的問題，是我們系統這邊出了狀況，工程團隊已經自動收到通知。<br/>可以先重新整理再試一次，如果還是不行，請把下面的參考代碼提供給客服。</p>
+    <div class="error-id-box" th:if="${errorId}">
+        參考代碼：<code th:text="${errorId}">A1B2C3D4</code>
+    </div>
+    <div class="btn-row">
+        <a class="btn-retry" href="javascript:history.back()"><i class="fa-solid fa-rotate-left"></i> 上一頁</a>
+        <a class="btn-home" th:href="@{/agency/dashboard}"><i class="fa-solid fa-house"></i> 回首頁</a>
+    </div>
+</div>
+
+</body>
+</html>

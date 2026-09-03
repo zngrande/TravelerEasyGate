@@ -83,6 +83,8 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-wrap: nowrap;
+            overflow-x: auto;
         }
         .btn-nav {
             padding: 7px 14px;
@@ -97,6 +99,8 @@
             background: #fff;
             color: #334155;
             transition: all 0.15s;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         .btn-nav:hover { background: #f8fafc; border-color: #cbd5e1; }
         .btn-nav.b2c { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
@@ -107,6 +111,47 @@
         .btn-nav.comp:hover { background: #dbeafe; }
         .btn-nav.done { background: #f0fdf4; border-color: #bbf7d0; color: #16a34a; }
         .btn-nav.done:hover { background: #dcfce7; }
+
+        /* 「匯出行程」按鈕: 原本客戶版/同業版是兩顆分開的按鈕, 使用者反映整排按鈕太擠、字會換行,
+           改成一顆按鈕 + 一個小選單, 點下去先選要輸出客戶版還是同業版, 選完才進原本的匯出設定視窗
+           (openExportModal 邏輯完全沒變, 只是入口從兩顆按鈕合併成一個下拉選單)。
+           2026-09-03 修正 (使用者回報「按下匯出行程, 那塊會變成要往下滑才會看到同業/客戶」): 根因是
+           這顆按鈕所在的 .nav-actions 有 overflow-x:auto (讓按鈕太多時可以整排橫向捲動), 而 CSS
+           規範規定「overflow-x/overflow-y 只要其中一個不是 visible, 另一個沒特別設定就會被瀏覽器
+           自動視為 auto」——所以 .nav-actions 其實兩個方向都在裁切, 這個下拉選單原本用
+           position:absolute 掛在 .export-dropdown-wrap 底下, 往下超出 .nav-actions 那個矮矮一排的
+           範圍就直接被裁掉, 只能在那一小條裡面捲動才勉強看得到一點點, 不是真的「浮」在頁面上面。
+           改成 position:fixed, 並且在 JS 裡用按鈕實際的 getBoundingClientRect() 座標算出 top/left
+           再設定上去 (見下面 toggleExportDropdown())——position:fixed 的定位基準是整個視窗, 不會被
+           沒有 transform/filter 的祖先元素的 overflow 設定影響, 這樣選單就會像正常下拉選單一樣直接
+           浮在按鈕正下方, 不用捲動任何東西就看得到。 */
+        .export-dropdown-wrap { position: relative; flex-shrink: 0; }
+        .export-dropdown-menu {
+            display: none;
+            position: fixed;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+            min-width: 190px;
+            z-index: 1300;
+            overflow: hidden;
+        }
+        .export-dropdown-menu.open { display: block; }
+        .export-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .export-dropdown-item.b2c { color: #047857; }
+        .export-dropdown-item.b2c:hover { background: #ecfdf5; }
+        .export-dropdown-item.b2b { color: #be123c; }
+        .export-dropdown-item.b2b:hover { background: #fff1f2; }
 
         /* 看板核心工作區 */
         .board-wrapper {
@@ -907,12 +952,19 @@
             <a href="#" onclick="completeItinerary(); return false;" class="btn-nav done">
                 <i class="fa-solid fa-circle-check"></i> 完成行程
             </a>
-            <a href="#" onclick="openExportModal('b2c'); return false;" class="btn-nav b2c">
-                <i class="fa-regular fa-file-lines"></i> 匯出客戶版 (Word)
-            </a>
-            <a href="#" onclick="openExportModal('b2b'); return false;" class="btn-nav b2b">
-                <i class="fa-solid fa-file-word"></i> 匯出同業版 (Word)
-            </a>
+            <div class="export-dropdown-wrap">
+                <a href="#" onclick="toggleExportDropdown(event); return false;" class="btn-nav b2c" id="exportDropdownBtn">
+                    <i class="fa-regular fa-file-lines"></i> 匯出行程 (Word)
+                </a>
+                <div class="export-dropdown-menu" id="exportDropdownMenu">
+                    <div class="export-dropdown-item b2c" onclick="closeExportDropdown(); openExportModal('b2c');">
+                        <i class="fa-regular fa-file-lines"></i> 客戶版
+                    </div>
+                    <div class="export-dropdown-item b2b" onclick="closeExportDropdown(); openExportModal('b2b');">
+                        <i class="fa-solid fa-file-word"></i> 同業版
+                    </div>
+                </div>
+            </div>
             <a th:href="@{/agency/dashboard}" class="btn-nav">
                 <i class="fa-solid fa-arrow-left"></i> 回行程列表
             </a>
@@ -2085,9 +2137,43 @@
 
     function openExportModal(format) {
         exportFormatPending = format;
+        const titleEl = document.getElementById('exportModalTitle');
+        if (titleEl) titleEl.textContent = '選擇要匯出的內容（' + (format === 'b2b' ? '同業版' : '客戶版') + '）';
         document.getElementById('exportModalOverlay').style.display = 'flex';
         loadExportTemplates();
     }
+
+    // 「匯出行程」小選單: 點按鈕本身開合選單 (客戶版/同業版), 選了其中一項才真正呼叫 openExportModal();
+    // 點選單以外的地方要自動關掉, 用 document 層級的 click 監聽判斷點擊的地方是不是在選單容器裡面。
+    // 2026-09-03 修正: 選單改成 position:fixed (見上面 CSS 註解說明原因), 所以每次打開都要用按鈕
+    // 目前實際的畫面座標 (getBoundingClientRect) 重新算一次 top/left, 不能再靠 CSS 的
+    // top:calc(100% + 6px) 自動跟著按鈕跑。
+    function toggleExportDropdown(evt) {
+        if (evt) evt.stopPropagation();
+        const menu = document.getElementById('exportDropdownMenu');
+        const willOpen = !menu.classList.contains('open');
+        if (willOpen) {
+            const btn = document.getElementById('exportDropdownBtn');
+            const rect = btn.getBoundingClientRect();
+            menu.style.top = (rect.bottom + 6) + 'px';
+            // 靠右對齊按鈕右邊緣, 跟原本 CSS 的 right:0 (相對 .export-dropdown-wrap) 視覺效果一致；
+            // 用 right 而不是 left, 選單變寬時才會往左長, 不會超出螢幕右邊。
+            menu.style.right = (window.innerWidth - rect.right) + 'px';
+            menu.style.left = 'auto';
+        }
+        menu.classList.toggle('open', willOpen);
+    }
+    function closeExportDropdown() {
+        document.getElementById('exportDropdownMenu').classList.remove('open');
+    }
+    document.addEventListener('click', function (e) {
+        const wrap = document.querySelector('.export-dropdown-wrap');
+        if (wrap && !wrap.contains(e.target)) closeExportDropdown();
+    });
+    // 選單是 position:fixed, 視窗捲動/縮放時按鈕位置會變, 選單卻不會跟著動 (fixed 定位跟捲動無關)——
+    // 開著的時候如果使用者捲動頁面或縮放視窗, 直接關掉選單, 不留一個對不準按鈕位置的選單在畫面上。
+    window.addEventListener('scroll', function () { closeExportDropdown(); }, true);
+    window.addEventListener('resize', function () { closeExportDropdown(); });
 
     // 帶入這家旅行社上傳的範本清單, 讓使用者選要用哪一份 (或維持內建版面)
     // 依目前要匯出的 format 決定要抓哪一種類型的範本: b2c → CUSTOMER (客戶版型), b2b → AGENCY_WORD (同業版型)
@@ -2846,7 +2932,7 @@
 <!-- 匯出勾選視窗 -->
 <div id="exportModalOverlay" class="export-modal-overlay" style="display:none;" onclick="if(event.target===this) closeExportModal()">
     <div class="export-modal">
-        <h3>選擇要匯出的內容</h3>
+        <h3 id="exportModalTitle">選擇要匯出的內容</h3>
         <label class="export-check" style="display:block; margin-bottom:12px;">
             使用範本：
             <select id="exportTemplateId" style="margin-left:6px; padding:4px 8px;">

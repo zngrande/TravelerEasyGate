@@ -287,6 +287,12 @@
                     <div id="regionSuggest" class="cc-suggest-list"></div>
                 </div>
 
+                <!-- 出發日期選填: 原本這裡沒有這個欄位, 系統會直接把出發日期寫死成「今天」, 但 AI 解析的
+                     原始文件通常沒有明確出發日期 (或者根本跟今天無關), 讓使用者自己填或乾脆留空,
+                     跟「建立新行程」手動流程的「出發日期 (選填)」欄位行為一致。 -->
+                <label>出發日期（選填）</label>
+                <input type="date" name="startDate" />
+
                 <button type="submit" class="btn-confirm">
                     <i class="fa-solid fa-circle-check"></i> 確認無誤，轉成正式行程
                 </button>

@@ -4,9 +4,9 @@
 -- 命名慣例沿用原範本: 表名小寫底線, 主鍵用 XX_ID 縮寫大寫欄位
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS useful_travel
+CREATE DATABASE IF NOT EXISTS traveler_easy_gate
     DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE useful_travel;
+USE traveler_easy_gate;
 
 -- ------------------------------------------------------------
 -- 1. 租戶 / 旅行社 (B2B SaaS 多租戶核心表)

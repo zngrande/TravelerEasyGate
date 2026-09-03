@@ -51,6 +51,9 @@
            這個籤顯示, 一筆規則如果兩種資料都有 (混合規則) 才會兩邊都出現。 */
         table.rule-table.mode-pricing tr[data-haspricing="false"] { display: none; }
         table.rule-table.mode-tier tr[data-hastier="false"] { display: none; }
+        /* 「預設」徽章/編輯按鈕依目前分類籤只顯示對應那一半 (混合規則兩種都存在時, 不要兩個一起擠出來)。 */
+        table.rule-table.mode-tier .pricing-only { display: none; }
+        table.rule-table.mode-pricing .tier-only { display: none; }
         .rule-empty-hint { display: none; padding: 20px; text-align: center; color: var(--text-gray); font-size: 13px; }
         .rule-empty-hint.show { display: block; }
 
@@ -67,6 +70,11 @@
         .alert-error { background: #fef2f2; color: #991b1b; padding: 12px 18px; border-radius: 10px; margin-bottom: 20px; font-size: 13.5px; border: 1px solid #fecaca; display: flex; align-items: center; gap: 8px; }
         .btn-icon-delete { background: none; border: none; cursor: pointer; color: var(--text-gray); font-size: 14px; padding: 4px 6px; border-radius: 6px; }
         .btn-icon-delete:hover { color: #dc2626; background: #fef2f2; }
+        .btn-icon-edit { background: none; border: none; cursor: pointer; color: var(--text-gray); font-size: 14px; padding: 4px 6px; border-radius: 6px; margin-right: 2px; }
+        .btn-icon-edit:hover { color: var(--primary-blue); background: #eff6ff; }
+        .card-header .editing-badge { font-size: 11.5px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 3px 10px; border-radius: 999px; margin-left: 10px; }
+        .btn-cancel-edit { padding: 11px 16px; background: #f1f5f9; color: #475569; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 6px; margin-left: 8px; }
+        .btn-cancel-edit:hover { background: #e2e8f0; }
 
         /* -------- 公式建構器 -------- */
         .palette { background: linear-gradient(180deg, #fff, #f5f7ff 220%); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px 18px 20px; margin-bottom: 20px; }
@@ -156,11 +164,15 @@
                     th:attr="data-haspricing=${!m.pureTierRule}, data-hastier=${m.npFormula != null or m.teamFormula != null}">
                     <td>
                         <strong th:text="${m.name}"></strong>
-                        <span class="default-badge" th:if="${m.default}">預設</span>
+                        <!-- 報價定價規則／NP、團費成本規則各自獨立的預設狀態 (見 MarginSetting#defaultPricing/
+                             defaultTier)——用跟表格欄位一樣的 pricing-only/tier-only 標記, 依目前選的分類籤
+                             決定要顯示哪一個, 不會兩個徽章同時擠在同一列。 -->
+                        <span class="default-badge pricing-only" th:if="${m.defaultPricing}">預設</span>
+                        <span class="default-badge tier-only" th:if="${m.defaultTier}">預設</span>
                         <!-- 「舊制%」徽章只在這組規則「連①②③④基本報價/同業/直售/退傭都沒有用公式」時才顯示——
                              純 NP／團費成本規則 (isPureTierRule()) 完全不管報價定價這一層, 貼「舊制%」反而
                              會誤導使用者以為它有在用百分比算報價, 這種情況不顯示這個徽章。 -->
-                        <span class="legacy-badge" th:if="${!m.formulaMode and !m.pureTierRule}" title="這組規則還是舊制百分比算法">舊制%</span>
+                        <span class="legacy-badge pricing-only" th:if="${!m.formulaMode and !m.pureTierRule}" title="這組規則還是舊制百分比算法">舊制%</span>
                     </td>
                     <td class="col-basic">
                         <!-- 基本報價這一層沒有舊制%可以 fallback (MarginSetting 從來沒有 basicMarkupPct 欄位),
@@ -195,7 +207,21 @@
                         <span class="formula-pill empty" th:if="${m.teamFormula == null}">沿用報價單設定</span>
                     </td>
                     <td>
+                        <!-- 「編輯」依目前分類籤只會出現對應那一半 (pricing-only/tier-only), 呼叫全域的
+                             editPricingRule()/editTierRule() (定義在下面兩個 IIFE 裡, 掛在 window 上),
+                             用 RULES_BY_ID 這個從 ${settings} 序列化出來的物件查到這一筆的原始公式字串。
+                             只有真的有公式可編 (formulaMode / 有填 np 或 team) 才顯示, 純舊制% 那種沒有
+                             公式建構器可以編輯的規則不顯示這顆按鈕。 -->
+                        <button type="button" class="btn-icon-edit pricing-only" th:if="${m.formulaMode}"
+                                th:attr="onclick=|editPricingRule(${m.MSID})|" title="編輯報價定價規則">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
+                        <button type="button" class="btn-icon-edit tier-only" th:if="${m.npFormula != null or m.teamFormula != null}"
+                                th:attr="onclick=|editTierRule(${m.MSID})|" title="編輯 NP／團費成本規則">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
                         <form method="post" th:action="@{'/margin-setting/' + ${m.MSID} + '/delete'}"
+                              style="display:inline;"
                               onsubmit="return confirm('確定要刪除這組計算公式規則嗎？');">
                             <button type="submit" class="btn-icon-delete" title="刪除"><i class="fa-solid fa-trash"></i></button>
                         </form>
@@ -212,7 +238,7 @@
     </div>
 
     <div class="card" id="cardPricingForm">
-        <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);"></i> 新增報價定價規則</div>
+        <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);" id="pricingFormIcon"></i> <span id="pricingFormTitle">新增報價定價規則</span></div>
         <div class="card-desc">①②③④基本報價／同業／直售／退傭這一組——把上方藍色的價格變數拖曳（或點一下）插入到下面選取中的公式欄位，插入後可以直接在欄位裡打運算子跟數字，例如「× 1.15 + 2000」。這組規則跟下面「NP／團費成本規則」是分開儲存的，報價單那邊也可以分開選——同一份報價單可以「基本報價套用 A 規則、NP/團費成本套用 B 規則」這樣混搭。</div>
 
         <div class="palette">
@@ -225,7 +251,7 @@
         <form id="formulaForm" method="post" th:action="@{/margin-setting/new}">
             <div class="form-group">
                 <label class="form-label">規則名稱</label>
-                <input type="text" name="name" class="form-control" placeholder="例：A 同業（一般團） / B 同業（高端客製團）" required />
+                <input type="text" name="name" id="pricingNameInput" class="form-control" placeholder="例：A 同業（一般團） / B 同業（高端客製團）" required />
             </div>
 
             <div class="formula-field">
@@ -269,12 +295,14 @@
                 <label for="isDefault" style="font-size:13.5px;">設為預設規則（建立新報價單時自動套用）</label>
             </div>
 
+            <input type="hidden" name="formHalf" value="pricing" />
             <input type="hidden" name="basicFormula" id="input-basic" />
             <input type="hidden" name="tradeFormula" id="input-trade" />
             <input type="hidden" name="retailFormula" id="input-retail" />
             <input type="hidden" name="rebateFormula" id="input-rebate" />
 
-            <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增報價定價規則</button>
+            <button type="submit" class="btn-submit" id="pricingSubmitBtn"><i class="fa-solid fa-plus"></i> 新增報價定價規則</button>
+            <button type="button" class="btn-cancel-edit" id="pricingCancelBtn" style="display:none;" onclick="cancelPricingEdit()">取消編輯</button>
         </form>
 
         <div class="hint-box">
@@ -283,7 +311,7 @@
     </div>
 
     <div class="card" id="cardTierForm" style="display:none;">
-        <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 新增 NP／團費成本規則</div>
+        <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);" id="tierFormIcon"></i> <span id="tierFormTitle">新增 NP／團費成本規則</span></div>
         <div class="card-desc">⑤⑥「整團人數級距報價結果」卡片專用的另一組計算式 (跟上面①②③④基本報價／同業／直售／退傭是完全獨立的另一組變數)，對應報價單裡「NP」跟「團費成本」這兩個結果。這組規則跟上面「報價定價規則」是分開儲存的，報價單那邊也可以分開選一組不一樣的規則來用。</div>
 
         <div class="palette">
@@ -296,7 +324,7 @@
         <form id="tierFormulaForm" method="post" th:action="@{/margin-setting/new}">
             <div class="form-group">
                 <label class="form-label">規則名稱</label>
-                <input type="text" name="name" class="form-control" placeholder="例：一般團 NP／團費成本算法" required />
+                <input type="text" name="name" id="tierNameInput" class="form-control" placeholder="例：一般團 NP／團費成本算法" required />
             </div>
 
             <div class="formula-field">
@@ -317,10 +345,17 @@
                 <div class="formula-preview"><span>試算＝</span><span class="result" id="preview-team">尚未輸入</span></div>
             </div>
 
+            <div class="form-group checkbox-row" style="margin-top:18px;">
+                <input type="checkbox" name="isDefault" id="tierIsDefault" value="true" style="width:16px;height:16px;" />
+                <label for="tierIsDefault" style="font-size:13.5px;">設為預設規則（建立新報價單時自動套用）</label>
+            </div>
+
+            <input type="hidden" name="formHalf" value="tier" />
             <input type="hidden" name="npFormula" id="input-np" />
             <input type="hidden" name="teamFormula" id="input-team" />
 
-            <button type="submit" class="btn-submit"><i class="fa-solid fa-plus"></i> 新增 NP／團費成本規則</button>
+            <button type="submit" class="btn-submit" id="tierSubmitBtn"><i class="fa-solid fa-plus"></i> 新增 NP／團費成本規則</button>
+            <button type="button" class="btn-cancel-edit" id="tierCancelBtn" style="display:none;" onclick="cancelTierEdit()">取消編輯</button>
         </form>
 
         <div class="hint-box">
@@ -329,7 +364,8 @@
     </div>
 </main>
 
-<script>
+<script th:utext="'var RULES = ' + ${settingsJson} + ';'"></script>
+<script th:inline="javascript">
 // 「現有規則」的分類籤: 報價定價規則(上面) / NP、團費成本規則(下面), 切換時表格只顯示對應欄位,
 // 下面「新增...規則」兩張卡片也只顯示對應那一張 (使用者要求「下面編輯規則的只會跳出對應的規則」)。
 function switchRuleType(type) {
@@ -354,6 +390,17 @@ function switchRuleType(type) {
     if (cardTier) cardTier.style.display = isPricing ? 'none' : '';
 }
 switchRuleType('pricing'); // 一進頁面先跑一次, 初始化空狀態提示 (預設籤是「報價定價規則」)
+
+// 「編輯」按鈕用: RULES 這個陣列是上面那個獨立的 <script> 標籤 (由後端 Java 直接組好 JSON 字串輸出,
+// 見 MarginSettingController#buildSettingsJson()) 建立的全域變數, 這裡只需要轉成用 MSID 查表的物件,
+// 方便 editPricingRule()/editTierRule() 直接查到某一筆規則。用 try/catch 包起來: 就算 RULES 這個全域
+// 變數不知何故不存在或格式有問題, 也不能讓「編輯」以外、完全不相關的價格變數/運算子色塊清單跟著一起壞掉。
+var RULES_BY_ID = {};
+try {
+    (typeof RULES !== 'undefined' ? RULES : []).forEach(function (r) { RULES_BY_ID[r.MSID] = r; });
+} catch (e) {
+    console.error('讀取計算公式規則清單失敗, 「編輯」按鈕會沒有作用:', e);
+}
 
 (function () {
     // ---------- 變數 / 運算子定義 ----------
@@ -696,6 +743,71 @@ switchRuleType('pricing'); // 一進頁面先跑一次, 初始化空狀態提示
     document.getElementById('formulaForm').addEventListener('submit', function () {
         runAll();
     });
+
+    // ---------- 編輯既有規則: 把 rule.basicFormula 等原始 {VAR_ID} 字串轉回 dropzone 裡的 token/文字混合內容 ----------
+    // 跟 insertVarToken() 共用同一套 token DOM 結構, 差別只是這裡不是插在目前游標位置, 而是從空的 zone
+    // 開始依序 append (讀規則進來編輯時, zone 一定是先清空的)。
+    function loadFormulaIntoZone(zone, formulaStr) {
+        zone.innerHTML = '';
+        if (!formulaStr) return;
+        var re = /\{[A-Za-z0-9_]+\}|\d+(\.\d+)?|[+\-*/×÷−()]/g;
+        var m;
+        while ((m = re.exec(formulaStr)) !== null) {
+            var tok = m[0];
+            if (tok.charAt(0) === '{') {
+                var id = tok.slice(1, tok.length - 1);
+                var v = VARIABLES.find(function (x) { return x.id === id; });
+                var token = document.createElement('span');
+                token.className = 'token';
+                token.contentEditable = 'false';
+                token.dataset.varId = id;
+                var xSpan = document.createElement('span');
+                xSpan.className = 'x';
+                xSpan.title = '移除';
+                xSpan.textContent = '×';
+                xSpan.addEventListener('click', function () { token.remove(); runAll(); });
+                token.textContent = v ? v.label : id;
+                token.appendChild(xSpan);
+                zone.appendChild(token);
+            } else {
+                zone.appendChild(document.createTextNode(tok));
+            }
+        }
+    }
+
+    // 點表格上「編輯報價定價規則」筆按鈕觸發 (掛在 window 上, 給 Thymeleaf th:attr 產生的 inline onclick 呼叫)。
+    // 只動①②③④基本報價/同業/直售/退傭這組欄位跟這組的預設狀態, 不碰⑤⑥ NP/團費成本 (那組留給
+    // editTierRule() 各自獨立處理, 混合規則兩邊都編輯的話會各自送出各自的表單、各自的 formHalf)。
+    window.editPricingRule = function (id) {
+        var rule = RULES_BY_ID[id];
+        if (!rule) return;
+        switchRuleType('pricing');
+        document.getElementById('pricingNameInput').value = rule.name || '';
+        loadFormulaIntoZone(zones.basic.el, rule.basicFormula);
+        loadFormulaIntoZone(zones.trade.el, rule.tradeFormula);
+        loadFormulaIntoZone(zones.retail.el, rule.retailFormula);
+        loadFormulaIntoZone(zones.rebate.el, rule.rebateFormula);
+        document.getElementById('isDefault').checked = !!rule.defaultPricing;
+        document.getElementById('formulaForm').action = '/margin-setting/' + rule.MSID + '/update';
+        document.getElementById('pricingFormIcon').className = 'fa-solid fa-pen-to-square';
+        document.getElementById('pricingFormTitle').textContent = '編輯報價定價規則：' + rule.name;
+        document.getElementById('pricingSubmitBtn').innerHTML = '<i class="fa-solid fa-check"></i> 儲存變更';
+        document.getElementById('pricingCancelBtn').style.display = '';
+        runAll();
+        document.getElementById('cardPricingForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    window.cancelPricingEdit = function () {
+        document.getElementById('pricingNameInput').value = '';
+        ZONE_KEYS.forEach(function (key) { zones[key].el.innerHTML = ''; });
+        document.getElementById('isDefault').checked = false;
+        document.getElementById('formulaForm').action = /*[[@{/margin-setting/new}]]*/ '/margin-setting/new';
+        document.getElementById('pricingFormIcon').className = 'fa-solid fa-plus-circle';
+        document.getElementById('pricingFormTitle').textContent = '新增報價定價規則';
+        document.getElementById('pricingSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> 新增報價定價規則';
+        document.getElementById('pricingCancelBtn').style.display = 'none';
+        runAll();
+    };
 })();
 
 // ---------- ⑤⑥ NP／團費成本計算式: 「整團人數級距報價結果」卡片專用的另一套變數, 跟上面①②③④完全獨立
@@ -1009,6 +1121,67 @@ switchRuleType('pricing'); // 一進頁面先跑一次, 初始化空狀態提示
     document.getElementById('tierFormulaForm').addEventListener('submit', function () {
         runAll();
     });
+
+    // ---------- 編輯既有規則 (跟上面①②③④那組 IIFE 的 loadFormulaIntoZone 邏輯完全對應, 只是這裡用
+    // 這個 IIFE 自己的 VARIABLES/zones/runAll, 兩邊變數空間不共用, 所以分開各自實作一份) ----------
+    function loadFormulaIntoZone(zone, formulaStr) {
+        zone.innerHTML = '';
+        if (!formulaStr) return;
+        var re = /\{[A-Za-z0-9_]+\}|\d+(\.\d+)?|[+\-*/×÷−()]/g;
+        var m;
+        while ((m = re.exec(formulaStr)) !== null) {
+            var tok = m[0];
+            if (tok.charAt(0) === '{') {
+                var id = tok.slice(1, tok.length - 1);
+                var v = VARIABLES.find(function (x) { return x.id === id; });
+                var token = document.createElement('span');
+                token.className = 'token';
+                token.contentEditable = 'false';
+                token.dataset.varId = id;
+                var xSpan = document.createElement('span');
+                xSpan.className = 'x';
+                xSpan.title = '移除';
+                xSpan.textContent = '×';
+                xSpan.addEventListener('click', function () { token.remove(); runAll(); });
+                token.textContent = v ? v.label : id;
+                token.appendChild(xSpan);
+                zone.appendChild(token);
+            } else {
+                zone.appendChild(document.createTextNode(tok));
+            }
+        }
+    }
+
+    // 點表格上「編輯 NP／團費成本規則」筆按鈕觸發, 只動⑤⑥這組欄位跟這組的預設狀態, 不碰①②③④
+    // (那組留給 editPricingRule() 各自獨立處理)。
+    window.editTierRule = function (id) {
+        var rule = RULES_BY_ID[id];
+        if (!rule) return;
+        switchRuleType('tier');
+        document.getElementById('tierNameInput').value = rule.name || '';
+        loadFormulaIntoZone(zones.np.el, rule.npFormula);
+        loadFormulaIntoZone(zones.team.el, rule.teamFormula);
+        document.getElementById('tierIsDefault').checked = !!rule.defaultTier;
+        document.getElementById('tierFormulaForm').action = '/margin-setting/' + rule.MSID + '/update';
+        document.getElementById('tierFormIcon').className = 'fa-solid fa-pen-to-square';
+        document.getElementById('tierFormTitle').textContent = '編輯 NP／團費成本規則：' + rule.name;
+        document.getElementById('tierSubmitBtn').innerHTML = '<i class="fa-solid fa-check"></i> 儲存變更';
+        document.getElementById('tierCancelBtn').style.display = '';
+        runAll();
+        document.getElementById('cardTierForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    window.cancelTierEdit = function () {
+        document.getElementById('tierNameInput').value = '';
+        ZONE_KEYS.forEach(function (key) { zones[key].el.innerHTML = ''; });
+        document.getElementById('tierIsDefault').checked = false;
+        document.getElementById('tierFormulaForm').action = /*[[@{/margin-setting/new}]]*/ '/margin-setting/new';
+        document.getElementById('tierFormIcon').className = 'fa-solid fa-layer-group';
+        document.getElementById('tierFormTitle').textContent = '新增 NP／團費成本規則';
+        document.getElementById('tierSubmitBtn').innerHTML = '<i class="fa-solid fa-plus"></i> 新增 NP／團費成本規則';
+        document.getElementById('tierCancelBtn').style.display = 'none';
+        runAll();
+    };
 })();
 </script>
 

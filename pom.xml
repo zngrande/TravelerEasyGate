@@ -9,10 +9,10 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.example</groupId>
-	<artifactId>UsefulTravel</artifactId>
+	<artifactId>TravelerEasyGate</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>UsefulTravel</name>
-	<description>Useful Travel - 智慧行程規劃與企劃產出平台 (B2B/B2B2C for Taiwan travel agencies)</description>
+	<name>TravelerEasyGate</name>
+	<description>TRAVELER EASY GATE - 智慧行程規劃與企劃產出平台 (B2B/B2B2C for Taiwan travel agencies)</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -55,6 +55,19 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+
+		<!-- Flyway: 自動管理資料庫結構變更 (schema migration), 部署時自動套用還沒跑過的 SQL 檔案,
+		     取代原本「改完程式要記得手動去資料庫跑一支 SQL」的做法 (常常忘記跑, 上線後才發現欄位不存在)。
+		     新的 db 變更之後都放在 src/main/resources/db/migration/, 檔名照 V{數字}__說明.sql 命名,
+		     程式一啟動就會自動比對、依序套用所有還沒跑過的版本, 不用再手動執行。 -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-mysql</artifactId>
 		</dependency>
 
 		<!-- MySQL Connector -->

@@ -202,6 +202,48 @@
         .sbhelp-item.open .sbhelp-item-panel { display: block; }
         .sbhelp-item-panel b { color: var(--text-dark, #0f172a); font-weight: 600; }
         .sbhelp-item-panel .sbhelp-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: #f8fafc; color: #1d4ed8; border: 1px solid var(--border-color, #e2e8f0); padding: 1px 6px; border-radius: 5px; }
+
+        /* ---------- 全站日期/時間輸入框統一樣式 ----------
+           寫在這裡 (共用 sidebar fragment) 是刻意的: 幾乎每一頁都有引入這個 fragment, 一次改這裡就能讓
+           全站所有 <input type="date"> / <input type="time"> 欄位長得一致、比瀏覽器原生樣式好看,
+           不用一頁一頁分別加樣式。只調整外觀 (邊框/圓角/焦點光暈/圖示顏色), 不影響原生的日期/時間選擇器
+           互動行為。各頁面自己針對這些欄位寫的寬度/margin 等版面樣式不受影響 (這裡沒有設定會覆蓋版面的
+           屬性, 例如 width/margin), 只補外觀細節。 */
+        input[type="date"], input[type="time"] {
+            font-family: inherit;
+            color: var(--text-dark, #0f172a);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: #fff;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            cursor: pointer;
+        }
+        input[type="date"]:hover, input[type="time"]:hover { border-color: #cbd5e1; }
+        input[type="date"]:focus, input[type="time"]:focus {
+            outline: none;
+            border-color: var(--primary-blue, #2563eb);
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+        }
+        input[type="date"]:disabled, input[type="time"]:disabled {
+            background: #f1f5f9; color: var(--text-gray, #64748b); cursor: not-allowed;
+        }
+        /* 行事曆/時鐘小圖示: 預設偏灰、不明顯, 調成跟主色一致 + 滑鼠移上去有反應, 讓使用者更容易注意到
+           這一整格都是可以點的 (不是只有那個小圖示可以點)——僅 Chrome/Edge 系列瀏覽器支援這個偽元素客製化,
+           Firefox/Safari 會忽略, 退回瀏覽器原生圖示外觀, 不影響功能。 */
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="time"]::-webkit-calendar-picker-indicator {
+            opacity: 0.55;
+            cursor: pointer;
+            border-radius: 4px;
+            padding: 2px;
+            transition: opacity 0.15s ease, background 0.15s ease;
+        }
+        input[type="date"]:hover::-webkit-calendar-picker-indicator,
+        input[type="time"]:hover::-webkit-calendar-picker-indicator {
+            opacity: 1;
+            background: #eff6ff;
+        }
     </style>
 
     <div class="logo">
@@ -439,6 +481,30 @@
         })();
 
         // 「需要協助嗎？」說明彈窗: 開/關 + 手風琴 (單一開啟, 點別的項目會把前一個收起來)
+        //
+        // 2026-09-03 修正 (使用者回報「在行程排版看板按下使用說明, 上面行程排版看板那排還是會出現」——
+        // 也就是說明彈窗打開時, 頁面自己的頂部工具列蓋在彈窗上面, 沒有被彈窗的深色背景蓋住): 根因是
+        // 下面 #sbhelpOverlay 這個 <div> 原本就寫在這份 sidebar fragment 裡面, 也就是被包在
+        // <aside class="sidebar"> 底下——但 .sidebar 自己是 position:fixed + z-index:10, 這會讓
+        // .sidebar 形成一個獨立的 stacking context, 裡面的 #sbhelpOverlay 就算自己宣告 z-index:1200,
+        // 那也只在 .sidebar 這個 stacking context「內部」比較時有效; 跟 .sidebar 外面的元素比較時,
+        // 實際上是拿 .sidebar 整體的 z-index:10 去跟外面元素比, 而不是彈窗自己的 1200。行程排版看板
+        // 頁面自己的頂部工具列 (.top-navbar) 剛好也是 position:sticky + z-index:10, 兩邊打平時
+        // DOM 順序在後面的 .top-navbar (在 <aside> 之後才出現) 就會贏, 蓋在整個 .sidebar 子樹
+        // (包含裡面的說明彈窗) 上面。這不是「行程排版看板」這個頁面特有的問題——任何頁面只要自己有
+        // position+z-index 的頂部列/區塊, 都會發生一樣的狀況。
+        // 修法: 這段 <script> 執行的當下, #sbhelpOverlay 這個節點已經解析完成 (它在這個 fragment 裡面,
+        // 寫在這段 <script> 之前), 直接把它整個搬到 document.body 底下當最外層的直接子節點, 逃出
+        // .sidebar 的 stacking context——這樣它的 z-index:1200 才會是真正的「全頁最上層」, 不受任何
+        // 頁面自己的頂部工具列或其他區塊影響。只搬一次 (parentNode 已經是 body 就不重複搬), 對彈窗本身
+        // 開關的邏輯完全沒有影響 (id 沒變, sbhelpOpen()/sbhelpClose() 一樣用 getElementById 找)。
+        (function () {
+            var overlayEl = document.getElementById('sbhelpOverlay');
+            if (overlayEl && overlayEl.parentNode !== document.body) {
+                document.body.appendChild(overlayEl);
+            }
+        })();
+
         function sbhelpOpen() {
             var overlay = document.getElementById('sbhelpOverlay');
             if (overlay) overlay.classList.add('open');

@@ -1,0 +1,13 @@
+package com.example.travelereasygate.DAO;
+
+import com.example.travelereasygate.entity.Currency;
+
+import java.util.List;
+
+public interface CurrencyDAO {
+    void save(Currency currency);
+    Currency findById(int CID);
+    Currency findByCode(String code, Integer AID); // 先找該旅行社自訂匯率, 找不到再退回平台共用匯率
+    List<Currency> findAvailable(Integer AID); // 平台共用 + 該旅行社自訂
+    List<Currency> findAll(); // 系統內所有幣別 (平台共用 + 所有旅行社自訂), 給每日匯率自動更新用
+}
