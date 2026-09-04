@@ -6,6 +6,8 @@
     <title>建立新行程 - TRAVELER EASY GATE</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/css/datetime-picker.css">
+    <script src="/js/datetime-picker.js"></script>
     <style>
         :root {
             --primary-blue: #2563eb;
@@ -395,8 +397,8 @@
             <span th:text="${deleteError}"></span>
         </div>
         <p class="card-desc" th:text="${editMode}
-                ? '修改行程的基本資訊（名稱／目的地／天數／出發日期）。行程內已經排好的每日景點、餐飲、住宿都不會被重新安排；如果把天數改多，只會在最後面補上空白的新天數；如果把天數改少，會刪除最後面多出來的天數（連同裡面已經排的內容），送出前會再次跳出確認；已經加入看板的去程/回程班機項目也不會被更動。'
-                : '請輸入行程基本資訊，完成後將自動建立專屬看板供您自由編排每日景點、餐飲與住宿。'"></p>
+                ? '修改行程基本資訊。已排定的每日內容不會重新安排；加天數只補空白新天、減天數會刪除多出的天（含內容），送出前會再次確認。'
+                : '輸入行程基本資訊，完成後自動建立看板供您編排每日景點、餐飲與住宿。'"></p>
 
         <form th:action="${editMode} ? @{'/itinerary/' + ${editItineraryId} + '/edit-basic'} : @{/itinerary/new}" method="POST"
               th:attr="data-edit-mode=${editMode},
@@ -460,13 +462,13 @@
             <div class="context-card" th:if="${editMode}" style="background:#eff6ff;border-color:#bfdbfe;">
                 <div class="context-section-label"><i class="fa-solid fa-circle-info" style="color: var(--primary-blue);"></i> 去程/回程班機、逐天城市指定</div>
                 <div class="context-hint" style="margin-bottom:0;">
-                    編輯基本資料不會重新安排行程，已經加入看板的去程/回程班機項目、每天排定的景點都會維持原樣不動。如果需要調整班機資訊或重新指定某天要去的城市，請直接回到看板上編輯。
+                    編輯基本資料不會重新安排行程。要調整班機或城市請回看板編輯。
                 </div>
             </div>
             <div class="context-card" th:style="${editMode} ? 'display:none;' : ''">
                 <div class="context-section-label"><i class="fa-solid fa-plane-departure" style="color: var(--primary-blue);"></i> 行程重點資訊（選填）</div>
                 <div class="context-hint">
-                    填寫去程/回程班機的機場與時間，「第幾天」可指定這段班機要排在第幾天（例如第二天才搭夜間跨國班機），不填預設去程排第1天、回程排最後一天；如果有轉機或跨日行程可以用「+新增航段」加更多航段，並分別填不同天。下方「逐天城市指定」會依填寫的天數自動列出每一天，選好這天要去的城市後，「AI 安排行程」只會從這個城市的景點/餐廳/飯店裡挑選；班機當天的行程日 (例如去程第1天、回程最後一天) 會自動略過不需指定。全部欄位皆為選填。
+                    填寫去程/回程班機的機場與時間，「第幾天」預設去程第1天、回程最後一天；轉機可用「+新增航段」。下方「逐天城市指定」選好城市後，「AI 安排行程」只會挑該城市的景點；班機當天自動略過。全部欄位皆選填。
                 </div>
 
                 <div class="leg-block">
@@ -560,7 +562,7 @@
                 <div class="day-cities-section" style="margin-top:18px;">
                     <div class="context-section-label"><i class="fa-solid fa-map-pin" style="color: var(--primary-blue);"></i> 逐天城市指定</div>
                     <div class="context-hint" style="margin-bottom:10px;">
-                        依上面「地區/城市」已選的城市，逐天指定這天要去哪裡；「AI 安排行程」只會從這天指定的城市挑選景點。同一天選多個城市時，請依造訪先後順序依序點選。
+                        指定每天要去的城市，「AI 安排行程」只會挑該城市景點。多城市請依造訪順序點選。
                     </div>
                     <div id="dayCitiesContainer"><!-- 由 renderDayCitiesRows() 依天數動態產生 --></div>
                 </div>
@@ -578,9 +580,7 @@
                 </button>
             </div>
             <p class="ai-plan-hint" th:unless="${editMode}">
-                「AI 安排行程」會從公司景點資料庫裡篩選出符合目的地國家/地區的景點、餐廳、飯店，
-                依填寫的天數自動安排好每一天的行程初稿，進入看板後仍可以自由調整。
-                如果資料庫裡還沒有符合的景點，會建立空白行程並提示您手動編排。
+                「AI 安排行程」會依目的地自動排出每日初稿，進入看板後仍可調整；若資料庫沒有符合景點，會建立空白行程供手動編排。
             </p>
         </form>
     </div>

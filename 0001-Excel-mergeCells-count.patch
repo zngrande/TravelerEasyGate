@@ -1,0 +1,90 @@
+From ace80f69fb306a8e7bdd878d59178b4f5e7b7089 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 4 Sep 2026 11:27:28 +0000
+Subject: [PATCH] =?UTF-8?q?=E4=BF=AE=E5=BE=A9=E5=8C=AF=E5=87=BA=E5=A0=B1?=
+ =?UTF-8?q?=E5=83=B9=E5=96=AE=20Excel=E3=80=8C=E7=99=BC=E7=8F=BE=E9=83=A8?=
+ =?UTF-8?q?=E5=88=86=E5=85=A7=E5=AE=B9=E6=9C=89=E5=95=8F=E9=A1=8C=E3=80=8D?=
+ =?UTF-8?q?=E7=9A=84=E6=90=8D=E6=AF=80=E6=AA=94=E6=A1=88=E2=80=94=E2=80=94?=
+ =?UTF-8?q?mergeCells=20count=20=E8=B7=9F=E5=AF=A6=E9=9A=9B=E6=95=B8?=
+ =?UTF-8?q?=E9=87=8F=E5=B0=8D=E4=B8=8D=E4=B8=8A?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+使用者回報「匯出報價單excel都會出錯」，附上他自訂的 Excel 範本 (agency_excel_sample.xlsx) 跟
+匯出出來會跳修復對話框的檔案 (quotation_21_v2.xlsx)。拆開比對兩個檔案：
+
+- 原始上傳的範本：sheet1 的 <mergeCells count="17"> 跟實際 17 個 <mergeCell> 節點是對得上的，
+  範本本身沒問題。
+- 匯出出來的檔案：sheet1 變成 <mergeCells count="27"> 但實際只剩 17 個 <mergeCell> 節點——
+  「宣告的數量」比「實際內容」多出 10 個，Excel 的嚴格解析器抓到這個落差就直接判定檔案損毀，
+  跳出「我們發現 xxx 的部分內容有問題」要求修復。
+
+根因在 ExcelTemplateMergeService.expandLineBlock()：這個方法會把範本裡 {{line_start}}～
+{{line_end}} 之間的模板列，依報價單實際的明細筆數複製多份——先用 sheet.shiftRows() 把後面的列
+往下搬（shiftRows 本身就會連帶搬動/調整落在搬動範圍內的合併儲存格），然後又手動呼叫
+removeMergedRegion()／addMergedRegion() 幫每一份複製增減合併範圍。這是 Apache POI 已知的行為：
+兩邊各自維護底層合併範圍清單，疊加起來容易讓 XSSFSheet 內部「合併範圍數量」跟實際清單長度不同步，
+寫檔案時把不同步的數量直接序列化成 count 屬性，檔案就壞了（不影響用 POI 自己重新開啟讀取，只有
+Excel 的嚴格 XML 驗證會抓到，所以之前用程式檢查看起來沒問題，但使用者用 Excel 打開才會跳修復）。
+
+修法：在 ExcelTemplateMergeService.merge() 裡新增 repairMergedRegions()，每個分頁的明細列展開完
+之後，強制「重建」一次合併範圍——先讀出目前全部合併範圍的座標，全部移除，再逐一重新加回去。這樣
+寫回去的合併範圍清單一定是「從空的開始、加幾個就是幾個」，count 屬性保證跟實際子節點數量一致。
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XBsuLP4QjzwaYBK4LzSFCH
+---
+ .../service/ExcelTemplateMergeService.java    | 29 +++++++++++++++++++
+ 1 file changed, 29 insertions(+)
+
+diff --git a/src/main/java/com/example/travelereasygate/service/ExcelTemplateMergeService.java b/src/main/java/com/example/travelereasygate/service/ExcelTemplateMergeService.java
+index 2bd6546..babf43c 100644
+--- a/src/main/java/com/example/travelereasygate/service/ExcelTemplateMergeService.java
++++ b/src/main/java/com/example/travelereasygate/service/ExcelTemplateMergeService.java
+@@ -80,6 +80,7 @@ public class ExcelTemplateMergeService {
+             for (int s = 0; s < wb.getNumberOfSheets(); s++) {
+                 Sheet sheet = wb.getSheetAt(s);
+                 expandLineBlock(sheet, data.lineRows());
++                repairMergedRegions(sheet);
+             }
+             replaceAllPlaceholders(wb, data.simpleValues());
+ 
+@@ -89,6 +90,34 @@ public class ExcelTemplateMergeService {
+         }
+     }
+ 
++    // 使用者回報「匯出報價單 Excel 都會出錯」——Excel 打開時跳出「發現部分內容有問題」要求修復。
++    // 拆開匯出的檔案檢查發現 sheet1.xml 裡 <mergeCells count="27"> 但實際只有 17 個 <mergeCell> 子節點，
++    // 這種「宣告的數量」跟「實際內容」對不上的 XML，Excel 的嚴格解析器會直接判定檔案損毀。
++    //
++    // 根因是 Apache POI 這裡的已知行為：expandLineBlock() 對明細列範圍先用 shiftRows() 把後面的列往下搬，
++    // shiftRows() 本身就會連帶搬動/調整落在搬動範圍內的合併儲存格，接著這裡又用 removeMergedRegion()／
++    // addMergedRegion() 手動增減合併範圍——兩邊各自維護底層 CTMergeCells 清單，疊加起來就可能讓 XSSFSheet
++    // 內部快取的「合併範圍數量」跟實際 CTMergeCells 陣列的長度不同步，寫檔案的時候把不同步的數量直接
++    // 序列化成 count 屬性，檔案就壞了。
++    //
++    // 修法：每個分頁的明細列展開完之後，強制「重建」一次合併範圍——先讀出目前全部合併範圍的座標，把它們
++    // 全部移除，再逐一重新加回去。這樣寫回去的 CTMergeCells 一定是「從空的開始、加幾個就是幾個」，
++    // count 屬性跟實際子節點數量保證一致，不管前面 shiftRows／手動增減的過程有沒有留下不同步的殘留。
++    private void repairMergedRegions(Sheet sheet) {
++        int numMerged = sheet.getNumMergedRegions();
++        if (numMerged == 0) return;
++        List<CellRangeAddress> merges = new ArrayList<>();
++        for (int i = 0; i < numMerged; i++) {
++            merges.add(sheet.getMergedRegion(i));
++        }
++        for (int i = numMerged - 1; i >= 0; i--) {
++            sheet.removeMergedRegion(i);
++        }
++        for (CellRangeAddress merge : merges) {
++            sheet.addMergedRegion(merge);
++        }
++    }
++
+     /** 從資料庫組出合併用的 ExcelTemplateData, 給 ExportController 呼叫。 */
+     public ExcelTemplateData buildTemplateData(Quotation quotation, Itinerary itinerary) {
+         Map<String, String> simple = new HashMap<>();
+-- 
+2.43.0
+

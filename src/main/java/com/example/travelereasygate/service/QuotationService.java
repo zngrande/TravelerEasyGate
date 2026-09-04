@@ -635,10 +635,19 @@ public class QuotationService {
     }
 
     /**
-     * 幣別（全部級距共用）: 只影響「雜項（全團固定費用）」裡舊制「額外雜項金額」換算成台幣的匯率——
-     * 選了馬上生效 (畫面上是 onchange 自動送出, 不用按鈕)。跟 NP／團費成本計算式分開存, 不會互相干擾
-     * (以前這三個欄位是同一顆表單一起送、一起覆蓋, 現在畫面拆成兩顆各自獨立的表單, 後端也對應拆開,
-     * 避免「只想改幣別」卻不小心把已經填好的 NP／團費成本公式一起洗掉)。
+     * 幣別（全部級距共用）: 選了馬上生效 (畫面上是 onchange 自動送出, 不用按鈕)。
+     *
+     * 2026-09-04 修正: 這裡以前的用途是換算「雜項（全團固定費用）」裡舊制「額外雜項金額」的匯率, 但那個
+     * 手動輸入欄位早就從畫面上拿掉了 (雜項現在完全靠「報價項目明細」自動加總), 導致選什麼幣別實際上都在
+     * 換算一個固定是 0 的數字, 使用者反映「選幣別完全沒有影響計算結果」。使用者要求要像「報價項目明細」
+     * 選幣別一樣, 整張「整團人數級距報價結果」表格馬上換算顯示——這裡存的 tier.currency 現在的用途改成
+     * 純粹的「顯示幣別」: 雜項/NP/團費成本骨子裡的權威數字還是統一算、存台幣 (miscValueTwd/npResultTwd/
+     * teamResultTwd, 所有公式計算都還是吃台幣, 不受這裡影響), 只是 QuotationController 組畫面時會依這裡
+     * 存的幣別查匯率、把台幣快照換算成對應幣別顯示給使用者看 (見 QuotationGroupTier#getMiscValueInCurrency()
+     * 等三個方法, 以及 QuotationController#groupTierCurrencyRate())。
+     *
+     * 跟 NP／團費成本計算式分開存, 不會互相干擾 (以前這三個欄位是同一顆表單一起送、一起覆蓋, 現在畫面拆成
+     * 兩顆各自獨立的表單, 後端也對應拆開, 避免「只想改幣別」卻不小心把已經填好的 NP／團費成本公式一起洗掉)。
      */
     public void updateGroupTierCurrency(int QID, String currency) {
         Quotation quotation = quotationDAO.findById(QID);

@@ -1,0 +1,310 @@
+From adb086c5b32e34a97b3c3e8d68eedff8bfc96502 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 3 Sep 2026 16:11:21 +0000
+Subject: [PATCH] =?UTF-8?q?=E4=BF=AE=E6=AD=A3=E6=AD=A3=E5=BC=8F=E5=A0=B1?=
+ =?UTF-8?q?=E5=83=B9=E5=96=AE=E9=96=8B=E5=95=9F=E5=8D=B3=E5=87=BA=E9=8C=AF?=
+ =?UTF-8?q?=E7=9A=84=E5=95=8F=E9=A1=8C,=20=E4=B8=A6=E5=84=AA=E5=8C=96?=
+ =?UTF-8?q?=E8=A8=88=E7=AE=97=E5=85=AC=E5=BC=8F=E9=9D=A2=E6=9D=BF=E8=88=87?=
+ =?UTF-8?q?=E6=97=A5=E6=9C=9F=E6=99=82=E9=96=93=E6=A8=A3=E5=BC=8F?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 根因: db/migration_margin_setting_split_default.sql (margin_setting 拆分
+  default_pricing/default_tier 兩個欄位) 寫成舊式手動 SQL, 沒有放進 Flyway
+  真正掃描的 src/main/resources/db/migration/ 資料夾, 導致改版後從未自動套用到
+  資料庫, 一開啟報價單查詢 margin_setting 就因為欄位不存在而出錯。補成正式的
+  V2__split_margin_setting_default.sql, 程式一啟動就會自動套用。
+- 基本報價/NP 各自的預設計算公式規則, 建立新報價單時自動套用的邏輯本來就已經
+  寫好 (QuotationService#createQuotation), 只是被上面的資料庫問題卡住, 這次一併
+  修好資料庫欄位後即可正常運作。
+- 報價單編輯頁: 選擇「已儲存的」計算公式規則時, 一併收起只有「自填」模式才用得到
+  的「價格變數／運算子」面板, 不用的功能不佔畫面。
+- 報價單編輯頁/報價單列表頁/行程編輯看板: 美化日期與時間的顯示樣式 (自訂行事曆
+  圖示、到期倒數提示 pill、行程項目出發/抵達時間徽章改用專屬樣式)。
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XBsuLP4QjzwaYBK4LzSFCH
+---
+ db/migration_margin_setting_split_default.sql |  6 ++
+ .../V2__split_margin_setting_default.sql      | 55 ++++++++++++++++++
+ .../resources/templates/itinerary/board.html  | 35 +++++++++++-
+ .../resources/templates/quotation/edit.html   | 57 +++++++++++++++++--
+ .../resources/templates/quotation/list.html   | 14 ++++-
+ 5 files changed, 159 insertions(+), 8 deletions(-)
+ create mode 100644 src/main/resources/db/migration/V2__split_margin_setting_default.sql
+
+diff --git a/db/migration_margin_setting_split_default.sql b/db/migration_margin_setting_split_default.sql
+index 9b55cd5..e45deb7 100644
+--- a/db/migration_margin_setting_split_default.sql
++++ b/db/migration_margin_setting_split_default.sql
+@@ -1,3 +1,9 @@
++-- ⚠️ 2026-09-03: 這支檔案已經停用, 不會被自動套用 (從沒被放進 Flyway 真正掃描的
++-- src/main/resources/db/migration/ 資料夾, 是「正式報價單一打開就出錯」的根因)。
++-- 正式版本已經改成 src/main/resources/db/migration/V2__split_margin_setting_default.sql,
++-- 程式一啟動會自動套用, 這支留著只是歷史紀錄, 不要再手動執行。
++-- ============================================================
++
+ -- ============================================================
+ -- 「計算公式管理」預設規則拆分成兩組獨立預設 migration
+ --
+diff --git a/src/main/resources/db/migration/V2__split_margin_setting_default.sql b/src/main/resources/db/migration/V2__split_margin_setting_default.sql
+new file mode 100644
+index 0000000..5b822c3
+--- /dev/null
++++ b/src/main/resources/db/migration/V2__split_margin_setting_default.sql
+@@ -0,0 +1,55 @@
++-- ============================================================
++-- 「計算公式管理」預設規則拆分成兩組獨立預設
++--
++-- 背景: 使用者反映「報價定價規則」跟「NP／團費成本規則」應該要能各自設定一組預設
++-- (建立新報價單時, 基本報價這組跟 NP/團費成本這組要能分開自動帶入不同的預設規則),
++-- 但原本 margin_setting 只有一個 is_default 欄位, 整間旅行社同一時間只能有一組
++-- 預設規則, 而且這一組預設不管是報價定價還是 NP/團費成本都是同一組, 沒辦法「報價定價
++-- 用 A 規則當預設, NP/團費成本用 B 規則當預設」這樣分開設定。
++--
++-- 2026-09-03 補記: 這支變動原本寫成 db/migration_margin_setting_split_default.sql
++-- (放在專案根目錄的舊式手動 SQL 資料夾), 但那個時候程式其實已經改用 Flyway 自動管理
++-- 資料庫結構 (見本資料夾的 README.md)——結果這支檔案從沒被放進 Flyway 真正會掃描、
++-- 自動套用的 src/main/resources/db/migration/ 資料夾, 變成「程式碼已經在用
++-- default_pricing/default_tier 這兩個新欄位, 但沒有人手動去資料庫补跑過這支 SQL, 欄位
++-- 根本不存在」——這就是「正式報價單一打開就出錯」的真正原因 (Hibernate 送出的 SQL 查
++-- margin_setting.default_pricing / default_tier, 資料庫回報 Unknown column)。現在補成
++-- 正式的 Flyway migration, 程式一啟動就會自動套用, 不用再手動執行 SQL。
++--
++-- 這裡新增 default_pricing / default_tier 兩個獨立欄位取代原本的 is_default,
++-- 並且把舊資料的 is_default 依照原本程式邏輯 (MarginSettingController#create /
++-- QuotationService#createQuotation 舊版) 正確地搬進這兩個新欄位: 原本「不是純
++-- NP/團費成本規則」的預設規則搬進 default_pricing, 「有填 NP 或團費成本公式」的
++-- 預設規則搬進 default_tier (混合規則兩邊都會搬到, 跟舊行為一致)。
++--
++-- is_default 這個舊欄位保留不動 (不刪除), 只是程式碼之後不會再讀寫它, 純粹避免
++-- 舊資料被砍掉、也避免跟其他還沒套用這份 migration 的環境對不起來。
++--
++-- 註: db/migration_margin_setting_split_default.sql 那份舊檔案已經沒有作用, 保留在原地
++-- 只是當作歷史紀錄, 之後有新的資料庫變更一律照 README.md 說的新增 V{數字}__ 檔案到這個
++-- 資料夾, 不要再回到手動執行 SQL 的舊做法。
++--
++-- 這裡刻意用 ADD COLUMN IF NOT EXISTS (跟 db/before_flyway_catchup.sql 同一個寫法,
++-- 需要 MySQL 8.0.29+): 如果你的環境剛好曾經手動執行過那支舊檔案、欄位其實已經加過了,
++-- 這樣寫 Flyway 首次啟動套用這支 migration 時才不會因為「Duplicate column」直接啟動失敗。
++-- 如果你的 MySQL 版本比較舊、這支跑起來報語法錯誤, 請先手動用
++-- `SHOW COLUMNS FROM margin_setting LIKE 'default_pricing'` 確認欄位是否已存在,
++-- 已存在的話把下面兩行 ADD COLUMN 刪掉再重新啟動即可。
++-- ============================================================
++
++ALTER TABLE margin_setting ADD COLUMN IF NOT EXISTS default_pricing TINYINT(1) NOT NULL DEFAULT 0;
++ALTER TABLE margin_setting ADD COLUMN IF NOT EXISTS default_tier TINYINT(1) NOT NULL DEFAULT 0;
++
++UPDATE margin_setting
++SET default_pricing = CASE
++        WHEN is_default = 1
++             AND NOT (
++                 (basic_formula IS NULL AND trade_formula IS NULL AND retail_formula IS NULL AND rebate_formula IS NULL)
++                 AND (np_formula IS NOT NULL OR team_formula IS NOT NULL)
++             )
++        THEN 1 ELSE 0
++    END,
++    default_tier = CASE
++        WHEN is_default = 1 AND (np_formula IS NOT NULL OR team_formula IS NOT NULL)
++        THEN 1 ELSE 0
++    END;
+diff --git a/src/main/resources/templates/itinerary/board.html b/src/main/resources/templates/itinerary/board.html
+index 78ab55d..3dbcb78 100644
+--- a/src/main/resources/templates/itinerary/board.html
++++ b/src/main/resources/templates/itinerary/board.html
+@@ -390,6 +390,26 @@
+             outline: none;
+         }
+ 
++        /* 使用者要求「日期和時間幫我做成好看一點的樣式」: 統一美化這個頁面上所有的原生
++           input[type=time]/input[type=date] (出發時間、每個項目的出發/抵達時間欄位等),
++           跟報價單編輯頁 (quotation/edit.html) 同一套設計語言——加大字重、等寬數字、
++           換掉瀏覽器內建的灰色小圖示、focus 時跟主色系呼應的外框。 */
++        input[type="time"], input[type="date"] {
++            font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .2px;
++            color: var(--text-dark); cursor: pointer; transition: border-color .15s, box-shadow .15s;
++        }
++        input[type="time"]:focus, input[type="date"]:focus {
++            border-color: var(--primary-blue) !important;
++            box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
++        }
++        input[type="time"]::-webkit-calendar-picker-indicator,
++        input[type="date"]::-webkit-calendar-picker-indicator {
++            opacity: .65; cursor: pointer;
++            filter: invert(35%) sepia(65%) saturate(1500%) hue-rotate(200deg);
++        }
++        input[type="time"]:hover::-webkit-calendar-picker-indicator,
++        input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
++
+         .timeline-container {
+             position: relative;
+             padding-left: 42px;
+@@ -574,6 +594,19 @@
+             border-radius: 4px;
+         }
+ 
++        /* 使用者要求「日期和時間幫我做成好看一點的樣式」: 這個是行程項目上「出發/抵達時間」徽章
++           (原本借用 .unlinked-tag 的樣式再用行內 style 蓋顏色, 一律用琥珀色底, 看不出跟時間有關的
++           視覺語言)——改成獨立的藍色系 pill, 時間本身用等寬數字加粗、箭頭符號單獨淡化, 圖示用
++           實心時鐘取代 emoji (emoji 在不同系統/字體下粗細、對齊常常兜不起來)。 */
++        .time-badge {
++            display: inline-flex; align-items: center; gap: 5px;
++            font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums;
++            background: #eff6ff; color: #1d4ed8; border: 1px solid #dbeafe;
++            padding: 2px 8px; border-radius: 999px;
++        }
++        .time-badge i { font-size: 10.5px; opacity: .85; }
++        .time-badge .arrow { opacity: .55; font-weight: 400; margin: 0 1px; }
++
+         .item-row-right { display: flex; align-items: center; gap: 6px; }
+         .btn-action {
+             font-size: 12px;
+@@ -1650,7 +1683,7 @@
+             // 這兩個欄位建立行程時就存進資料庫了, 但一直以來畫面完全沒有地方顯示, 使用者填的去程/回程班機時間
+             // 看起來就像「沒有帶進行程表」, 其實只是沒有呈現出來。
+             const timeBadge = (item.startTime || item.endTime)
+-                ? `<span class="unlinked-tag" style="background:#eff6ff;color:#1d4ed8;">🕐 ${item.startTime || '--:--'} → ${item.endTime || '--:--'}</span>`
++                ? `<span class="time-badge"><i class="fa-regular fa-clock"></i>${item.startTime || '--:--'}<span class="arrow">→</span>${item.endTime || '--:--'}</span>`
+                 : '';
+             const mapLabel = mapLabels[item.IIID];
+             const isHotelLabel = mapLabel === '🛏️';
+diff --git a/src/main/resources/templates/quotation/edit.html b/src/main/resources/templates/quotation/edit.html
+index d8826a8..0411f0b 100644
+--- a/src/main/resources/templates/quotation/edit.html
++++ b/src/main/resources/templates/quotation/edit.html
+@@ -47,6 +47,25 @@
+         .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+         .form-control:disabled { background: #f1f5f9; color: var(--text-gray); }
+ 
++        /* 使用者要求「日期和時間幫我做成好看一點的樣式」: 原生 input[type=date] 在各瀏覽器長得比較陽春,
++           這裡加大字重/字距、換一個比較搭配整體卡片風格的行事曆圖示 (用 SVG data URI 蓋掉瀏覽器內建的
++           那個灰色小圖示, 並放大、換成跟 --primary-blue 呼應的顏色), 外層再包一個 pill 狀態標籤顯示
++           「還有幾天到期／已過期」, 一眼就看得出來, 不用自己拿日期去算。 */
++        .date-field-wrap { position: relative; display: inline-flex; align-items: center; }
++        input[type="date"].form-control {
++            font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .3px;
++            color: var(--text-dark); padding-right: 38px; cursor: pointer;
++        }
++        input[type="date"].form-control::-webkit-calendar-picker-indicator {
++            opacity: 0.65; cursor: pointer; filter: invert(35%) sepia(65%) saturate(1500%) hue-rotate(200deg);
++            width: 18px; height: 18px;
++        }
++        input[type="date"].form-control:hover::-webkit-calendar-picker-indicator { opacity: 1; }
++        .expiry-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px; margin-top: 7px; width: fit-content; }
++        .expiry-pill.ok { background: #ecfdf5; color: var(--green); }
++        .expiry-pill.soon { background: #fffbeb; color: var(--amber); }
++        .expiry-pill.over { background: #fef2f2; color: var(--red); }
++
+         /* 加成設定: 改成跟「計算公式管理」(margin-setting) 同一套公式建構器 -------- */
+         .palette { background: linear-gradient(180deg, #fff, #f5f7ff 220%); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px 18px 20px; margin-bottom: 20px; }
+         .palette-label { font-size: 12px; font-weight: 700; color: var(--text-gray); margin: 0 0 10px 2px; }
+@@ -199,10 +218,25 @@
+                     <label class="form-label">團體人數（影響 FOC 折抵計算）</label>
+                     <input type="number" name="groupSize" class="form-control" min="1" th:value="${quotation.groupSize}" th:disabled="${!canEdit}" required />
+                 </div>
+-                <div class="form-group">
++                <div class="form-group"
++                     th:with="daysLeft=${quotation.expiresAt != null ? T(java.time.temporal.ChronoUnit).DAYS.between(T(java.time.LocalDate).now(), quotation.expiresAt.toLocalDate()) : null}">
+                     <label class="form-label">有效期限（選填）</label>
+-                    <input type="date" name="expiresAt" class="form-control" th:disabled="${!canEdit}"
+-                           th:value="${quotation.expiresAt != null} ? ${#temporals.format(quotation.expiresAt, 'yyyy-MM-dd')} : ''" />
++                    <div class="date-field-wrap">
++                        <input type="date" name="expiresAt" class="form-control" th:disabled="${!canEdit}"
++                               th:value="${quotation.expiresAt != null} ? ${#temporals.format(quotation.expiresAt, 'yyyy-MM-dd')} : ''" />
++                    </div>
++                    <!-- 使用者要求好看一點的日期樣式: 除了輸入框本身重新設計, 這裡加一個一眼看得出還有幾天
++                         到期／已過期的小標籤, 不用自己拿日期去心算, 顏色也跟上面 expired-banner 呼應。 -->
++                    <div class="expiry-pill ok" th:if="${daysLeft != null and daysLeft gt 3}">
++                        <i class="fa-regular fa-circle-check"></i> 還有 <span th:text="${daysLeft}"></span> 天到期
++                    </div>
++                    <div class="expiry-pill soon" th:if="${daysLeft != null and daysLeft ge 0 and daysLeft le 3}">
++                        <i class="fa-regular fa-clock"></i>
++                        <span th:text="${daysLeft == 0} ? '今天到期' : ('還有 ' + ${daysLeft} + ' 天到期')"></span>
++                    </div>
++                    <div class="expiry-pill over" th:if="${daysLeft != null and daysLeft lt 0}">
++                        <i class="fa-solid fa-triangle-exclamation"></i> 已過期 <span th:text="${-daysLeft}"></span> 天
++                    </div>
+                 </div>
+                 <button type="submit" class="btn btn-primary" th:disabled="${!canEdit}"><i class="fa-solid fa-rotate"></i> 儲存並重新計算</button>
+             </form>
+@@ -276,7 +310,11 @@
+                     <input type="hidden" name="marginSettingId" id="qinput-marginSettingId" />
+                 </div>
+ 
+-                <div class="palette">
++                <!-- 使用者要求: 套用「已儲存的」計算公式規則時 (isCustom = false), 下面①②③④公式建構器
++                     本來就會收合了, 但這個「價格變數／運算子」面板是給①②③④手動組公式時插入用的, 選了已儲存
++                     規則、不用自己組公式的話這個面板也不需要顯示——加上 id 讓 toggleQuotationFormulaMode()
++                     跟 qCustomSection 一起同步隱藏/顯示。 -->
++                <div class="palette" id="qFormulaPalette">
+                     <div class="palette-label">價格變數 · 點擊或拖曳插入到目前選取的公式欄位</div>
+                     <div class="chip-row" id="qVarChips"></div>
+                     <div class="palette-label">運算子</div>
+@@ -848,7 +886,9 @@
+                         <input type="hidden" name="tierMarginSettingId" id="ginput-tierMarginSettingId" />
+                     </div>
+ 
+-                    <div class="palette">
++                    <!-- 同上①②③④卡片的「價格變數／運算子」面板, 加上 id 讓 toggleGroupTierFormulaMode()
++                         跟 gCustomSection 一起同步隱藏/顯示。 -->
++                    <div class="palette" id="gFormulaPalette">
+                         <div class="palette-label">計算欄位 · 點擊或拖曳插入到目前選取的公式欄位（跟上面加成設定卡片的價格變數完全分開，各自獨立）</div>
+                         <div class="chip-row" id="gVarChips"></div>
+                         <div class="palette-label">運算子</div>
+@@ -1449,6 +1489,10 @@
+         var isCustom = !sel || sel.value === '__custom__' || sel.value === '';
+         var customSection = document.getElementById('qCustomSection');
+         if (customSection) customSection.style.display = isCustom ? '' : 'none';
++        // 使用者要求: 套用「已儲存的」規則時, 只有①②③④手動組公式才用得到的「價格變數／運算子」面板
++        // 也一起收起來, 跟 qCustomSection 同步。
++        var palette = document.getElementById('qFormulaPalette');
++        if (palette) palette.style.display = isCustom ? '' : 'none';
+         var modeInput = document.getElementById('qinput-formulaMode');
+         var msIdInput = document.getElementById('qinput-marginSettingId');
+         if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
+@@ -1464,6 +1508,9 @@
+         var isCustom = !sel || sel.value === '__custom__' || sel.value === '';
+         var customSection = document.getElementById('gCustomSection');
+         if (customSection) customSection.style.display = isCustom ? '' : 'none';
++        // 同上 toggleQuotationFormulaMode() 的說明: 套用「已儲存的」規則時一併收起「計算欄位／運算子」面板。
++        var palette = document.getElementById('gFormulaPalette');
++        if (palette) palette.style.display = isCustom ? '' : 'none';
+         var modeInput = document.getElementById('ginput-tierFormulaMode');
+         var msIdInput = document.getElementById('ginput-tierMarginSettingId');
+         if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
+diff --git a/src/main/resources/templates/quotation/list.html b/src/main/resources/templates/quotation/list.html
+index cb8148f..d43e2ac 100644
+--- a/src/main/resources/templates/quotation/list.html
++++ b/src/main/resources/templates/quotation/list.html
+@@ -37,7 +37,11 @@
+         .version-item:last-child { margin-bottom: 0; }
+         .version-left { display: flex; align-items: center; gap: 14px; }
+         .version-badge { width: 44px; height: 44px; border-radius: 10px; background: #eff6ff; color: var(--primary-blue); font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+-        .version-meta { font-size: 12.5px; color: var(--text-gray); margin-top: 2px; }
++        .version-meta { font-size: 12.5px; color: var(--text-gray); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
++        .version-meta i { font-size: 11px; color: #94a3b8; }
++        .version-meta .meta-date { font-weight: 600; color: #475569; }
++        .version-meta .meta-time { font-variant-numeric: tabular-nums; }
++        .version-meta .meta-sep { color: #cbd5e1; }
+         .status-pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
+         .status-draft { background: #f1f5f9; color: var(--text-gray); }
+         .status-locked { background: #eff6ff; color: var(--primary-blue); }
+@@ -83,7 +87,13 @@
+                                 第 <span th:text="${q.version}"></span> 版報價
+                                 <span style="color: var(--text-gray); font-weight: 400;" th:text="'（' + ${q.groupSize} + ' 人）'"></span>
+                             </div>
+-                            <div class="version-meta" th:text="${#temporals.format(q.createdAt, 'yyyy-MM-dd HH:mm')} + ' 建立'"></div>
++                            <div class="version-meta">
++                                <i class="fa-regular fa-clock"></i>
++                                <span class="meta-date" th:text="${#temporals.format(q.createdAt, 'yyyy/MM/dd')}"></span>
++                                <span class="meta-sep">·</span>
++                                <span class="meta-time" th:text="${#temporals.format(q.createdAt, 'HH:mm')}"></span>
++                                <span>建立</span>
++                            </div>
+                         </div>
+                     </a>
+                     <span class="status-pill"
+-- 
+2.43.0
+

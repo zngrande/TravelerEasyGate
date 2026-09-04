@@ -7,6 +7,8 @@
     <!-- Google Fonts & FontAwesome & SortableJS -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/css/datetime-picker.css">
+    <script src="/js/datetime-picker.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <!-- 注意: 不要在這裡直接用 <script src=".../maps/api/js?...callback=onGoogleMapsReady" async> 載入,
          因為 async 腳本一下載完就會立刻呼叫 window.onGoogleMapsReady, 如果這個時間點早於頁面下方
@@ -390,6 +392,26 @@
             outline: none;
         }
 
+        /* 使用者要求「日期和時間幫我做成好看一點的樣式」: 統一美化這個頁面上所有的原生
+           input[type=time]/input[type=date] (出發時間、每個項目的出發/抵達時間欄位等),
+           跟報價單編輯頁 (quotation/edit.html) 同一套設計語言——加大字重、等寬數字、
+           換掉瀏覽器內建的灰色小圖示、focus 時跟主色系呼應的外框。 */
+        input[type="time"], input[type="date"] {
+            font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .2px;
+            color: var(--text-dark); cursor: pointer; transition: border-color .15s, box-shadow .15s;
+        }
+        input[type="time"]:focus, input[type="date"]:focus {
+            border-color: var(--primary-blue) !important;
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+        }
+        input[type="time"]::-webkit-calendar-picker-indicator,
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            opacity: .65; cursor: pointer;
+            filter: invert(35%) sepia(65%) saturate(1500%) hue-rotate(200deg);
+        }
+        input[type="time"]:hover::-webkit-calendar-picker-indicator,
+        input[type="date"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+
         .timeline-container {
             position: relative;
             padding-left: 42px;
@@ -573,6 +595,19 @@
             padding: 1px 6px;
             border-radius: 4px;
         }
+
+        /* 使用者要求「日期和時間幫我做成好看一點的樣式」: 這個是行程項目上「出發/抵達時間」徽章
+           (原本借用 .unlinked-tag 的樣式再用行內 style 蓋顏色, 一律用琥珀色底, 看不出跟時間有關的
+           視覺語言)——改成獨立的藍色系 pill, 時間本身用等寬數字加粗、箭頭符號單獨淡化, 圖示用
+           實心時鐘取代 emoji (emoji 在不同系統/字體下粗細、對齊常常兜不起來)。 */
+        .time-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+            background: #eff6ff; color: #1d4ed8; border: 1px solid #dbeafe;
+            padding: 2px 8px; border-radius: 999px;
+        }
+        .time-badge i { font-size: 10.5px; opacity: .85; }
+        .time-badge .arrow { opacity: .55; font-weight: 400; margin: 0 1px; }
 
         .item-row-right { display: flex; align-items: center; gap: 6px; }
         .btn-action {
@@ -986,9 +1021,9 @@
         <!-- 頂部標準 Day Tabs 列 -->
         <div class="day-tabs-wrapper" id="dayTabsWrapper">
             <div th:each="day, iter : ${days}"
-                    class="day-tab" th:classappend="${iter.index == 0} ? ' active' : ''"
-                    th:attr="onclick=|switchDay(${day.IDID})|,data-idid=${day.IDID}"
-                    th:id="'tab-' + ${day.IDID}">
+                 class="day-tab" th:classappend="${iter.index == 0} ? ' active' : ''"
+                 th:attr="onclick=|switchDay(${day.IDID})|,data-idid=${day.IDID}"
+                 th:id="'tab-' + ${day.IDID}">
                 <span class="day-tab-label" th:text="'Day ' + ${day.dayNumber}"></span>
                 <span th:if="${days.size() > 1}" class="day-tab-delete"
                       th:attr="onclick=|event.stopPropagation(); deleteDayDirect(${day.IDID}, ${day.dayNumber}); return false;|"
@@ -1650,7 +1685,7 @@
             // 這兩個欄位建立行程時就存進資料庫了, 但一直以來畫面完全沒有地方顯示, 使用者填的去程/回程班機時間
             // 看起來就像「沒有帶進行程表」, 其實只是沒有呈現出來。
             const timeBadge = (item.startTime || item.endTime)
-                ? `<span class="unlinked-tag" style="background:#eff6ff;color:#1d4ed8;">🕐 ${item.startTime || '--:--'} → ${item.endTime || '--:--'}</span>`
+                ? `<span class="time-badge"><i class="fa-regular fa-clock"></i>${item.startTime || '--:--'}<span class="arrow">→</span>${item.endTime || '--:--'}</span>`
                 : '';
             const mapLabel = mapLabels[item.IIID];
             const isHotelLabel = mapLabel === '🛏️';

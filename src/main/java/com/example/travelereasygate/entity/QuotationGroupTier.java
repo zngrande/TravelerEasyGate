@@ -2,6 +2,7 @@ package com.example.travelereasygate.entity;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 /**
  * 掛在整張報價單底下的「人數級距報價結果」, e.g.
@@ -138,6 +139,30 @@ public class QuotationGroupTier {
 
     public String getCurrency() { return currency; }
     public void setCurrency(String currency) { this.currency = currency; }
+
+    // 2026-09-04 補上: 使用者要求「幣別（全部級距共用）」要像「報價項目明細」一樣, 選了幣別整張表就
+    // 全部轉換成該幣別顯示——原本這個欄位只用來換算「手動填的額外雜項金額」, 但那個手動輸入欄位早就從
+    // 畫面上拿掉了 (雜項現在完全靠「報價項目明細」自動加總), 導致選幣別實際上永遠在換算一個固定是 0
+    // 的數字, 看起來完全沒作用。這裡改成「顯示轉換」: 雜項/NP/團費成本骨子裡的權威數字還是統一存台幣
+    // (miscValueTwd/npResultTwd/teamResultTwd 不變, 所有計算式/公式都還是用台幣算, 不受這裡影響),
+    // 只是畫面顯示時依 tier.currency 換算成對應幣別的金額——rateToTwd 是「這個幣別 1 單位 = 多少台幣」
+    // (跟 QuotationService#resolveGroupTierCurrencyRate() 同一個方向), 所以台幣 ÷ 匯率 = 換算後的金額。
+    // rateToTwd 由 controller 查好丟進來 (Thymeleaf 樣板呼叫這幾個方法時當參數傳入), 這裡不直接查資料庫,
+    // 避免 entity 依賴 DAO。
+    @Transient
+    public BigDecimal getMiscValueInCurrency(BigDecimal rateToTwd) { return convertFromTwd(miscValueTwd, rateToTwd); }
+
+    @Transient
+    public BigDecimal getNpResultInCurrency(BigDecimal rateToTwd) { return convertFromTwd(npResultTwd, rateToTwd); }
+
+    @Transient
+    public BigDecimal getTeamResultInCurrency(BigDecimal rateToTwd) { return convertFromTwd(teamResultTwd, rateToTwd); }
+
+    private static BigDecimal convertFromTwd(BigDecimal twdAmount, BigDecimal rateToTwd) {
+        if (twdAmount == null) return BigDecimal.ZERO;
+        if (rateToTwd == null || rateToTwd.compareTo(BigDecimal.ZERO) <= 0) return twdAmount;
+        return twdAmount.divide(rateToTwd, 2, RoundingMode.HALF_UP);
+    }
 
     public BigDecimal getMiscValue() { return miscValue; }
     public void setMiscValue(BigDecimal miscValue) { this.miscValue = miscValue; }

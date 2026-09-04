@@ -6,6 +6,8 @@
     <title>報價單編輯 - TRAVELER EASY GATE</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/css/datetime-picker.css">
+    <script src="/js/datetime-picker.js"></script>
     <style>
         :root {
             --primary-blue: #2563eb; --primary-purple: #8b5cf6; --bg-gray: #f8fafc;
@@ -46,6 +48,25 @@
         .form-control { padding: 9px 12px; font-size: 13.5px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; background: #fff; min-width: 160px; }
         .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
         .form-control:disabled { background: #f1f5f9; color: var(--text-gray); }
+
+        /* 使用者要求「日期和時間幫我做成好看一點的樣式」: 原生 input[type=date] 在各瀏覽器長得比較陽春,
+           這裡加大字重/字距、換一個比較搭配整體卡片風格的行事曆圖示 (用 SVG data URI 蓋掉瀏覽器內建的
+           那個灰色小圖示, 並放大、換成跟 --primary-blue 呼應的顏色), 外層再包一個 pill 狀態標籤顯示
+           「還有幾天到期／已過期」, 一眼就看得出來, 不用自己拿日期去算。 */
+        .date-field-wrap { position: relative; display: inline-flex; align-items: center; }
+        input[type="date"].form-control {
+            font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .3px;
+            color: var(--text-dark); padding-right: 38px; cursor: pointer;
+        }
+        input[type="date"].form-control::-webkit-calendar-picker-indicator {
+            opacity: 0.65; cursor: pointer; filter: invert(35%) sepia(65%) saturate(1500%) hue-rotate(200deg);
+            width: 18px; height: 18px;
+        }
+        input[type="date"].form-control:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+        .expiry-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px; margin-top: 7px; width: fit-content; }
+        .expiry-pill.ok { background: #ecfdf5; color: var(--green); }
+        .expiry-pill.soon { background: #fffbeb; color: var(--amber); }
+        .expiry-pill.over { background: #fef2f2; color: var(--red); }
 
         /* 加成設定: 改成跟「計算公式管理」(margin-setting) 同一套公式建構器 -------- */
         .palette { background: linear-gradient(180deg, #fff, #f5f7ff 220%); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px 18px 20px; margin-bottom: 20px; }
@@ -199,10 +220,25 @@
                     <label class="form-label">團體人數（影響 FOC 折抵計算）</label>
                     <input type="number" name="groupSize" class="form-control" min="1" th:value="${quotation.groupSize}" th:disabled="${!canEdit}" required />
                 </div>
-                <div class="form-group">
+                <div class="form-group"
+                     th:with="daysLeft=${quotation.expiresAt != null ? T(java.time.temporal.ChronoUnit).DAYS.between(T(java.time.LocalDate).now(), quotation.expiresAt.toLocalDate()) : null}">
                     <label class="form-label">有效期限（選填）</label>
-                    <input type="date" name="expiresAt" class="form-control" th:disabled="${!canEdit}"
-                           th:value="${quotation.expiresAt != null} ? ${#temporals.format(quotation.expiresAt, 'yyyy-MM-dd')} : ''" />
+                    <div class="date-field-wrap">
+                        <input type="date" name="expiresAt" class="form-control" th:disabled="${!canEdit}"
+                               th:value="${quotation.expiresAt != null} ? ${#temporals.format(quotation.expiresAt, 'yyyy-MM-dd')} : ''" />
+                    </div>
+                    <!-- 使用者要求好看一點的日期樣式: 除了輸入框本身重新設計, 這裡加一個一眼看得出還有幾天
+                         到期／已過期的小標籤, 不用自己拿日期去心算, 顏色也跟上面 expired-banner 呼應。 -->
+                    <div class="expiry-pill ok" th:if="${daysLeft != null and daysLeft gt 3}">
+                        <i class="fa-regular fa-circle-check"></i> 還有 <span th:text="${daysLeft}"></span> 天到期
+                    </div>
+                    <div class="expiry-pill soon" th:if="${daysLeft != null and daysLeft ge 0 and daysLeft le 3}">
+                        <i class="fa-regular fa-clock"></i>
+                        <span th:text="${daysLeft == 0} ? '今天到期' : ('還有 ' + ${daysLeft} + ' 天到期')"></span>
+                    </div>
+                    <div class="expiry-pill over" th:if="${daysLeft != null and daysLeft lt 0}">
+                        <i class="fa-solid fa-triangle-exclamation"></i> 已過期 <span th:text="${-daysLeft}"></span> 天
+                    </div>
                 </div>
                 <button type="submit" class="btn btn-primary" th:disabled="${!canEdit}"><i class="fa-solid fa-rotate"></i> 儲存並重新計算</button>
             </form>
@@ -218,7 +254,7 @@
         <div class="card">
             <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 基本報價／同業／直售加成與退傭設定</div>
             <div class="item-note" style="margin-bottom:12px;">
-                Net（總成本）先套用「①基本報價公式」變成基本報價，基本報價再套用「②同業價公式」變成同業價，同業價再套用「③直售價公式」變成直售價——一層疊一層往上加。「④退傭金額公式」一樣可以引用前面已經算出來的價格。①②③④四層都可以選「選擇計算方式」下拉選單裡已儲存的規則直接套用（規則裡如果沒有設定①基本報價，就繼續沿用這張報價單自己的設定），或選「自填」自己組全部四層——建立新版本時會自動帶入上一版的數字；「自填」任一層公式留空就沿用下面括號內顯示的舊制設定。
+                Net（總成本）依序套用①基本報價→②同業價→③直售價→④退傭四層公式。選「選擇計算方式」套用已儲存的規則，或選「自填」自己設定；自填留空的層會沿用括號內的舊設定。
             </div>
 
             <!-- data-full-redirect: 這顆表單刻意讓瀏覽器正常換頁 (不走頁面其他表單共用的 AJAX 局部刷新),
@@ -232,9 +268,9 @@
                 <div class="formula-field" id="qModeToggleField">
                     <div class="formula-field-label">
                         <span class="name">選擇計算方式</span>
-                        <span class="optional">套用「已儲存的」計算公式規則，或選「自填」自己組①②③④的公式</span>
+                        <span class="optional">套用已儲存的規則，或選「自填」自訂①②③④公式</span>
                     </div>
-                    <select id="qFormulaModeSelect" class="form-control" th:disabled="${!canEdit}" style="max-width:420px;" onchange="toggleQuotationFormulaMode()">
+                    <select id="qFormulaModeSelect" class="form-control" th:disabled="${!canEdit}" style="max-width:100%;width:100%;" onchange="toggleQuotationFormulaMode()">
                         <option value="" disabled
                                 th:selected="${quotation.isPresetFormulaModeActive() and activePreset == null}">
                             （原本設定的計算公式規則已不存在，請重新選擇）
@@ -243,11 +279,11 @@
                                 th:if="${!ms.pureTierRule}"
                                 th:value="${ms.MSID}"
                                 th:selected="${quotation.isPresetFormulaModeActive() and quotation.MSID == ms.MSID}"
-                                th:text="${ms.summary}"></option>
+                                th:text="${ms.name}"></option>
                         <option value="__custom__" th:selected="${!quotation.isPresetFormulaModeActive()}">自填</option>
                     </select>
                     <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.?[!pureTierRule].isEmpty()}">
-                        目前還沒有已儲存的「報價定價規則」，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
+                        還沒有已儲存的報價定價規則，請到「計算公式管理」新增，或選「自填」。
                     </div>
                     <!-- ①基本報價這一層即使套用「已儲存的」規則, 那組規則也可能沒有設定基本報價公式 (MarginSetting.basicFormula
                          是選填的) ——這種情況下明確提示使用者「現在實際生效的基本報價設定是什麼」, 避免看不到①的 dropzone
@@ -264,19 +300,46 @@
                          這裡沒有三元運算子一樣會炸)。已經改成直接判斷 activePreset == null (跟這裡的邏輯共用同一個
                          controller 算好的物件), 不會再有這個問題; 下面 NP／團費成本那組「選擇計算方式」下拉選單原本
                          也有一份幾乎一樣的寫法, 一併用 activeTierPreset 改掉了。 -->
+                    <!-- 使用者要求: 下拉選單只留規則名稱就好 (公式本身太長塞進 <option> 裡會被裁掉看不到全部,
+                         見上面 th:text="${ms.name}" 的修改), 但套用中的算式還是要能一次看到①②③④全部四層,
+                         所以下拉選單下面這裡改成把①②③④都列出來, 格式統一是「①層名稱：規則名稱 算式」,
+                         跟①原本的呈現方式一樣, 只是每一層都有、不是只有①。沒設定該層公式就照舊 fallback
+                         顯示這張報價單自己的舊制%／自填金額設定。 -->
                     <div class="item-note" style="margin-top:6px;" th:if="${quotation.isPresetFormulaModeActive()}">
-                        <span th:if="${activePreset != null and activePreset.basicFormula != null}">
-                            ①基本報價公式套用「已儲存的」規則：<strong th:text="${activePreset.readableBasicFormula}"></strong>
-                        </span>
-                        <span th:if="${activePreset == null or activePreset.basicFormula == null}">
-                            ①基本報價公式：目前套用的規則沒有設定這一層，繼續沿用這張報價單自己的基本報價設定（<span th:text="${quotation.basicMarkupValue}"></span><span th:text="${quotation.isBasicMarkupAmountMode()} ? '（自填金額）' : '%'"></span>）。要調整請切到「自填」。
-                        </span>
+                        <div th:if="${activePreset != null and activePreset.basicFormula != null}">
+                            ①基本報價：<span th:text="${activePreset.name}"></span> <span th:text="${activePreset.readableBasicFormula}"></span>
+                        </div>
+                        <div th:if="${activePreset == null or activePreset.basicFormula == null}">
+                            ①基本報價：規則未設定，沿用本單設定（<span th:text="${quotation.basicMarkupValue}"></span><span th:text="${quotation.isBasicMarkupAmountMode()} ? '（自填金額）' : '%'"></span>），調整請切「自填」。
+                        </div>
+                        <div th:if="${activePreset != null and activePreset.tradeFormula != null}" style="margin-top:4px;">
+                            ②同業價：<span th:text="${activePreset.name}"></span> <span th:text="${activePreset.readableTradeFormula}"></span>
+                        </div>
+                        <div th:if="${activePreset == null or activePreset.tradeFormula == null}" style="margin-top:4px;">
+                            ②同業價：規則未設定，沿用本單設定（同業+<span th:text="${quotation.tradeMarkupValue}"></span><span th:text="${quotation.isTradeMarkupAmountMode()} ? '（自填金額）' : '%'"></span>），調整請切「自填」。
+                        </div>
+                        <div th:if="${activePreset != null and activePreset.retailFormula != null}" style="margin-top:4px;">
+                            ③直售價：<span th:text="${activePreset.name}"></span> <span th:text="${activePreset.readableRetailFormula}"></span>
+                        </div>
+                        <div th:if="${activePreset == null or activePreset.retailFormula == null}" style="margin-top:4px;">
+                            ③直售價：規則未設定，沿用本單設定（直售+<span th:text="${quotation.retailMarkupValue}"></span><span th:text="${quotation.isRetailMarkupAmountMode()} ? '（自填金額）' : '%'"></span>），調整請切「自填」。
+                        </div>
+                        <div th:if="${activePreset != null and activePreset.rebateFormula != null}" style="margin-top:4px;">
+                            ④退傭：<span th:text="${activePreset.name}"></span> <span th:text="${activePreset.readableRebateFormula}"></span>
+                        </div>
+                        <div th:if="${activePreset == null or activePreset.rebateFormula == null}" style="margin-top:4px;">
+                            ④退傭：規則未設定，沿用本單設定（退傭<span th:text="${quotation.rebatePct}"></span><span th:text="${quotation.rebateMode == 'AMOUNT'} ? '（自填金額）' : '%'"></span>），調整請切「自填」。
+                        </div>
                     </div>
                     <input type="hidden" name="formulaMode" id="qinput-formulaMode" />
                     <input type="hidden" name="marginSettingId" id="qinput-marginSettingId" />
                 </div>
 
-                <div class="palette">
+                <!-- 使用者要求: 套用「已儲存的」計算公式規則時 (isCustom = false), 下面①②③④公式建構器
+                     本來就會收合了, 但這個「價格變數／運算子」面板是給①②③④手動組公式時插入用的, 選了已儲存
+                     規則、不用自己組公式的話這個面板也不需要顯示——加上 id 讓 toggleQuotationFormulaMode()
+                     跟 qCustomSection 一起同步隱藏/顯示。 -->
+                <div class="palette" id="qFormulaPalette">
                     <div class="palette-label">價格變數 · 點擊或拖曳插入到目前選取的公式欄位</div>
                     <div class="chip-row" id="qVarChips"></div>
                     <div class="palette-label">運算子</div>
@@ -498,7 +561,7 @@
         <div class="card" th:if="${canEdit and !lines.isEmpty()}">
             <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 區間價錢管理</div>
             <div class="item-note" style="margin-bottom:16px;">
-                幾人到幾人之間多少錢、幾人以上多少錢——設定後，「整團人數級距報價結果」的雜項會依各級距的代表人數自動判斷對應價錢（常見用法：全團固定項目如遊覽車，人數多寡對應不同車輛大小）。上限留空代表「這個數字以上都適用」（開放區間）。要在這裡設定級距的項目，先回到上面「報價項目明細」勾選該項目的「級距」欄位。
+                設定不同人數區間對應的單價（例如遊覽車依人數換車型），會自動套用到下方的級距報價結果。上限留空表示開放區間。要設定的項目請先到「報價項目明細」勾選「級距」。
             </div>
             <div th:if="${lines.?[tierManaged].isEmpty()}" class="empty-state" style="padding:16px;">
                 還沒有勾選任何項目。回到上面「報價項目明細」，勾選「級距」欄位，該項目就會出現在這裡。
@@ -714,30 +777,17 @@
         <div class="card">
             <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);"></i> 整團人數級距報價結果</div>
             <div class="item-note" style="margin-bottom:16px;">
-                依「報價項目明細」目前的成本自動試算各級距的「雜項（全團固定費用）」／「NP」／「團費成本」。
-                下面每一欄都是系統自動算出來的，金額本身不能手動輸入——要調整結果請回到下面的「報價項目明細」調整成本，或到下面的計算公式調整。
-                「雜項（全團固定費用）」＝自動加總「報價項目明細」裡所有「全團固定」項目在該級距代表人數下的成本（如果項目在「區間價錢管理」設定了人數級距，會依代表人數自動判斷單價）。
-                「NP」／「團費成本」＝（每人變動成本＋雜項）換算成台幣後，套用可自訂的計算公式——公式可以引用「每人變動成本」「雜項（全團固定費用）」「全團固定」「NET」「基本報價」這幾個計算欄位（團費成本另外還能引用「NP」），留空就直接沿用這個和、不額外調整。
-                （原本的「總成本／每人成本／同業價／直售價／毛利率」欄位背景仍然照算，只是這個畫面不再顯示——如果需要，之後可以再加回來。）
+                依「報價項目明細」的成本，自動試算各級距的雜項、NP、團費成本——欄位皆為自動計算，調整請到報價項目明細或下方計算公式。雜項＝該級距代表人數下所有「全團固定」項目成本；NP／團費成本＝（每人變動成本＋雜項）套用自訂公式，留空即不調整。
             </div>
 
             <!-- NP／團費成本這兩個計算式現在也可以存進「計算公式管理」——使用者要求這組要能跟上面①②③④基本報價／
                  同業／直售／退傭分開選規則、各自獨立存, 所以這裡改成自己的「選擇計算方式」下拉選單 (quotation.
                  tier_formula_mode/tier_MSID, 跟上面①②③④共用的 formula_mode/MSID 完全分開)。activeTierPreset
                  是 controller (buildEditModel()) 算好才丟進來的, 這裡只判斷 null, 不在樣板裡用 OGNL selection 語法
-                 (曾經在渲染途中丟例外導致頁面從這裡開始整段消失, 詳見 buildEditModel() 的註解)。 -->
-            <div class="item-note" style="margin-bottom:16px;" th:if="${quotation.isTierPresetFormulaModeActive()}">
-                <span th:if="${activeTierPreset != null and (activeTierPreset.npFormula != null or activeTierPreset.teamFormula != null)}">
-                    目前套用「已儲存的」規則「<strong th:text="${activeTierPreset.name}"></strong>」：
-                    <span th:if="${activeTierPreset.npFormula != null}">NP 計算式套用該規則的設定；</span>
-                    <span th:if="${activeTierPreset.npFormula == null}">NP 沒有在該規則裡設定，繼續沿用下面自己填的計算式；</span>
-                    <span th:if="${activeTierPreset.teamFormula != null}">團費成本計算式套用該規則的設定。</span>
-                    <span th:if="${activeTierPreset.teamFormula == null}">團費成本沒有在該規則裡設定，繼續沿用下面自己填的計算式。</span>
-                </span>
-                <span th:if="${activeTierPreset == null or (activeTierPreset.npFormula == null and activeTierPreset.teamFormula == null)}">
-                    目前套用的「已儲存的」規則沒有設定 NP／團費成本這一層，繼續沿用下面自己填的計算式。
-                </span>
-            </div>
+                 (曾經在渲染途中丟例外導致頁面從這裡開始整段消失, 詳見 buildEditModel() 的註解)。
+                 2026-09-03 使用者要求⑤⑥的算式說明搬到「選擇計算方式」下拉選單(gFormulaModeSelect)正下方,
+                 跟上面①②③④卡片同一種版面順序(先選單、再列出套用中的算式), 原本放在最上面描述文字後面、
+                 離下拉選單很遠——實際的區塊搬到下面 gModeToggleField 裡面, 這裡不再放。 -->
 
             <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
                 <form th:if="${canEdit}" method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/headcount-mode'}"
@@ -762,7 +812,7 @@
                     </div>
                 </form>
 
-                <span class="item-note" style="margin:0;">開放區間（例如「32人以上」）沒有平均值/上限可算，一律用下限；選了幣別或人數模式就直接重新計算，不用按鈕</span>
+                <span class="item-note" style="margin:0;">開放區間（如「32人以上」）一律用下限；選擇後自動重新計算。幣別僅換算顯示金額，內部一律以台幣計算。</span>
             </div>
 
             <div class="table-container" th:if="${!groupTiers.isEmpty()}" style="margin-bottom:16px;">
@@ -770,18 +820,18 @@
                     <thead>
                     <tr>
                         <th class="num">人數</th>
-                        <th class="num">雜項（全團固定費用）</th>
-                        <th class="num">NP</th>
-                        <th class="num">團費成本</th>
+                        <th class="num">雜項（全團固定費用）<span th:if="${groupTiers.get(0).currency != 'TWD'}" th:text="'（' + ${groupTiers.get(0).currency} + '）'"></span></th>
+                        <th class="num">NP<span th:if="${groupTiers.get(0).currency != 'TWD'}" th:text="'（' + ${groupTiers.get(0).currency} + '）'"></span></th>
+                        <th class="num">團費成本<span th:if="${groupTiers.get(0).currency != 'TWD'}" th:text="'（' + ${groupTiers.get(0).currency} + '）'"></span></th>
                         <th th:if="${canEdit}"></th>
                     </tr>
                     </thead>
                     <tbody>
                     <tr th:each="tier : ${groupTiers}">
                         <td class="num" th:text="${tier.minQty} + '–' + (${tier.maxQty != null} ? ${tier.maxQty} : '以上')"></td>
-                        <td class="num" th:text="${#numbers.formatDecimal(tier.miscValueTwd, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(tier.npResultTwd, 0, 'COMMA', 0, 'POINT')}"></td>
-                        <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(tier.teamResultTwd, 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(tier.getMiscValueInCurrency(groupTierCurrencyRate), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(tier.getNpResultInCurrency(groupTierCurrencyRate), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(tier.getTeamResultInCurrency(groupTierCurrencyRate), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td th:if="${canEdit}">
                             <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/' + ${tier.QGTID} + '/delete'}"
                                   data-confirm="確定要刪除這個人數級距嗎？">
@@ -794,7 +844,7 @@
             </div>
 
             <div th:if="${groupTiers.isEmpty()}" class="empty-state" style="padding:20px;">
-                還沒有設定任何人數級距，新增一組（例如 15–20 人），系統會依目前的成本自動試算每人售價。
+還沒有人數級距，新增一組（如 15–20 人）即可自動試算售價。
             </div>
 
             <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:start;">
@@ -827,9 +877,9 @@
                     <div class="formula-field" id="gModeToggleField">
                         <div class="formula-field-label">
                             <span class="name">選擇計算方式</span>
-                            <span class="optional">套用「已儲存的」計算公式規則，或選「自填」自己組 NP／團費成本的公式（跟上面①②③④是分開的選單，可以各自選不同的規則）</span>
+                            <span class="optional">套用已儲存的規則，或選「自填」自訂 NP／團費成本公式（與①②③④分開設定）</span>
                         </div>
-                        <select id="gFormulaModeSelect" class="form-control" style="max-width:420px;" onchange="toggleGroupTierFormulaMode()">
+                        <select id="gFormulaModeSelect" class="form-control" style="max-width:100%;width:100%;" onchange="toggleGroupTierFormulaMode()">
                             <option value="" disabled
                                     th:selected="${quotation.isTierPresetFormulaModeActive() and activeTierPreset == null}">
                                 （原本設定的計算公式規則已不存在，請重新選擇）
@@ -842,13 +892,35 @@
                             <option value="__custom__" th:selected="${!quotation.isTierPresetFormulaModeActive()}">自填</option>
                         </select>
                         <div class="item-note" style="margin-top:6px;" th:if="${marginSettings == null or marginSettings.?[npFormula != null or teamFormula != null].isEmpty()}">
-                            目前還沒有已儲存的「NP／團費成本規則」，請先到「計算公式管理」新增，或直接選「自填」自己組公式。
+                            還沒有已儲存的 NP／團費成本規則，請到「計算公式管理」新增，或選「自填」。
                         </div>
                         <input type="hidden" name="tierFormulaMode" id="ginput-tierFormulaMode" />
                         <input type="hidden" name="tierMarginSettingId" id="ginput-tierMarginSettingId" />
+
+                        <!-- 使用者要求 NP 這裡要跟上面①基本報價一樣, 直接把套用中的算式文字整條印出來看得到全部
+                             (不是只講「有沒有套用」), 所以改成跟①同一種結構: 每一層分開判斷、直接顯示
+                             readableNpFormula/readableTeamFormula (跟①的 readableBasicFormula 同一套轉換,
+                             見 MarginSetting#getReadableNpFormula()/getReadableTeamFormula())，並且放在
+                             「選擇計算方式」下拉選單正下方, 跟①②③④卡片同一種版面順序。 -->
+                        <div class="item-note" style="margin-top:6px;" th:if="${quotation.isTierPresetFormulaModeActive()}">
+                            <div th:if="${activeTierPreset != null and activeTierPreset.npFormula != null}">
+                                ⑤NP：<span th:text="${activeTierPreset.name}"></span> <span th:text="${activeTierPreset.readableNpFormula}"></span>
+                            </div>
+                            <div th:if="${activeTierPreset == null or activeTierPreset.npFormula == null}">
+                                ⑤NP：規則未設定，沿用下方自填的計算式。
+                            </div>
+                            <div th:if="${activeTierPreset != null and activeTierPreset.teamFormula != null}" style="margin-top:4px;">
+                                ⑥團費成本：<span th:text="${activeTierPreset.name}"></span> <span th:text="${activeTierPreset.readableTeamFormula}"></span>
+                            </div>
+                            <div th:if="${activeTierPreset == null or activeTierPreset.teamFormula == null}" style="margin-top:4px;">
+                                ⑥團費成本：規則未設定，沿用下方自填的計算式。
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="palette">
+                    <!-- 同上①②③④卡片的「價格變數／運算子」面板, 加上 id 讓 toggleGroupTierFormulaMode()
+                         跟 gCustomSection 一起同步隱藏/顯示。 -->
+                    <div class="palette" id="gFormulaPalette">
                         <div class="palette-label">計算欄位 · 點擊或拖曳插入到目前選取的公式欄位（跟上面加成設定卡片的價格變數完全分開，各自獨立）</div>
                         <div class="chip-row" id="gVarChips"></div>
                         <div class="palette-label">運算子</div>
@@ -1449,6 +1521,10 @@
         var isCustom = !sel || sel.value === '__custom__' || sel.value === '';
         var customSection = document.getElementById('qCustomSection');
         if (customSection) customSection.style.display = isCustom ? '' : 'none';
+        // 使用者要求: 套用「已儲存的」規則時, 只有①②③④手動組公式才用得到的「價格變數／運算子」面板
+        // 也一起收起來, 跟 qCustomSection 同步。
+        var palette = document.getElementById('qFormulaPalette');
+        if (palette) palette.style.display = isCustom ? '' : 'none';
         var modeInput = document.getElementById('qinput-formulaMode');
         var msIdInput = document.getElementById('qinput-marginSettingId');
         if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
@@ -1464,6 +1540,9 @@
         var isCustom = !sel || sel.value === '__custom__' || sel.value === '';
         var customSection = document.getElementById('gCustomSection');
         if (customSection) customSection.style.display = isCustom ? '' : 'none';
+        // 同上 toggleQuotationFormulaMode() 的說明: 套用「已儲存的」規則時一併收起「計算欄位／運算子」面板。
+        var palette = document.getElementById('gFormulaPalette');
+        if (palette) palette.style.display = isCustom ? '' : 'none';
         var modeInput = document.getElementById('ginput-tierFormulaMode');
         var msIdInput = document.getElementById('ginput-tierMarginSettingId');
         if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';

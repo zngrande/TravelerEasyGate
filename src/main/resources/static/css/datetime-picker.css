@@ -1,0 +1,119 @@
+/*
+ * 自製日期／時間選擇器 (取代瀏覽器原生 input[type=date]/input[type=time] 點下去彈出的那個原生日曆/時鐘,
+ * 那個原生彈窗完全是瀏覽器控制的樣式, 沒辦法用 CSS 調整——使用者要求要換成跟整體介面風格一致的樣子)。
+ *
+ * 用法見同目錄 js/datetime-picker.js 的說明開頭。這份 CSS 只依賴幾個常見的 CSS 變數 (--primary-blue /
+ * --border-color / --text-dark / --text-gray), 這幾個變數三個會用到這套選擇器的頁面 (quotation/edit.html、
+ * itinerary/new.html、itinerary/board.html) 都已經在自己的 :root 定義過, 這裡不用重複定義；
+ * 如果哪天有新頁面要用又沒定義這幾個變數, 就會退回瀏覽器預設值 (仍然堪用, 只是配色對不上主題)。
+ */
+
+.dtp-trigger {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 12px; font-size: 13.5px; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: .2px;
+    border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px;
+    background: #fff; color: var(--text-dark, #1e293b);
+    cursor: pointer; text-align: left; width: 100%; min-width: 0; box-sizing: border-box;
+    transition: border-color .15s, box-shadow .15s;
+    font-family: inherit;
+}
+/* 這裡原本有 min-width:160px——找到的真正根因：使用者一直回報「出發時間跟抵達機場蓋在一起」，
+   跟彈出面板、跟版面寬度計算都無關，就是這一行害的。它會強制每一顆觸發按鈕至少 160px 寬，
+   不管外層容器(wrap)實際只有多窄。itinerary/new.html「出發時間」欄位在 CSS Grid 裡只分到
+   120px，width:100% 原本應該讓按鈕跟著縮到 120px，但 min-width:160px 的優先權比 width 高
+   （CSS 的 min-width 一定會贏過 width），所以按鈕被強制撐到 160px，比欄位寬 40px，往右邊
+   蓋住緊接著的「抵達機場」欄位——這就是為什麼前幾次調整彈出面板置中/縮窄面板寬度都沒用：
+   問題根本不在面板，在按鈕本身平常(還沒點開)就已經比欄位寬了。拿掉這個 min-width，改成
+   min-width:0，讓按鈕確實能跟著外層欄位縮到多窄都行；正常表單卡片裡欄位夠寬時完全不受影響。 */
+.dtp-trigger:hover { border-color: var(--primary-blue, #2563eb); }
+.dtp-trigger.dtp-open,
+.dtp-trigger:focus-visible {
+    outline: none; border-color: var(--primary-blue, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+}
+.dtp-trigger:disabled {
+    background: #f1f5f9; color: var(--text-gray, #64748b); cursor: not-allowed; border-color: var(--border-color, #e2e8f0);
+}
+.dtp-trigger .dtp-icon { font-size: 13px; color: var(--primary-blue, #2563eb); flex-shrink: 0; }
+.dtp-trigger:disabled .dtp-icon { color: var(--text-gray, #64748b); opacity: .6; }
+.dtp-trigger .dtp-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dtp-trigger .dtp-placeholder { color: #94a3b8; font-weight: 500; }
+
+/* 彈出面板: 固定定位, JS 會在打開當下算好座標貼到 trigger 下方 (或上方, 靠近視窗邊緣時) */
+.dtp-panel {
+    position: fixed; z-index: 3000; background: #fff; border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 14px; box-shadow: 0 12px 32px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.08);
+    padding: 14px; font-family: inherit; animation: dtpPop .12s ease;
+    -webkit-user-select: none; user-select: none;
+}
+@keyframes dtpPop { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+
+/* ---------- 日期面板 ---------- */
+.dtp-panel.dtp-date { width: 288px; }
+.dtp-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.dtp-cal-head .dtp-nav {
+    width: 28px; height: 28px; border-radius: 8px; border: none; background: transparent;
+    color: var(--text-gray, #64748b); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+}
+.dtp-cal-head .dtp-nav:hover { background: #f1f5f9; color: var(--primary-blue, #2563eb); }
+.dtp-cal-head .dtp-title {
+    font-size: 14px; font-weight: 700; color: var(--text-dark, #1e293b);
+    cursor: pointer; padding: 2px 8px; border-radius: 6px;
+}
+.dtp-cal-head .dtp-title:hover { background: #f1f5f9; }
+.dtp-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dtp-cal-grid .dtp-dow {
+    font-size: 11px; font-weight: 700; color: var(--text-gray, #64748b); text-align: center; padding: 4px 0 8px;
+}
+.dtp-cal-grid .dtp-day {
+    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; color: var(--text-dark, #1e293b); border-radius: 8px;
+    cursor: pointer; border: none; background: transparent; font-variant-numeric: tabular-nums;
+}
+.dtp-cal-grid .dtp-day:hover:not(.dtp-empty):not(.dtp-selected) { background: #eff6ff; }
+.dtp-cal-grid .dtp-day.dtp-empty { cursor: default; }
+.dtp-cal-grid .dtp-day.dtp-outside { color: #cbd5e1; }
+.dtp-cal-grid .dtp-day.dtp-today:not(.dtp-selected) { box-shadow: inset 0 0 0 1.5px var(--primary-blue, #2563eb); color: var(--primary-blue, #2563eb); }
+.dtp-cal-grid .dtp-day.dtp-selected { background: var(--primary-blue, #2563eb); color: #fff; }
+
+/* 月/年快速選擇 (點標題切換進來的第二層) */
+.dtp-cal-grid.dtp-months, .dtp-cal-grid.dtp-years { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.dtp-cal-grid.dtp-months .dtp-cell, .dtp-cal-grid.dtp-years .dtp-cell {
+    padding: 10px 4px; text-align: center; font-size: 13px; font-weight: 600; color: var(--text-dark, #1e293b);
+    border-radius: 8px; cursor: pointer; border: none; background: transparent;
+}
+.dtp-cal-grid.dtp-months .dtp-cell:hover, .dtp-cal-grid.dtp-years .dtp-cell:hover { background: #eff6ff; }
+.dtp-cal-grid.dtp-months .dtp-cell.dtp-selected, .dtp-cal-grid.dtp-years .dtp-cell.dtp-selected { background: var(--primary-blue, #2563eb); color: #fff; }
+
+.dtp-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-color, #e2e8f0); }
+.dtp-footer button {
+    font-size: 12.5px; font-weight: 700; border: none; background: transparent; cursor: pointer; padding: 5px 8px; border-radius: 6px;
+}
+.dtp-footer .dtp-today-btn { color: var(--primary-blue, #2563eb); }
+.dtp-footer .dtp-today-btn:hover { background: #eff6ff; }
+.dtp-footer .dtp-clear-btn { color: var(--text-gray, #64748b); }
+.dtp-footer .dtp-clear-btn:hover { background: #f1f5f9; color: #dc2626; }
+
+/* ---------- 時間面板 ---------- */
+/* 使用者回報「出發時間跟抵達機場重疊」——行程規劃頁的時間欄位在緊湊的 grid 版面裡只有 120px 寬,
+   原本這裡 200px 寬的面板即使置中對齊還是會蓋到快一半的鄰居欄位。縮窄到 132px (兩欄數字仍然放得下,
+   只是欄位間距/內距收緊一點), 搭配 datetime-picker.js positionPanel() 的置中對齊, 蓋到鄰居欄位的
+   範圍就小很多。 */
+.dtp-panel.dtp-time { width: 132px; padding: 8px; }
+.dtp-time-cols { display: flex; gap: 4px; height: 220px; }
+.dtp-time-col { flex: 1; overflow-y: auto; scroll-behavior: smooth; border-radius: 8px; background: #f8fafc; padding: 4px; }
+.dtp-time-col::-webkit-scrollbar { width: 5px; }
+.dtp-time-col::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.dtp-time-col .dtp-time-cell {
+    text-align: center; padding: 7px 0; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: var(--text-dark, #1e293b); border-radius: 6px; cursor: pointer;
+}
+.dtp-time-col .dtp-time-cell:hover { background: #eff6ff; }
+.dtp-time-col .dtp-time-cell.dtp-selected { background: var(--primary-blue, #2563eb); color: #fff; }
+.dtp-time-sep { align-self: center; font-weight: 700; color: var(--text-gray, #64748b); }
+
+@media (prefers-color-scheme: dark) {
+    /* 這幾個頁面本身沒有做深色模式 (整站固定淺色卡片風格), 這裡不特別處理深色, 維持跟頁面主體一致的淺色面板 */
+}

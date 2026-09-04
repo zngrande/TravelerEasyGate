@@ -200,8 +200,7 @@
                     </div>
                     <button class="btn" onclick="uploadTemplate('CUSTOMER')">上傳</button>
                     <div class="hint">
-                        給客戶看的行程企劃書範本，要照特定標記規則製作（{{title}}、{{day_start}}...{{day_end}} 等），
-                        規則說明請參考右側「範本格式教學」。
+                        客戶版行程企劃書範本，需依標記規則製作（{{title}}、{{day_start}}...{{day_end}} 等），詳見右側「範本格式教學」。
                     </div>
                     <div id="customerUploadMsg" class="msg"></div>
                 </div>
@@ -250,9 +249,7 @@
                     </div>
                     <button class="btn" onclick="uploadTemplate('AGENCY_WORD')">上傳</button>
                     <div class="hint">
-                        給同業(B2B 夥伴)看的行程企劃書範本，對應行程排版看板的「匯出同業版 (Word)」。
-                        標記規則跟左邊的客戶版型完全一樣（{{title}}、{{day_start}}...{{day_end}} 等），
-                        規則說明請參考右側「範本格式教學」，兩種版型只是套用的場合不同、範本檔案各自獨立管理。
+                        同業版行程企劃書範本，對應看板的「匯出同業版 (Word)」，標記規則與客戶版相同，詳見右側「範本格式教學」。
                     </div>
                     <div id="agencyWordUploadMsg" class="msg"></div>
                 </div>
@@ -301,9 +298,7 @@
                     </div>
                     <button class="btn" onclick="uploadTemplate('AGENCY')">上傳</button>
                     <div class="hint">
-                        給同業(B2B 夥伴)看的報價單版型，範本要照特定標記規則製作（{{group_name}}、{{line_start}}...{{line_end}} 等），
-                        規則說明請參考右側「範本格式教學」。上傳並設為預設後，報價單列表的「匯出 Excel」就會自動套用這份版型；
-                        沒有設定的話則維持系統內建的固定版面。
+                        同業版報價單範本，需依標記規則製作（{{group_name}}、{{line_start}}...{{line_end}} 等），詳見右側「範本格式教學」；設為預設後「匯出 Excel」會自動套用。
                     </div>
                     <div id="agencyUploadMsg" class="msg"></div>
                 </div>
@@ -473,8 +468,8 @@
                 </div>
                 <div class="doc-text">
                     <ul class="doc-list">
-                        <li><span class="doc-tag">{{day_start}}</span> / <span class="doc-tag">{{day_end}}</span> / <span class="doc-tag">{{images_block}}</span> 這三個標記，每份範本裡<strong>只能各出現一次</strong>，而且該段落<strong>只能有這個標記</strong>，不要跟其他文字混在同一段。</li>
-                        <li><span class="doc-tag">{{item_start}}</span> / <span class="doc-tag">{{item_end}}</span> 是放在 <span class="doc-tag">{{day_start}}</span>...<span class="doc-tag">{{day_end}}</span> 裡面的巢狀標記，在同一個逐日版面裡<strong>只能各出現一次</strong>；沒有放這兩個標記也完全沒關係，系統會照原本的 <span class="doc-tag">{{day.content}}</span> 輸出。</li>
+                        <li><span class="doc-tag">{{day_start}}</span> / <span class="doc-tag">{{day_end}}</span> / <span class="doc-tag">{{images_block}}</span> 每份範本<strong>各限出現一次</strong>，且該段落<strong>只能有這個標記</strong>。</li>
+                        <li><span class="doc-tag">{{item_start}}</span> / <span class="doc-tag">{{item_end}}</span> 是 <span class="doc-tag">{{day_start}}</span>...<span class="doc-tag">{{day_end}}</span> 內的巢狀標記，同一版面<strong>各限出現一次</strong>；不放則照 <span class="doc-tag">{{day.content}}</span> 輸出。</li>
                         <li>上傳範本後建議用系統的「預覽」功能實際看一次輸出結果，確認排版跟預期一致（尤其是表格框線、跨頁狀況）。</li>
                         <li>目前不支援頁首/頁尾裡放逐日標記，逐日區塊請放在內文（正文）範圍。</li>
                     </ul>

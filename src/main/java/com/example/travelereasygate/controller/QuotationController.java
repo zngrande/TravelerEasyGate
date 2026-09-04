@@ -63,6 +63,40 @@ public class QuotationController {
         return permissionService.canQuote(role);
     }
 
+    // 使用者回報「正式報價單一打開就出錯」的真正根因: quotation/edit.html 用 Thymeleaf 的
+    // JS inlining (/*[[${currencies}]]*/) 把 currencies 這個 model 屬性直接序列化成 JS 陣列給
+    // 前端幣別自動完成用 (見 edit.html CURRENCY_LIST)。currencyDAO.findAvailable() 回傳的是完整的
+    // Currency 實體, 裡面的 updatedAt 欄位是 java.time.LocalDateTime——Thymeleaf 這個 JS 序列化用的
+    // Jackson ObjectMapper 是它自己內部另外 new 出來的一份, 沒有註冊 jackson-datatype-jsr310,
+    // 一旦真的遇到某一筆幣別的 updatedAt 不是 null (等於真的要序列化 LocalDateTime 這個型別),
+    // 就會丟 InvalidDefinitionException 把整個樣板 render 中斷掉, 看起來就像「頁面打開就出錯／消失」。
+    // 前端 (CURRENCY_LIST) 實際上只用得到 code/name 兩個欄位 (見 currencyDisplayFor()/renderList()),
+    // 這裡直接組一份只有這兩個欄位的輕量清單餵給 JS inlining, 從根本避開整個 Currency 實體
+    // (以及它未來任何不支援 JS 序列化的欄位) 被拿去序列化的風險, 不用去改全域 Jackson/Thymeleaf 設定。
+    // 「整團人數級距報價結果」表格的幣別轉換用匯率 (1 單位該幣別 = 多少台幣, 跟 QuotationService
+    // #resolveGroupTierCurrencyRate() 同一個方向/同一份資料來源, 這裡是給畫面顯示轉換用, 不影響
+    // 實際存進資料庫的台幣快照)。所有級距共用同一個幣別 (updateGroupTierCurrency() 一次改全部),
+    // 拿第一筆的 currency 查就好; 沒有級距、或幣別是 TWD/空白時固定回傳 1 (不轉換)。
+    private BigDecimal groupTierCurrencyRate(List<com.example.travelereasygate.entity.QuotationGroupTier> groupTiers, int AID) {
+        if (groupTiers == null || groupTiers.isEmpty()) return BigDecimal.ONE;
+        String currency = groupTiers.get(0).getCurrency();
+        if (currency == null || currency.isBlank() || "TWD".equalsIgnoreCase(currency)) return BigDecimal.ONE;
+        com.example.travelereasygate.entity.Currency c = currencyDAO.findByCode(currency, AID);
+        return (c != null && c.getRateToTwd() != null && c.getRateToTwd().compareTo(BigDecimal.ZERO) > 0)
+                ? c.getRateToTwd() : BigDecimal.ONE;
+    }
+
+    private List<Map<String, String>> currencyOptionsForJs(int AID) {
+        List<Map<String, String>> options = new java.util.ArrayList<>();
+        for (com.example.travelereasygate.entity.Currency c : currencyDAO.findAvailable(AID)) {
+            Map<String, String> opt = new LinkedHashMap<>();
+            opt.put("code", c.getCode());
+            opt.put("name", c.getName());
+            options.add(opt);
+        }
+        return options;
+    }
+
     // GET /quotations → 報價單儀表板, 跟「我的行程」(agency/dashboard.html) 同一套版面,
     // 列出這個帳號所有行程 + 每個行程目前有幾份報價單版本, 點一行就進去 /itinerary/{id}/quotations
     @GetMapping("/quotations")
@@ -182,7 +216,7 @@ public class QuotationController {
         model.addAttribute("itemsByDay", itemsByDay);
         model.addAttribute("lineByItem", lineByItem);
         model.addAttribute("miscLines", miscLines);
-        model.addAttribute("currencies", currencyDAO.findAvailable(AID));
+        model.addAttribute("currencies", currencyOptionsForJs(AID));
         model.addAttribute("totals", quotationService.getTotals(QID));
         model.addAttribute("canEdit", quotation.isEditable() && canQuote(session));
         // 使用者要求「簡易報價單可以拉元件庫內容，名稱價錢會自動帶入」——跟正式報價頁「新增報價項目」
@@ -238,7 +272,7 @@ public class QuotationController {
         List<QuotationLine> lines = quotationService.findLines(QID);
         model.addAttribute("lines", lines);
         model.addAttribute("totals", quotationService.getTotals(QID));
-        model.addAttribute("currencies", currencyDAO.findAvailable(AID));
+        model.addAttribute("currencies", currencyOptionsForJs(AID));
         // 「新增報價項目」表單幣別欄位預設值: 記住這張報價單目前最後一筆項目用的幣別, 而不是每次都預設 TWD
         // (使用者回報「加入報價單的項目幣別會跟上一筆加入的幣別一樣」這個行為不見了——這裡補回來)。
         // lines 本身已經是照 sortOrder/QLID 由小到大排序 (見 QuotationLineDAO#findByQuotation), 拿最後一筆
@@ -285,7 +319,13 @@ public class QuotationController {
         model.addAttribute("tiersByLine", tiersByLine);
 
         // 整團人數級距報價結果 (掛在整張報價單底下, 跟上面 tiersByLine 是不同層級)
-        model.addAttribute("groupTiers", quotationService.listGroupTiers(QID));
+        List<com.example.travelereasygate.entity.QuotationGroupTier> groupTiers = quotationService.listGroupTiers(QID);
+        model.addAttribute("groupTiers", groupTiers);
+        // 使用者要求「幣別（全部級距共用）」選了要像報價項目明細一樣整張表即時換算成該幣別——這裡查好
+        // 目前這組級距共用的幣別匯率 (1 單位該幣別 = 多少台幣), 丟給樣板呼叫 tier.getMiscValueInCurrency()/
+        // getNpResultInCurrency()/getTeamResultInCurrency() 當參數用 (見 QuotationGroupTier 的說明,
+        // entity 本身不直接查資料庫, 匯率統一由這裡查好)。沒有級距或幣別是 TWD/空白時固定用 1 (不轉換)。
+        model.addAttribute("groupTierCurrencyRate", groupTierCurrencyRate(groupTiers, AID));
 
         // 畫面能不能編輯 = 報價單本身是 draft (未上鎖) 而且這個角色有「製作/調整報價」的權限 (ADMIN/QUOTER)。
         // 行程編輯者 (EDITOR) 跟唯讀 (VIEWER) 只能看, 看得到金額但按鈕會被關閉。

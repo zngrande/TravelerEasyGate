@@ -239,7 +239,7 @@
 
     <div class="card" id="cardPricingForm">
         <div class="card-header"><i class="fa-solid fa-plus-circle" style="color: var(--primary-blue);" id="pricingFormIcon"></i> <span id="pricingFormTitle">新增報價定價規則</span></div>
-        <div class="card-desc">①②③④基本報價／同業／直售／退傭這一組——把上方藍色的價格變數拖曳（或點一下）插入到下面選取中的公式欄位，插入後可以直接在欄位裡打運算子跟數字，例如「× 1.15 + 2000」。這組規則跟下面「NP／團費成本規則」是分開儲存的，報價單那邊也可以分開選——同一份報價單可以「基本報價套用 A 規則、NP/團費成本套用 B 規則」這樣混搭。</div>
+        <div class="card-desc">①②③④基本報價／同業／直售／退傭——拖曳或點擊上方變數插入公式欄位，可搭配運算子與數字（例如「× 1.15 + 2000」）。與下方「NP／團費成本規則」分開儲存，報價單可各自選用不同規則。</div>
 
         <div class="palette">
             <div class="palette-label">價格變數 · 點擊或拖曳插入到目前選取的公式欄位</div>
@@ -306,13 +306,13 @@
         </form>
 
         <div class="hint-box">
-            <strong>套用方式：</strong> 建好的規則會出現在報價單「基本報價／同業／直售加成與退傭設定」卡片的「選擇計算方式」選單裡。基本報價 = ①的結果（留空就繼續用那張報價單自己的基本報價設定，不受這組規則影響）；同業價 = ②的結果（留空視為 0 加成，直接等於基本報價）；直售價 = ③的結果（留空視為 0 加成，直接等於同業價）；退傭金額 = ④的結果（留空視為 0）。每一家同業都可以建一組自己的規則，報價單也可以切到「自填公式」模式單獨改一次性的算法，不會動到這裡的規則庫。
+            <strong>套用方式：</strong>規則會出現在報價單「選擇計算方式」選單。留空該層則沿用報價單原設定（同業/直售視為 0 加成、退傭視為 0）。報價單也可切到「自填公式」單獨調整，不影響規則庫。
         </div>
     </div>
 
     <div class="card" id="cardTierForm" style="display:none;">
         <div class="card-header"><i class="fa-solid fa-layer-group" style="color: var(--primary-blue);" id="tierFormIcon"></i> <span id="tierFormTitle">新增 NP／團費成本規則</span></div>
-        <div class="card-desc">⑤⑥「整團人數級距報價結果」卡片專用的另一組計算式 (跟上面①②③④基本報價／同業／直售／退傭是完全獨立的另一組變數)，對應報價單裡「NP」跟「團費成本」這兩個結果。這組規則跟上面「報價定價規則」是分開儲存的，報價單那邊也可以分開選一組不一樣的規則來用。</div>
+        <div class="card-desc">⑤⑥ 對應「整團人數級距報價結果」卡片的 NP／團費成本，與①②③④是獨立的另一組規則，可分開選用。</div>
 
         <div class="palette">
             <div class="palette-label">計算欄位 · 點擊或拖曳插入到目前選取的公式欄位（跟上面①②③④的價格變數完全分開，各自獨立）</div>
@@ -359,7 +359,7 @@
         </form>
 
         <div class="hint-box">
-            <strong>套用方式：</strong> 建好的規則會出現在報價單「整團人數級距報價結果」卡片自己的「選擇計算方式」選單裡 (跟上面報價定價規則的選單是分開的)。NP = ⑤的結果、團費成本 = ⑥的結果（留空都代表繼續沿用各張報價單「整團人數級距報價結果」卡片自己填的計算式）。
+            <strong>套用方式：</strong>規則會出現在「整團人數級距報價結果」卡片的「選擇計算方式」選單。留空則沿用該報價單自填的計算式。
         </div>
     </div>
 </main>

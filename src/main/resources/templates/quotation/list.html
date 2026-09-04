@@ -37,7 +37,11 @@
         .version-item:last-child { margin-bottom: 0; }
         .version-left { display: flex; align-items: center; gap: 14px; }
         .version-badge { width: 44px; height: 44px; border-radius: 10px; background: #eff6ff; color: var(--primary-blue); font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 14px; }
-        .version-meta { font-size: 12.5px; color: var(--text-gray); margin-top: 2px; }
+        .version-meta { font-size: 12.5px; color: var(--text-gray); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+        .version-meta i { font-size: 11px; color: #94a3b8; }
+        .version-meta .meta-date { font-weight: 600; color: #475569; }
+        .version-meta .meta-time { font-variant-numeric: tabular-nums; }
+        .version-meta .meta-sep { color: #cbd5e1; }
         .status-pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
         .status-draft { background: #f1f5f9; color: var(--text-gray); }
         .status-locked { background: #eff6ff; color: var(--primary-blue); }
@@ -83,7 +87,13 @@
                                 第 <span th:text="${q.version}"></span> 版報價
                                 <span style="color: var(--text-gray); font-weight: 400;" th:text="'（' + ${q.groupSize} + ' 人）'"></span>
                             </div>
-                            <div class="version-meta" th:text="${#temporals.format(q.createdAt, 'yyyy-MM-dd HH:mm')} + ' 建立'"></div>
+                            <div class="version-meta">
+                                <i class="fa-regular fa-clock"></i>
+                                <span class="meta-date" th:text="${#temporals.format(q.createdAt, 'yyyy/MM/dd')}"></span>
+                                <span class="meta-sep">·</span>
+                                <span class="meta-time" th:text="${#temporals.format(q.createdAt, 'HH:mm')}"></span>
+                                <span>建立</span>
+                            </div>
                         </div>
                     </a>
                     <span class="status-pill"

@@ -80,12 +80,41 @@ public class ExcelTemplateMergeService {
             for (int s = 0; s < wb.getNumberOfSheets(); s++) {
                 Sheet sheet = wb.getSheetAt(s);
                 expandLineBlock(sheet, data.lineRows());
+                repairMergedRegions(sheet);
             }
             replaceAllPlaceholders(wb, data.simpleValues());
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             wb.write(out);
             return out.toByteArray();
+        }
+    }
+
+    // 使用者回報「匯出報價單 Excel 都會出錯」——Excel 打開時跳出「發現部分內容有問題」要求修復。
+    // 拆開匯出的檔案檢查發現 sheet1.xml 裡 <mergeCells count="27"> 但實際只有 17 個 <mergeCell> 子節點，
+    // 這種「宣告的數量」跟「實際內容」對不上的 XML，Excel 的嚴格解析器會直接判定檔案損毀。
+    //
+    // 根因是 Apache POI 這裡的已知行為：expandLineBlock() 對明細列範圍先用 shiftRows() 把後面的列往下搬，
+    // shiftRows() 本身就會連帶搬動/調整落在搬動範圍內的合併儲存格，接著這裡又用 removeMergedRegion()／
+    // addMergedRegion() 手動增減合併範圍——兩邊各自維護底層 CTMergeCells 清單，疊加起來就可能讓 XSSFSheet
+    // 內部快取的「合併範圍數量」跟實際 CTMergeCells 陣列的長度不同步，寫檔案的時候把不同步的數量直接
+    // 序列化成 count 屬性，檔案就壞了。
+    //
+    // 修法：每個分頁的明細列展開完之後，強制「重建」一次合併範圍——先讀出目前全部合併範圍的座標，把它們
+    // 全部移除，再逐一重新加回去。這樣寫回去的 CTMergeCells 一定是「從空的開始、加幾個就是幾個」，
+    // count 屬性跟實際子節點數量保證一致，不管前面 shiftRows／手動增減的過程有沒有留下不同步的殘留。
+    private void repairMergedRegions(Sheet sheet) {
+        int numMerged = sheet.getNumMergedRegions();
+        if (numMerged == 0) return;
+        List<CellRangeAddress> merges = new ArrayList<>();
+        for (int i = 0; i < numMerged; i++) {
+            merges.add(sheet.getMergedRegion(i));
+        }
+        for (int i = numMerged - 1; i >= 0; i--) {
+            sheet.removeMergedRegion(i);
+        }
+        for (CellRangeAddress merge : merges) {
+            sheet.addMergedRegion(merge);
         }
     }
 

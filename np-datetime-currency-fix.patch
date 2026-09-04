@@ -1,0 +1,854 @@
+From 87c25809fe73899f9401c24aa701d2874afea91d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 3 Sep 2026 16:52:11 +0000
+Subject: [PATCH] =?UTF-8?q?NP=20=E5=85=AC=E5=BC=8F=E5=8F=AF=E8=AE=80?=
+ =?UTF-8?q?=E9=A1=AF=E7=A4=BA=E3=80=81=E8=87=AA=E8=A3=BD=E6=97=A5=E6=9C=9F?=
+ =?UTF-8?q?=E6=99=82=E9=96=93=E9=81=B8=E6=93=87=E5=99=A8=E3=80=81=E6=95=B4?=
+ =?UTF-8?q?=E5=9C=98=E4=BA=BA=E6=95=B8=E7=B4=9A=E8=B7=9D=E5=B9=A3=E5=88=A5?=
+ =?UTF-8?q?=E8=BD=89=E6=8F=9B=E4=BF=AE=E6=AD=A3?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 報價單編輯頁: NP／團費成本套用「已儲存的」規則時, 改成跟①基本報價一樣直接顯示完整可讀算式
+  (readableNpFormula/readableTeamFormula), 不再只講「有沒有套用」；兩邊「選擇計算方式」下拉選單
+  都加寬到滿版, 避免長一點的規則摘要被裁掉看不到全部。
+- 新增 src/main/resources/static/{css,js}/datetime-picker.js(.css): 自製日期/時間選擇器, 取代
+  瀏覽器原生 input[type=date]/input[type=time] 點下去彈出的原生日曆/時鐘 (無法用 CSS 調整外觀)。
+  用「疊在原生 input 上面的按鈕 + 自繪彈出面板」實作, 原生 input 的 name/value/disabled 都保留、
+  選擇後照樣 dispatch change 事件, 不用改動任何既有表單/JS 邏輯；用 MutationObserver 自動處理
+  動態插入的新 date/time 欄位, 並覆寫 value setter 讓「其他程式碼直接改 .value」的畫面同步案例也
+  能正確反映在按鈕上。套用到 quotation/edit.html、itinerary/new.html、itinerary/board.html。
+- 修正「整團人數級距報價結果」的「幣別（全部級距共用）」選項是死程式的問題: 這個欄位原本只用來
+  換算已經從畫面上拿掉的「手動額外雜項金額」，選什麼幣別都在換算一個永遠是 0 的數字。改成跟
+  「報價項目明細」一樣的「顯示轉換」: 雜項/NP/團費成本骨子裡的計算與存檔仍然一律用台幣, 只是
+  畫面依選定的幣別即時換算顯示 (QuotationGroupTier 新增 getMiscValueInCurrency() 等三個方法,
+  QuotationController 查好匯率丟給樣板)。人數模式(下限/平均/上限)的計算邏輯本身沒有問題, 是
+  測試資料的級距範圍太窄、供應商項目沒設區間價錢才會看起來沒有作用。
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XBsuLP4QjzwaYBK4LzSFCH
+---
+ .../controller/QuotationController.java       |  21 +-
+ .../entity/QuotationGroupTier.java            |  25 +
+ .../service/QuotationService.java             |  17 +-
+ .../resources/static/css/datetime-picker.css  | 107 +++++
+ .../resources/static/js/datetime-picker.js    | 454 ++++++++++++++++++
+ .../resources/templates/itinerary/board.html  |   2 +
+ .../resources/templates/itinerary/new.html    |   2 +
+ .../resources/templates/quotation/edit.html   |  46 +-
+ 8 files changed, 650 insertions(+), 24 deletions(-)
+ create mode 100644 src/main/resources/static/css/datetime-picker.css
+ create mode 100644 src/main/resources/static/js/datetime-picker.js
+
+diff --git a/src/main/java/com/example/travelereasygate/controller/QuotationController.java b/src/main/java/com/example/travelereasygate/controller/QuotationController.java
+index 5661371..c5f19d1 100644
+--- a/src/main/java/com/example/travelereasygate/controller/QuotationController.java
++++ b/src/main/java/com/example/travelereasygate/controller/QuotationController.java
+@@ -73,6 +73,19 @@ public class QuotationController {
+     // 前端 (CURRENCY_LIST) 實際上只用得到 code/name 兩個欄位 (見 currencyDisplayFor()/renderList()),
+     // 這裡直接組一份只有這兩個欄位的輕量清單餵給 JS inlining, 從根本避開整個 Currency 實體
+     // (以及它未來任何不支援 JS 序列化的欄位) 被拿去序列化的風險, 不用去改全域 Jackson/Thymeleaf 設定。
++    // 「整團人數級距報價結果」表格的幣別轉換用匯率 (1 單位該幣別 = 多少台幣, 跟 QuotationService
++    // #resolveGroupTierCurrencyRate() 同一個方向/同一份資料來源, 這裡是給畫面顯示轉換用, 不影響
++    // 實際存進資料庫的台幣快照)。所有級距共用同一個幣別 (updateGroupTierCurrency() 一次改全部),
++    // 拿第一筆的 currency 查就好; 沒有級距、或幣別是 TWD/空白時固定回傳 1 (不轉換)。
++    private BigDecimal groupTierCurrencyRate(List<com.example.travelereasygate.entity.QuotationGroupTier> groupTiers, int AID) {
++        if (groupTiers == null || groupTiers.isEmpty()) return BigDecimal.ONE;
++        String currency = groupTiers.get(0).getCurrency();
++        if (currency == null || currency.isBlank() || "TWD".equalsIgnoreCase(currency)) return BigDecimal.ONE;
++        com.example.travelereasygate.entity.Currency c = currencyDAO.findByCode(currency, AID);
++        return (c != null && c.getRateToTwd() != null && c.getRateToTwd().compareTo(BigDecimal.ZERO) > 0)
++                ? c.getRateToTwd() : BigDecimal.ONE;
++    }
++
+     private List<Map<String, String>> currencyOptionsForJs(int AID) {
+         List<Map<String, String>> options = new java.util.ArrayList<>();
+         for (com.example.travelereasygate.entity.Currency c : currencyDAO.findAvailable(AID)) {
+@@ -306,7 +319,13 @@ public class QuotationController {
+         model.addAttribute("tiersByLine", tiersByLine);
+ 
+         // 整團人數級距報價結果 (掛在整張報價單底下, 跟上面 tiersByLine 是不同層級)
+-        model.addAttribute("groupTiers", quotationService.listGroupTiers(QID));
++        List<com.example.travelereasygate.entity.QuotationGroupTier> groupTiers = quotationService.listGroupTiers(QID);
++        model.addAttribute("groupTiers", groupTiers);
++        // 使用者要求「幣別（全部級距共用）」選了要像報價項目明細一樣整張表即時換算成該幣別——這裡查好
++        // 目前這組級距共用的幣別匯率 (1 單位該幣別 = 多少台幣), 丟給樣板呼叫 tier.getMiscValueInCurrency()/
++        // getNpResultInCurrency()/getTeamResultInCurrency() 當參數用 (見 QuotationGroupTier 的說明,
++        // entity 本身不直接查資料庫, 匯率統一由這裡查好)。沒有級距或幣別是 TWD/空白時固定用 1 (不轉換)。
++        model.addAttribute("groupTierCurrencyRate", groupTierCurrencyRate(groupTiers, AID));
+ 
+         // 畫面能不能編輯 = 報價單本身是 draft (未上鎖) 而且這個角色有「製作/調整報價」的權限 (ADMIN/QUOTER)。
+         // 行程編輯者 (EDITOR) 跟唯讀 (VIEWER) 只能看, 看得到金額但按鈕會被關閉。
+diff --git a/src/main/java/com/example/travelereasygate/entity/QuotationGroupTier.java b/src/main/java/com/example/travelereasygate/entity/QuotationGroupTier.java
+index 6f363e8..a91e91e 100644
+--- a/src/main/java/com/example/travelereasygate/entity/QuotationGroupTier.java
++++ b/src/main/java/com/example/travelereasygate/entity/QuotationGroupTier.java
+@@ -2,6 +2,7 @@ package com.example.travelereasygate.entity;
+ 
+ import jakarta.persistence.*;
+ import java.math.BigDecimal;
++import java.math.RoundingMode;
+ 
+ /**
+  * 掛在整張報價單底下的「人數級距報價結果」, e.g.
+@@ -139,6 +140,30 @@ public class QuotationGroupTier {
+     public String getCurrency() { return currency; }
+     public void setCurrency(String currency) { this.currency = currency; }
+ 
++    // 2026-09-04 補上: 使用者要求「幣別（全部級距共用）」要像「報價項目明細」一樣, 選了幣別整張表就
++    // 全部轉換成該幣別顯示——原本這個欄位只用來換算「手動填的額外雜項金額」, 但那個手動輸入欄位早就從
++    // 畫面上拿掉了 (雜項現在完全靠「報價項目明細」自動加總), 導致選幣別實際上永遠在換算一個固定是 0
++    // 的數字, 看起來完全沒作用。這裡改成「顯示轉換」: 雜項/NP/團費成本骨子裡的權威數字還是統一存台幣
++    // (miscValueTwd/npResultTwd/teamResultTwd 不變, 所有計算式/公式都還是用台幣算, 不受這裡影響),
++    // 只是畫面顯示時依 tier.currency 換算成對應幣別的金額——rateToTwd 是「這個幣別 1 單位 = 多少台幣」
++    // (跟 QuotationService#resolveGroupTierCurrencyRate() 同一個方向), 所以台幣 ÷ 匯率 = 換算後的金額。
++    // rateToTwd 由 controller 查好丟進來 (Thymeleaf 樣板呼叫這幾個方法時當參數傳入), 這裡不直接查資料庫,
++    // 避免 entity 依賴 DAO。
++    @Transient
++    public BigDecimal getMiscValueInCurrency(BigDecimal rateToTwd) { return convertFromTwd(miscValueTwd, rateToTwd); }
++
++    @Transient
++    public BigDecimal getNpResultInCurrency(BigDecimal rateToTwd) { return convertFromTwd(npResultTwd, rateToTwd); }
++
++    @Transient
++    public BigDecimal getTeamResultInCurrency(BigDecimal rateToTwd) { return convertFromTwd(teamResultTwd, rateToTwd); }
++
++    private static BigDecimal convertFromTwd(BigDecimal twdAmount, BigDecimal rateToTwd) {
++        if (twdAmount == null) return BigDecimal.ZERO;
++        if (rateToTwd == null || rateToTwd.compareTo(BigDecimal.ZERO) <= 0) return twdAmount;
++        return twdAmount.divide(rateToTwd, 2, RoundingMode.HALF_UP);
++    }
++
+     public BigDecimal getMiscValue() { return miscValue; }
+     public void setMiscValue(BigDecimal miscValue) { this.miscValue = miscValue; }
+ 
+diff --git a/src/main/java/com/example/travelereasygate/service/QuotationService.java b/src/main/java/com/example/travelereasygate/service/QuotationService.java
+index db81550..54b2a23 100644
+--- a/src/main/java/com/example/travelereasygate/service/QuotationService.java
++++ b/src/main/java/com/example/travelereasygate/service/QuotationService.java
+@@ -635,10 +635,19 @@ public class QuotationService {
+     }
+ 
+     /**
+-     * 幣別（全部級距共用）: 只影響「雜項（全團固定費用）」裡舊制「額外雜項金額」換算成台幣的匯率——
+-     * 選了馬上生效 (畫面上是 onchange 自動送出, 不用按鈕)。跟 NP／團費成本計算式分開存, 不會互相干擾
+-     * (以前這三個欄位是同一顆表單一起送、一起覆蓋, 現在畫面拆成兩顆各自獨立的表單, 後端也對應拆開,
+-     * 避免「只想改幣別」卻不小心把已經填好的 NP／團費成本公式一起洗掉)。
++     * 幣別（全部級距共用）: 選了馬上生效 (畫面上是 onchange 自動送出, 不用按鈕)。
++     *
++     * 2026-09-04 修正: 這裡以前的用途是換算「雜項（全團固定費用）」裡舊制「額外雜項金額」的匯率, 但那個
++     * 手動輸入欄位早就從畫面上拿掉了 (雜項現在完全靠「報價項目明細」自動加總), 導致選什麼幣別實際上都在
++     * 換算一個固定是 0 的數字, 使用者反映「選幣別完全沒有影響計算結果」。使用者要求要像「報價項目明細」
++     * 選幣別一樣, 整張「整團人數級距報價結果」表格馬上換算顯示——這裡存的 tier.currency 現在的用途改成
++     * 純粹的「顯示幣別」: 雜項/NP/團費成本骨子裡的權威數字還是統一算、存台幣 (miscValueTwd/npResultTwd/
++     * teamResultTwd, 所有公式計算都還是吃台幣, 不受這裡影響), 只是 QuotationController 組畫面時會依這裡
++     * 存的幣別查匯率、把台幣快照換算成對應幣別顯示給使用者看 (見 QuotationGroupTier#getMiscValueInCurrency()
++     * 等三個方法, 以及 QuotationController#groupTierCurrencyRate())。
++     *
++     * 跟 NP／團費成本計算式分開存, 不會互相干擾 (以前這三個欄位是同一顆表單一起送、一起覆蓋, 現在畫面拆成
++     * 兩顆各自獨立的表單, 後端也對應拆開, 避免「只想改幣別」卻不小心把已經填好的 NP／團費成本公式一起洗掉)。
+      */
+     public void updateGroupTierCurrency(int QID, String currency) {
+         Quotation quotation = quotationDAO.findById(QID);
+diff --git a/src/main/resources/static/css/datetime-picker.css b/src/main/resources/static/css/datetime-picker.css
+new file mode 100644
+index 0000000..b759aa3
+--- /dev/null
++++ b/src/main/resources/static/css/datetime-picker.css
+@@ -0,0 +1,107 @@
++/*
++ * 自製日期／時間選擇器 (取代瀏覽器原生 input[type=date]/input[type=time] 點下去彈出的那個原生日曆/時鐘,
++ * 那個原生彈窗完全是瀏覽器控制的樣式, 沒辦法用 CSS 調整——使用者要求要換成跟整體介面風格一致的樣子)。
++ *
++ * 用法見同目錄 js/datetime-picker.js 的說明開頭。這份 CSS 只依賴幾個常見的 CSS 變數 (--primary-blue /
++ * --border-color / --text-dark / --text-gray), 這幾個變數三個會用到這套選擇器的頁面 (quotation/edit.html、
++ * itinerary/new.html、itinerary/board.html) 都已經在自己的 :root 定義過, 這裡不用重複定義；
++ * 如果哪天有新頁面要用又沒定義這幾個變數, 就會退回瀏覽器預設值 (仍然堪用, 只是配色對不上主題)。
++ */
++
++.dtp-trigger {
++    display: inline-flex; align-items: center; gap: 8px;
++    padding: 9px 12px; font-size: 13.5px; font-weight: 600;
++    font-variant-numeric: tabular-nums; letter-spacing: .2px;
++    border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px;
++    background: #fff; color: var(--text-dark, #1e293b);
++    cursor: pointer; text-align: left; width: 100%; min-width: 160px;
++    transition: border-color .15s, box-shadow .15s;
++    font-family: inherit;
++}
++.dtp-trigger:hover { border-color: var(--primary-blue, #2563eb); }
++.dtp-trigger.dtp-open,
++.dtp-trigger:focus-visible {
++    outline: none; border-color: var(--primary-blue, #2563eb);
++    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
++}
++.dtp-trigger:disabled {
++    background: #f1f5f9; color: var(--text-gray, #64748b); cursor: not-allowed; border-color: var(--border-color, #e2e8f0);
++}
++.dtp-trigger .dtp-icon { font-size: 13px; color: var(--primary-blue, #2563eb); flex-shrink: 0; }
++.dtp-trigger:disabled .dtp-icon { color: var(--text-gray, #64748b); opacity: .6; }
++.dtp-trigger .dtp-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.dtp-trigger .dtp-placeholder { color: #94a3b8; font-weight: 500; }
++
++/* 彈出面板: 固定定位, JS 會在打開當下算好座標貼到 trigger 下方 (或上方, 靠近視窗邊緣時) */
++.dtp-panel {
++    position: fixed; z-index: 3000; background: #fff; border: 1px solid var(--border-color, #e2e8f0);
++    border-radius: 14px; box-shadow: 0 12px 32px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.08);
++    padding: 14px; font-family: inherit; animation: dtpPop .12s ease;
++    -webkit-user-select: none; user-select: none;
++}
++@keyframes dtpPop { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
++
++/* ---------- 日期面板 ---------- */
++.dtp-panel.dtp-date { width: 288px; }
++.dtp-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
++.dtp-cal-head .dtp-nav {
++    width: 28px; height: 28px; border-radius: 8px; border: none; background: transparent;
++    color: var(--text-gray, #64748b); cursor: pointer; display: flex; align-items: center; justify-content: center;
++    font-size: 13px;
++}
++.dtp-cal-head .dtp-nav:hover { background: #f1f5f9; color: var(--primary-blue, #2563eb); }
++.dtp-cal-head .dtp-title {
++    font-size: 14px; font-weight: 700; color: var(--text-dark, #1e293b);
++    cursor: pointer; padding: 2px 8px; border-radius: 6px;
++}
++.dtp-cal-head .dtp-title:hover { background: #f1f5f9; }
++.dtp-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
++.dtp-cal-grid .dtp-dow {
++    font-size: 11px; font-weight: 700; color: var(--text-gray, #64748b); text-align: center; padding: 4px 0 8px;
++}
++.dtp-cal-grid .dtp-day {
++    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
++    font-size: 13px; font-weight: 600; color: var(--text-dark, #1e293b); border-radius: 8px;
++    cursor: pointer; border: none; background: transparent; font-variant-numeric: tabular-nums;
++}
++.dtp-cal-grid .dtp-day:hover:not(.dtp-empty):not(.dtp-selected) { background: #eff6ff; }
++.dtp-cal-grid .dtp-day.dtp-empty { cursor: default; }
++.dtp-cal-grid .dtp-day.dtp-outside { color: #cbd5e1; }
++.dtp-cal-grid .dtp-day.dtp-today:not(.dtp-selected) { box-shadow: inset 0 0 0 1.5px var(--primary-blue, #2563eb); color: var(--primary-blue, #2563eb); }
++.dtp-cal-grid .dtp-day.dtp-selected { background: var(--primary-blue, #2563eb); color: #fff; }
++
++/* 月/年快速選擇 (點標題切換進來的第二層) */
++.dtp-cal-grid.dtp-months, .dtp-cal-grid.dtp-years { grid-template-columns: repeat(3, 1fr); gap: 6px; }
++.dtp-cal-grid.dtp-months .dtp-cell, .dtp-cal-grid.dtp-years .dtp-cell {
++    padding: 10px 4px; text-align: center; font-size: 13px; font-weight: 600; color: var(--text-dark, #1e293b);
++    border-radius: 8px; cursor: pointer; border: none; background: transparent;
++}
++.dtp-cal-grid.dtp-months .dtp-cell:hover, .dtp-cal-grid.dtp-years .dtp-cell:hover { background: #eff6ff; }
++.dtp-cal-grid.dtp-months .dtp-cell.dtp-selected, .dtp-cal-grid.dtp-years .dtp-cell.dtp-selected { background: var(--primary-blue, #2563eb); color: #fff; }
++
++.dtp-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-color, #e2e8f0); }
++.dtp-footer button {
++    font-size: 12.5px; font-weight: 700; border: none; background: transparent; cursor: pointer; padding: 5px 8px; border-radius: 6px;
++}
++.dtp-footer .dtp-today-btn { color: var(--primary-blue, #2563eb); }
++.dtp-footer .dtp-today-btn:hover { background: #eff6ff; }
++.dtp-footer .dtp-clear-btn { color: var(--text-gray, #64748b); }
++.dtp-footer .dtp-clear-btn:hover { background: #f1f5f9; color: #dc2626; }
++
++/* ---------- 時間面板 ---------- */
++.dtp-panel.dtp-time { width: 200px; padding: 10px; }
++.dtp-time-cols { display: flex; gap: 8px; height: 220px; }
++.dtp-time-col { flex: 1; overflow-y: auto; scroll-behavior: smooth; border-radius: 8px; background: #f8fafc; padding: 4px; }
++.dtp-time-col::-webkit-scrollbar { width: 5px; }
++.dtp-time-col::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
++.dtp-time-col .dtp-time-cell {
++    text-align: center; padding: 7px 0; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
++    color: var(--text-dark, #1e293b); border-radius: 6px; cursor: pointer;
++}
++.dtp-time-col .dtp-time-cell:hover { background: #eff6ff; }
++.dtp-time-col .dtp-time-cell.dtp-selected { background: var(--primary-blue, #2563eb); color: #fff; }
++.dtp-time-sep { align-self: center; font-weight: 700; color: var(--text-gray, #64748b); }
++
++@media (prefers-color-scheme: dark) {
++    /* 這幾個頁面本身沒有做深色模式 (整站固定淺色卡片風格), 這裡不特別處理深色, 維持跟頁面主體一致的淺色面板 */
++}
+diff --git a/src/main/resources/static/js/datetime-picker.js b/src/main/resources/static/js/datetime-picker.js
+new file mode 100644
+index 0000000..0ba51f2
+--- /dev/null
++++ b/src/main/resources/static/js/datetime-picker.js
+@@ -0,0 +1,454 @@
++/*
++ * 自製日期／時間選擇器
++ * ============================================================
++ * 使用者要求「點下去選時間日期的呈現方式」不要用瀏覽器原生的 input[type=date]/input[type=time] 那個
++ * 點下去彈出來的日曆/時鐘小視窗——那個彈窗完全是瀏覽器自己畫的, 沒辦法用 CSS 改樣式, 每個瀏覽器/系統
++ * 長得也不一樣。這支腳本把頁面上所有 <input type="date"> / <input type="time"> 換成「按鈕觸發、自己畫的
++ * 彈出面板」, 跟整個網站的卡片/配色風格一致。
++ *
++ * 設計原則: 盡量不動到既有的表單/JS 邏輯——
++ *   - 原本的 <input type="date"/"time"> 元素還在 DOM 裡、name/id/value/disabled/required 都保留,
++ *     只是整個疊在新畫出來的按鈕(.dtp-trigger)下面、視覺上看不見 (opacity:0, 但不是 display:none,
++ *     瀏覽器內建的表單驗證跟 :invalid 樣式才不會失效)。表單送出時讀到的還是這個原生 input 的 value,
++ *     完全不用改後端或改其他 JS 邏輯。
++ *   - 使用者在彈出面板選日期/時間時, 這支腳本會把值寫回原生 input.value, 並 dispatch 'change' 事件
++ *     (bubbles:true)——所有原本掛在這些 input 上的 onchange="..." (例如 this.form.requestSubmit()、
++ *     updateStartTime() 這些) 完全不用改, 照樣會被觸發。
++ *   - 頁面上任何時候用 innerHTML/範本字串動態插入新的 date/time input (例如行程編輯看板拖曳排序後
++ *     重新渲染整個清單), 不用另外呼叫初始化——用 MutationObserver 監看整個文件, 有新的 date/time input
++ *     出現就自動套用, 完全不用去改動每一處重新渲染的程式碼。
++ *
++ * 引入方式: 在頁面 <head> 或 <body> 結尾加
++ *   <link rel="stylesheet" href="/css/datetime-picker.css">
++ *   <script src="/js/datetime-picker.js"></script>
++ * 不需要再呼叫任何初始化函式, 這支腳本自己會在 DOMContentLoaded 時掃描一次、之後持續監看新增的元素。
++ *
++ * 如果某個 date/time input 就是不想被這支腳本接管 (例如刻意要用原生的), 加上屬性 data-dtp-skip 即可。
++ */
++(function () {
++    'use strict';
++
++    var WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'];
++    var MONTH_LABELS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
++
++    var openPanel = null; // 目前開著的面板 (同一時間只允許開一個)
++    var openTrigger = null;
++
++    // 這個網站其他地方 (行程編輯看板尤其多) 常常會直接用 JS 幫 date/time input 設定 `.value = 'xx:xx'`
++    // 來同步顯示 (例如「出發時間」欄位要跟著時間表算出來的第一個項目時間更新), 完全不會另外 dispatch
++    // change/input 事件——如果只靠監聽 change/input 事件或 MutationObserver 屬性異動來更新按鈕上顯示的
++    // 文字, 這種「安靜地」直接改 .value 的地方全部都要重新去改一次才會同步, 範圍太大、風險也高。改成
++    // 直接覆寫 HTMLInputElement.prototype.value 的 setter, 只要是這個網站任何地方對一個已經被這支腳本
++    // 接管的 date/time input 設定 .value, 都會自動連帶更新按鈕上顯示的文字, 完全不用去改動其他既有程式碼。
++    (function patchValueSetter() {
++        var proto = window.HTMLInputElement && window.HTMLInputElement.prototype;
++        var desc = proto && Object.getOwnPropertyDescriptor(proto, 'value');
++        if (!desc || !desc.configurable || !desc.set) return;
++        Object.defineProperty(proto, 'value', {
++            get: desc.get,
++            set: function (v) {
++                desc.set.call(this, v);
++                if (this.__dtpTrigger) refreshTrigger(this);
++            },
++            configurable: true,
++            enumerable: desc.enumerable
++        });
++    })();
++
++    function pad2(n) { return String(n).padStart(2, '0'); }
++
++    function parseIsoDate(v) {
++        if (!v) return null;
++        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
++        if (!m) return null;
++        var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
++        return isNaN(d.getTime()) ? null : d;
++    }
++
++    function formatIsoDate(d) {
++        return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
++    }
++
++    function formatDateDisplay(d) {
++        return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WEEKDAY_LABELS[d.getDay()] + '）';
++    }
++
++    function parseTime(v) {
++        if (!v) return null;
++        var m = /^(\d{1,2}):(\d{2})/.exec(v);
++        if (!m) return null;
++        var h = Number(m[1]), min = Number(m[2]);
++        if (h > 23 || min > 59) return null;
++        return { h: h, m: min };
++    }
++
++    function closeOpenPanel() {
++        if (openPanel && openPanel.parentNode) openPanel.parentNode.removeChild(openPanel);
++        if (openTrigger) openTrigger.classList.remove('dtp-open');
++        openPanel = null;
++        openTrigger = null;
++    }
++
++    document.addEventListener('mousedown', function (e) {
++        if (!openPanel) return;
++        if (openPanel.contains(e.target) || (openTrigger && openTrigger.contains(e.target))) return;
++        closeOpenPanel();
++    });
++    document.addEventListener('keydown', function (e) {
++        if (e.key === 'Escape') closeOpenPanel();
++    });
++    window.addEventListener('scroll', function () { closeOpenPanel(); }, true);
++    window.addEventListener('resize', function () { closeOpenPanel(); });
++
++    function positionPanel(panel, trigger) {
++        var r = trigger.getBoundingClientRect();
++        document.body.appendChild(panel); // 先掛上去才量得到 offsetHeight/offsetWidth
++        var panelW = panel.offsetWidth, panelH = panel.offsetHeight;
++        var left = r.left;
++        if (left + panelW > window.innerWidth - 8) left = window.innerWidth - panelW - 8;
++        if (left < 8) left = 8;
++        var top = r.bottom + 6;
++        if (top + panelH > window.innerHeight - 8) top = r.top - panelH - 6; // 下面放不下就往上開
++        if (top < 8) top = 8;
++        panel.style.left = left + 'px';
++        panel.style.top = top + 'px';
++    }
++
++    function setInputValue(input, value) {
++        input.value = value;
++        input.dispatchEvent(new Event('input', { bubbles: true }));
++        input.dispatchEvent(new Event('change', { bubbles: true }));
++    }
++
++    // ---------------- 日期面板 ----------------
++    function openDatePanel(trigger, input) {
++        closeOpenPanel();
++        var selected = parseIsoDate(input.value);
++        var view = selected ? new Date(selected.getFullYear(), selected.getMonth(), 1) : (function () {
++            var t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1);
++        })();
++        var mode = 'days'; // 'days' | 'months' | 'years'
++        var yearPageStart = view.getFullYear() - (view.getFullYear() % 12);
++
++        var panel = document.createElement('div');
++        panel.className = 'dtp-panel dtp-date';
++
++        function render() {
++            panel.innerHTML = '';
++            var head = document.createElement('div');
++            head.className = 'dtp-cal-head';
++
++            var prevBtn = document.createElement('button');
++            prevBtn.type = 'button'; prevBtn.className = 'dtp-nav'; prevBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
++            var title = document.createElement('div');
++            title.className = 'dtp-title';
++            var nextBtn = document.createElement('button');
++            nextBtn.type = 'button'; nextBtn.className = 'dtp-nav'; nextBtn.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
++
++            head.appendChild(prevBtn); head.appendChild(title); head.appendChild(nextBtn);
++            panel.appendChild(head);
++
++            var grid = document.createElement('div');
++            grid.className = 'dtp-cal-grid';
++
++            if (mode === 'days') {
++                title.textContent = view.getFullYear() + '年 ' + MONTH_LABELS[view.getMonth()];
++                title.onclick = function () { mode = 'months'; render(); };
++                prevBtn.onclick = function () { view.setMonth(view.getMonth() - 1); render(); };
++                nextBtn.onclick = function () { view.setMonth(view.getMonth() + 1); render(); };
++
++                WEEKDAY_LABELS.forEach(function (w) {
++                    var el = document.createElement('div'); el.className = 'dtp-dow'; el.textContent = w; grid.appendChild(el);
++                });
++
++                var firstOfMonth = new Date(view.getFullYear(), view.getMonth(), 1);
++                var startOffset = firstOfMonth.getDay();
++                var daysInMonth = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
++                var today = new Date();
++
++                for (var i = 0; i < startOffset; i++) {
++                    var prevMonthLast = new Date(view.getFullYear(), view.getMonth(), 0).getDate();
++                    var dNum = prevMonthLast - startOffset + i + 1;
++                    var cell = document.createElement('button');
++                    cell.type = 'button'; cell.className = 'dtp-day dtp-outside'; cell.textContent = dNum;
++                    (function (offset) {
++                        cell.onclick = function () { view.setMonth(view.getMonth() - 1); render(); };
++                    })(1);
++                    grid.appendChild(cell);
++                }
++                for (var day = 1; day <= daysInMonth; day++) {
++                    var cellDate = new Date(view.getFullYear(), view.getMonth(), day);
++                    var btn = document.createElement('button');
++                    btn.type = 'button'; btn.className = 'dtp-day'; btn.textContent = day;
++                    if (selected && cellDate.getFullYear() === selected.getFullYear() && cellDate.getMonth() === selected.getMonth() && cellDate.getDate() === selected.getDate()) {
++                        btn.classList.add('dtp-selected');
++                    } else if (cellDate.toDateString() === today.toDateString()) {
++                        btn.classList.add('dtp-today');
++                    }
++                    (function (dt) {
++                        btn.onclick = function () {
++                            setInputValue(input, formatIsoDate(dt));
++                            refreshTrigger(input);
++                            closeOpenPanel();
++                        };
++                    })(cellDate);
++                    grid.appendChild(btn);
++                }
++            } else if (mode === 'months') {
++                title.textContent = view.getFullYear() + '年';
++                title.onclick = function () { mode = 'years'; render(); };
++                prevBtn.onclick = function () { view.setFullYear(view.getFullYear() - 1); render(); };
++                nextBtn.onclick = function () { view.setFullYear(view.getFullYear() + 1); render(); };
++                grid.classList.add('dtp-months');
++                MONTH_LABELS.forEach(function (label, idx) {
++                    var cell = document.createElement('button');
++                    cell.type = 'button'; cell.className = 'dtp-cell';
++                    if (idx === view.getMonth()) cell.classList.add('dtp-selected');
++                    cell.textContent = label;
++                    cell.onclick = function () { view.setMonth(idx); mode = 'days'; render(); };
++                    grid.appendChild(cell);
++                });
++            } else { // years
++                title.textContent = yearPageStart + ' – ' + (yearPageStart + 11);
++                title.onclick = function () { mode = 'months'; render(); };
++                prevBtn.onclick = function () { yearPageStart -= 12; render(); };
++                nextBtn.onclick = function () { yearPageStart += 12; render(); };
++                grid.classList.add('dtp-years');
++                for (var y = yearPageStart; y < yearPageStart + 12; y++) {
++                    var ycell = document.createElement('button');
++                    ycell.type = 'button'; ycell.className = 'dtp-cell';
++                    if (y === view.getFullYear()) ycell.classList.add('dtp-selected');
++                    ycell.textContent = y;
++                    (function (yy) { ycell.onclick = function () { view.setFullYear(yy); mode = 'months'; render(); }; })(y);
++                    grid.appendChild(ycell);
++                }
++            }
++            panel.appendChild(grid);
++
++            var footer = document.createElement('div');
++            footer.className = 'dtp-footer';
++            var todayBtn = document.createElement('button');
++            todayBtn.type = 'button'; todayBtn.className = 'dtp-today-btn'; todayBtn.textContent = '今天';
++            todayBtn.onclick = function () {
++                var t = new Date();
++                setInputValue(input, formatIsoDate(t));
++                refreshTrigger(input);
++                closeOpenPanel();
++            };
++            var clearBtn = document.createElement('button');
++            clearBtn.type = 'button'; clearBtn.className = 'dtp-clear-btn'; clearBtn.textContent = '清除';
++            clearBtn.onclick = function () {
++                setInputValue(input, '');
++                refreshTrigger(input);
++                closeOpenPanel();
++            };
++            footer.appendChild(todayBtn); footer.appendChild(clearBtn);
++            panel.appendChild(footer);
++        }
++
++        render();
++        positionPanel(panel, trigger);
++        trigger.classList.add('dtp-open');
++        openPanel = panel; openTrigger = trigger;
++    }
++
++    // ---------------- 時間面板 ----------------
++    function openTimePanel(trigger, input) {
++        closeOpenPanel();
++        var t = parseTime(input.value) || { h: null, m: null };
++
++        var panel = document.createElement('div');
++        panel.className = 'dtp-panel dtp-time';
++
++        var cols = document.createElement('div');
++        cols.className = 'dtp-time-cols';
++
++        var hourCol = document.createElement('div'); hourCol.className = 'dtp-time-col';
++        var sep = document.createElement('div'); sep.className = 'dtp-time-sep'; sep.textContent = ':';
++        var minCol = document.createElement('div'); minCol.className = 'dtp-time-col';
++
++        function commit(h, m) {
++            if (h == null || m == null) return;
++            setInputValue(input, pad2(h) + ':' + pad2(m));
++            refreshTrigger(input);
++        }
++
++        for (var h = 0; h < 24; h++) {
++            var hCell = document.createElement('div');
++            hCell.className = 'dtp-time-cell'; hCell.textContent = pad2(h);
++            if (h === t.h) hCell.classList.add('dtp-selected');
++            (function (hh, el) {
++                el.onclick = function () {
++                    hourCol.querySelectorAll('.dtp-selected').forEach(function (n) { n.classList.remove('dtp-selected'); });
++                    el.classList.add('dtp-selected');
++                    t.h = hh;
++                    if (t.m == null) t.m = 0;
++                    commit(t.h, t.m);
++                };
++            })(h, hCell);
++            hourCol.appendChild(hCell);
++        }
++        for (var m = 0; m < 60; m++) {
++            var mCell = document.createElement('div');
++            mCell.className = 'dtp-time-cell'; mCell.textContent = pad2(m);
++            if (m === t.m) mCell.classList.add('dtp-selected');
++            (function (mm, el) {
++                el.onclick = function () {
++                    minCol.querySelectorAll('.dtp-selected').forEach(function (n) { n.classList.remove('dtp-selected'); });
++                    el.classList.add('dtp-selected');
++                    t.m = mm;
++                    if (t.h == null) t.h = 0;
++                    commit(t.h, t.m);
++                };
++            })(m, mCell);
++            minCol.appendChild(mCell);
++        }
++
++        cols.appendChild(hourCol); cols.appendChild(sep); cols.appendChild(minCol);
++        panel.appendChild(cols);
++
++        var footer = document.createElement('div');
++        footer.className = 'dtp-footer';
++        var nowBtn = document.createElement('button');
++        nowBtn.type = 'button'; nowBtn.className = 'dtp-today-btn'; nowBtn.textContent = '現在';
++        nowBtn.onclick = function () {
++            var now = new Date();
++            t.h = now.getHours(); t.m = now.getMinutes();
++            commit(t.h, t.m);
++            closeOpenPanel();
++        };
++        var clearBtn = document.createElement('button');
++        clearBtn.type = 'button'; clearBtn.className = 'dtp-clear-btn'; clearBtn.textContent = '清除';
++        clearBtn.onclick = function () {
++            setInputValue(input, '');
++            refreshTrigger(input);
++            closeOpenPanel();
++        };
++        footer.appendChild(nowBtn); footer.appendChild(clearBtn);
++        panel.appendChild(footer);
++
++        positionPanel(panel, trigger);
++        // 打開時捲動到目前選到的位置 (置中), 沒有選過就停在開頭
++        [[hourCol, t.h], [minCol, t.m]].forEach(function (pair) {
++            var col = pair[0], val = pair[1];
++            if (val == null) return;
++            var cell = col.children[val];
++            if (cell) col.scrollTop = cell.offsetTop - col.clientHeight / 2 + cell.offsetHeight / 2;
++        });
++
++        trigger.classList.add('dtp-open');
++        openPanel = panel; openTrigger = trigger;
++    }
++
++    // ---------------- 觸發按鈕 ----------------
++    function refreshTrigger(input) {
++        var trigger = input.__dtpTrigger;
++        if (!trigger) return;
++        var valueEl = trigger.querySelector('.dtp-value');
++        var isDate = input.type === 'date' || input.getAttribute('data-dtp-type') === 'date';
++        if (isDate) {
++            var d = parseIsoDate(input.value);
++            if (d) { valueEl.textContent = formatDateDisplay(d); valueEl.classList.remove('dtp-placeholder'); }
++            else { valueEl.textContent = input.placeholder || '選擇日期'; valueEl.classList.add('dtp-placeholder'); }
++        } else {
++            var t = parseTime(input.value);
++            if (t) { valueEl.textContent = pad2(t.h) + ':' + pad2(t.m); valueEl.classList.remove('dtp-placeholder'); }
++            else { valueEl.textContent = input.placeholder || '選擇時間'; valueEl.classList.add('dtp-placeholder'); }
++        }
++        trigger.disabled = !!input.disabled;
++    }
++
++    function enhance(input) {
++        if (input.__dtpEnhanced) { refreshTrigger(input); return; }
++        if (input.hasAttribute('data-dtp-skip')) return;
++        var isDate = input.type === 'date';
++        var isTime = input.type === 'time';
++        if (!isDate && !isTime) return;
++
++        input.__dtpEnhanced = true;
++
++        var wrap = document.createElement('span');
++        wrap.style.position = 'relative';
++        // 沿用原本 input 的版面配置, 讓觸發按鈕接手同樣的寬度/排版, 不用一一調整既有的排版:
++        //   1. 行內 style="width:..." 直接照抄。
++        //   2. 沒有行內寬度的話, 比較這個 input 原本佔滿的寬度是不是幾乎等於它父層容器的寬度
++        //      (例如某個表單欄位的 input { width:100% } 這種寫在 CSS 類別、不是行內 style 上的情況)——
++        //      如果幾乎一樣寬, 判斷這裡本來就是「想要撐滿整行」的欄位, 用 block+100% 撐開; 不然 (例如
++        //      跟其他欄位並排在同一個 flex 行裡的緊湊小欄位) 用 inline-block 讓按鈕跟著內容自然縮放,
++        //      不要把旁邊排好的其他欄位擠開。
++        var rect = input.getBoundingClientRect();
++        var parentRect = input.parentNode.getBoundingClientRect();
++        var looksFullWidth = parentRect.width > 0 && (parentRect.width - rect.width) < 24;
++        if (input.style.width) { wrap.style.display = 'inline-block'; wrap.style.width = input.style.width; }
++        else if (looksFullWidth) { wrap.style.display = 'block'; wrap.style.width = '100%'; }
++        else { wrap.style.display = 'inline-block'; }
++
++        input.parentNode.insertBefore(wrap, input);
++        wrap.appendChild(input);
++
++        var trigger = document.createElement('button');
++        trigger.type = 'button';
++        trigger.className = 'dtp-trigger';
++        var icon = document.createElement('i');
++        icon.className = 'dtp-icon ' + (isDate ? 'fa-regular fa-calendar' : 'fa-regular fa-clock');
++        var valueEl = document.createElement('span');
++        valueEl.className = 'dtp-value';
++        trigger.appendChild(icon);
++        trigger.appendChild(valueEl);
++        wrap.appendChild(trigger);
++
++        // 原生 input 疊在按鈕正下方、視覺上隱形, 但不是 display:none —— 保留 required/pattern 這些原生
++        // 表單驗證的行為, 瀏覽器要跳原生驗證提示氣泡時, 位置也還是貼著這個按鈕 (兩者疊在同一個位置)。
++        input.style.position = 'absolute';
++        input.style.inset = '0';
++        input.style.width = '100%';
++        input.style.height = '100%';
++        input.style.opacity = '0';
++        input.style.pointerEvents = 'none';
++        input.tabIndex = -1;
++
++        input.__dtpTrigger = trigger;
++        refreshTrigger(input);
++
++        trigger.addEventListener('click', function () {
++            if (input.disabled) return;
++            if (openTrigger === trigger) { closeOpenPanel(); return; }
++            if (isDate) openDatePanel(trigger, input); else openTimePanel(trigger, input);
++        });
++
++        // 有些地方的既有邏輯會在事後才動態改 disabled (目前這三個頁面用到的 date/time input 幾乎都是
++        // 渲染當下就決定好 canEdit、不會事後切換, 這裡多做一次保險同步, 成本很低)。
++        var obs = new MutationObserver(function () { refreshTrigger(input); });
++        obs.observe(input, { attributes: true, attributeFilter: ['disabled', 'value', 'placeholder'] });
++    }
++
++    function scan(root) {
++        (root || document).querySelectorAll('input[type="date"], input[type="time"]').forEach(enhance);
++    }
++
++    // 監看整個文件, 任何時候有新的 date/time input 被插進 DOM (innerHTML 換內容、範本字串插入清單...)
++    // 就自動套用, 不用去改動每一個重新渲染的地方。用短暫的 debounce 避免密集 DOM 異動時重複掃描整份文件。
++    var scanTimer = null;
++    function scheduleScan() {
++        if (scanTimer) return;
++        scanTimer = setTimeout(function () { scanTimer = null; scan(document); }, 40);
++    }
++    var mo = new MutationObserver(function (mutations) {
++        for (var i = 0; i < mutations.length; i++) {
++            if (mutations[i].addedNodes && mutations[i].addedNodes.length > 0) { scheduleScan(); return; }
++        }
++    });
++
++    function start() {
++        scan(document);
++        mo.observe(document.documentElement, { childList: true, subtree: true });
++    }
++
++    if (document.readyState === 'loading') {
++        document.addEventListener('DOMContentLoaded', start);
++    } else {
++        start();
++    }
++
++    window.DTP = { scan: scan, enhance: enhance };
++})();
+diff --git a/src/main/resources/templates/itinerary/board.html b/src/main/resources/templates/itinerary/board.html
+index 3dbcb78..ad6e834 100644
+--- a/src/main/resources/templates/itinerary/board.html
++++ b/src/main/resources/templates/itinerary/board.html
+@@ -7,6 +7,8 @@
+     <!-- Google Fonts & FontAwesome & SortableJS -->
+     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
++    <link rel="stylesheet" href="/css/datetime-picker.css">
++    <script src="/js/datetime-picker.js"></script>
+     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+     <!-- 注意: 不要在這裡直接用 <script src=".../maps/api/js?...callback=onGoogleMapsReady" async> 載入,
+          因為 async 腳本一下載完就會立刻呼叫 window.onGoogleMapsReady, 如果這個時間點早於頁面下方
+diff --git a/src/main/resources/templates/itinerary/new.html b/src/main/resources/templates/itinerary/new.html
+index 199f7de..be292a9 100644
+--- a/src/main/resources/templates/itinerary/new.html
++++ b/src/main/resources/templates/itinerary/new.html
+@@ -6,6 +6,8 @@
+     <title>建立新行程 - TRAVELER EASY GATE</title>
+     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
++    <link rel="stylesheet" href="/css/datetime-picker.css">
++    <script src="/js/datetime-picker.js"></script>
+     <style>
+         :root {
+             --primary-blue: #2563eb;
+diff --git a/src/main/resources/templates/quotation/edit.html b/src/main/resources/templates/quotation/edit.html
+index 0411f0b..4e2f873 100644
+--- a/src/main/resources/templates/quotation/edit.html
++++ b/src/main/resources/templates/quotation/edit.html
+@@ -6,6 +6,8 @@
+     <title>報價單編輯 - TRAVELER EASY GATE</title>
+     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
++    <link rel="stylesheet" href="/css/datetime-picker.css">
++    <script src="/js/datetime-picker.js"></script>
+     <style>
+         :root {
+             --primary-blue: #2563eb; --primary-purple: #8b5cf6; --bg-gray: #f8fafc;
+@@ -268,7 +270,7 @@
+                         <span class="name">選擇計算方式</span>
+                         <span class="optional">套用「已儲存的」計算公式規則，或選「自填」自己組①②③④的公式</span>
+                     </div>
+-                    <select id="qFormulaModeSelect" class="form-control" th:disabled="${!canEdit}" style="max-width:420px;" onchange="toggleQuotationFormulaMode()">
++                    <select id="qFormulaModeSelect" class="form-control" th:disabled="${!canEdit}" style="max-width:100%;width:100%;" onchange="toggleQuotationFormulaMode()">
+                         <option value="" disabled
+                                 th:selected="${quotation.isPresetFormulaModeActive() and activePreset == null}">
+                             （原本設定的計算公式規則已不存在，請重新選擇）
+@@ -764,17 +766,23 @@
+                  tier_formula_mode/tier_MSID, 跟上面①②③④共用的 formula_mode/MSID 完全分開)。activeTierPreset
+                  是 controller (buildEditModel()) 算好才丟進來的, 這裡只判斷 null, 不在樣板裡用 OGNL selection 語法
+                  (曾經在渲染途中丟例外導致頁面從這裡開始整段消失, 詳見 buildEditModel() 的註解)。 -->
++            <!-- 使用者要求 NP 這裡要跟上面①基本報價一樣, 直接把套用中的算式文字整條印出來看得到全部
++                 (不是只講「有沒有套用」), 所以改成跟①同一種結構: 每一層分開判斷、直接顯示
++                 readableNpFormula/readableTeamFormula (跟①的 readableBasicFormula 同一套轉換,
++                 見 MarginSetting#getReadableNpFormula()/getReadableTeamFormula())。 -->
+             <div class="item-note" style="margin-bottom:16px;" th:if="${quotation.isTierPresetFormulaModeActive()}">
+-                <span th:if="${activeTierPreset != null and (activeTierPreset.npFormula != null or activeTierPreset.teamFormula != null)}">
+-                    目前套用「已儲存的」規則「<strong th:text="${activeTierPreset.name}"></strong>」：
+-                    <span th:if="${activeTierPreset.npFormula != null}">NP 計算式套用該規則的設定；</span>
+-                    <span th:if="${activeTierPreset.npFormula == null}">NP 沒有在該規則裡設定，繼續沿用下面自己填的計算式；</span>
+-                    <span th:if="${activeTierPreset.teamFormula != null}">團費成本計算式套用該規則的設定。</span>
+-                    <span th:if="${activeTierPreset.teamFormula == null}">團費成本沒有在該規則裡設定，繼續沿用下面自己填的計算式。</span>
+-                </span>
+-                <span th:if="${activeTierPreset == null or (activeTierPreset.npFormula == null and activeTierPreset.teamFormula == null)}">
+-                    目前套用的「已儲存的」規則沒有設定 NP／團費成本這一層，繼續沿用下面自己填的計算式。
+-                </span>
++                <div th:if="${activeTierPreset != null and activeTierPreset.npFormula != null}">
++                    ⑤NP 計算式套用「已儲存的」規則「<strong th:text="${activeTierPreset.name}"></strong>」：<strong th:text="${activeTierPreset.readableNpFormula}"></strong>
++                </div>
++                <div th:if="${activeTierPreset == null or activeTierPreset.npFormula == null}">
++                    ⑤NP 計算式：目前套用的規則沒有設定這一層，繼續沿用下面自己填的計算式。要調整請切到「自填」。
++                </div>
++                <div th:if="${activeTierPreset != null and activeTierPreset.teamFormula != null}" style="margin-top:4px;">
++                    ⑥團費成本計算式套用「已儲存的」規則「<strong th:text="${activeTierPreset.name}"></strong>」：<strong th:text="${activeTierPreset.readableTeamFormula}"></strong>
++                </div>
++                <div th:if="${activeTierPreset == null or activeTierPreset.teamFormula == null}" style="margin-top:4px;">
++                    ⑥團費成本計算式：目前套用的規則沒有設定這一層，繼續沿用下面自己填的計算式。要調整請切到「自填」。
++                </div>
+             </div>
+ 
+             <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+@@ -800,7 +808,7 @@
+                     </div>
+                 </form>
+ 
+-                <span class="item-note" style="margin:0;">開放區間（例如「32人以上」）沒有平均值/上限可算，一律用下限；選了幣別或人數模式就直接重新計算，不用按鈕</span>
++                <span class="item-note" style="margin:0;">開放區間（例如「32人以上」）沒有平均值/上限可算，一律用下限；選了幣別或人數模式就直接重新計算，不用按鈕。骨子裡的計算一律用台幣，幣別只是換算下面表格顯示的金額（跟「報價項目明細」選幣別同一個概念）</span>
+             </div>
+ 
+             <div class="table-container" th:if="${!groupTiers.isEmpty()}" style="margin-bottom:16px;">
+@@ -808,18 +816,18 @@
+                     <thead>
+                     <tr>
+                         <th class="num">人數</th>
+-                        <th class="num">雜項（全團固定費用）</th>
+-                        <th class="num">NP</th>
+-                        <th class="num">團費成本</th>
++                        <th class="num">雜項（全團固定費用）<span th:if="${groupTiers.get(0).currency != 'TWD'}" th:text="'（' + ${groupTiers.get(0).currency} + '）'"></span></th>
++                        <th class="num">NP<span th:if="${groupTiers.get(0).currency != 'TWD'}" th:text="'（' + ${groupTiers.get(0).currency} + '）'"></span></th>
++                        <th class="num">團費成本<span th:if="${groupTiers.get(0).currency != 'TWD'}" th:text="'（' + ${groupTiers.get(0).currency} + '）'"></span></th>
+                         <th th:if="${canEdit}"></th>
+                     </tr>
+                     </thead>
+                     <tbody>
+                     <tr th:each="tier : ${groupTiers}">
+                         <td class="num" th:text="${tier.minQty} + '–' + (${tier.maxQty != null} ? ${tier.maxQty} : '以上')"></td>
+-                        <td class="num" th:text="${#numbers.formatDecimal(tier.miscValueTwd, 0, 'COMMA', 0, 'POINT')}"></td>
+-                        <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(tier.npResultTwd, 0, 'COMMA', 0, 'POINT')}"></td>
+-                        <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(tier.teamResultTwd, 0, 'COMMA', 0, 'POINT')}"></td>
++                        <td class="num" th:text="${#numbers.formatDecimal(tier.getMiscValueInCurrency(groupTierCurrencyRate), 0, 'COMMA', 0, 'POINT')}"></td>
++                        <td class="num" style="color:var(--primary-blue);font-weight:600;" th:text="${#numbers.formatDecimal(tier.getNpResultInCurrency(groupTierCurrencyRate), 0, 'COMMA', 0, 'POINT')}"></td>
++                        <td class="num" style="color:var(--primary-purple);font-weight:600;" th:text="${#numbers.formatDecimal(tier.getTeamResultInCurrency(groupTierCurrencyRate), 0, 'COMMA', 0, 'POINT')}"></td>
+                         <td th:if="${canEdit}">
+                             <form method="post" th:action="@{'/quotation/' + ${quotation.QID} + '/group-tiers/' + ${tier.QGTID} + '/delete'}"
+                                   data-confirm="確定要刪除這個人數級距嗎？">
+@@ -867,7 +875,7 @@
+                             <span class="name">選擇計算方式</span>
+                             <span class="optional">套用「已儲存的」計算公式規則，或選「自填」自己組 NP／團費成本的公式（跟上面①②③④是分開的選單，可以各自選不同的規則）</span>
+                         </div>
+-                        <select id="gFormulaModeSelect" class="form-control" style="max-width:420px;" onchange="toggleGroupTierFormulaMode()">
++                        <select id="gFormulaModeSelect" class="form-control" style="max-width:100%;width:100%;" onchange="toggleGroupTierFormulaMode()">
+                             <option value="" disabled
+                                     th:selected="${quotation.isTierPresetFormulaModeActive() and activeTierPreset == null}">
+                                 （原本設定的計算公式規則已不存在，請重新選擇）
+-- 
+2.43.0
+
