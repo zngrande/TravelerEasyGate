@@ -100,9 +100,28 @@ public class ExcelTemplateMergeService {
     // 內部快取的「合併範圍數量」跟實際 CTMergeCells 陣列的長度不同步，寫檔案的時候把不同步的數量直接
     // 序列化成 count 屬性，檔案就壞了。
     //
-    // 修法：每個分頁的明細列展開完之後，強制「重建」一次合併範圍——先讀出目前全部合併範圍的座標，把它們
-    // 全部移除，再逐一重新加回去。這樣寫回去的 CTMergeCells 一定是「從空的開始、加幾個就是幾個」，
-    // count 屬性跟實際子節點數量保證一致，不管前面 shiftRows／手動增減的過程有沒有留下不同步的殘留。
+    // 這一版的修法（強制「重建」一次合併範圍：先讀出全部合併範圍座標、全部移除、再逐一加回去）已經套用過，
+    // 但套用之後匯出還是壞（見這次「目前輸出EXCEL還是不行」的回報）——因為 repairMergedRegions() 只能修
+    // 「宣告數量跟實際節點數量對不上」，修不了「shiftRows() 幫我們算錯的合併範圍座標本身就是錯的」：
+    //
+    //   1. Apache POI 的 shiftRows() 對「不是從 A 欄開始」的合併儲存格有多個已知既有 bug（POI Bugzilla
+    //      #56454「shiftRows incorrectly handle merged regions that do not contain column 0」、#60709
+    //      「shiftRows removes merged regions if shifting several rows in one call」等）。這份範本合計區
+    //      的合併儲存格 H13:I13 / H14:I14 / H15:I15 / H17:I17 / F18:G18 / H18:I18 / F19:G19 全部不是從 A 欄
+    //      開始，恰好全部落在 expandLineBlock() 呼叫 shiftRows() 搬動的範圍內（{{line_end}} 標記列之後），
+    //      shiftRows() 幫我們搬這些合併範圍時就有機會算錯座標——算錯之後不管有沒有事後 repairMergedRegions()
+    //      重建，寫進去的 count 屬性都跟實際節點數一致（因為是照著「錯的」座標重建），但座標本身依然是錯的
+    //      （落在錯誤的列、或跟其他合併範圍重疊），一樣會被 Excel 判定內容損毀。
+    //   2. 額外發現一個獨立、範本裡剛好沒踩到但同樣會讓輸出壞掉的 bug：下面「每一份複製的合併儲存格範圍也
+    //      跟著位移」那段舊寫法算新座標時漏加 templateStart（明細列範本本身合併儲存格若換算出來的新座標少了
+    //      這段起始列偏移量，複製出來的合併範圍會落到表格最上方，跟標題/表頭的既有合併範圍重疊，一樣會壞
+    //      檔）——這份範本剛好在 {{line_start}}...{{line_end}} 中間的那一列本身沒有合併儲存格，才沒有踩到，
+    //      但只要旅行社自己設計的範本把「品項名稱」欄之類的合併起來，就會踩到。
+    //
+    // 修法：完全不呼叫 Sheet.shiftRows()，改成「自己手動搬」——先把 {{line_end}} 標記列（含）之後的所有列
+    // (含它們的合併儲存格) 整份拍照起來並從工作表上移除，明細列展開完、複製出對應份數之後，再把拍照起來的
+    // 內容整份寫回新的位置。全程只用 addMergedRegion()／removeMergedRegion() 這兩個底層 API 直接算絕對座標，
+    // 不假手 shiftRows() 的合併儲存格搬移邏輯，就不會再踩到上面兩個 bug。
     private void repairMergedRegions(Sheet sheet) {
         int numMerged = sheet.getNumMergedRegions();
         if (numMerged == 0) return;
@@ -188,7 +207,7 @@ public class ExcelTemplateMergeService {
         int templateRowCount = templateEnd - templateStart + 1;
         int n = Math.max(lineRows.size(), 0);
 
-        // 先把模板列的樣式/合併範圍記下來, 因為等一下 shiftRows 之後原本的列物件可能被搬走
+        // 先把模板列的樣式/合併範圍記下來 (連同它們原本的合併儲存格一起從工作表移除, 準備重建)
         List<RowSnapshot> template = new ArrayList<>();
         for (int r = templateStart; r <= templateEnd; r++) {
             template.add(RowSnapshot.capture(sheet, r));
@@ -196,7 +215,8 @@ public class ExcelTemplateMergeService {
         List<CellRangeAddress> templateMerges = mergedRegionsWithin(sheet, templateStart, templateEnd);
 
         if (n == 0) {
-            // 沒有任何明細: 把模板列整個清空, 只留標記列變空白, 不留殘影
+            // 沒有任何明細: 把模板列整個清空, 只留標記列變空白, 不留殘影; 後面 (合計/頁尾) 完全不用動,
+            // 這個分支從來沒有 shiftRows 過, 不是這次「輸出檔案損壞」的成因, 維持原本寫法
             for (int r = templateStart; r <= templateEnd; r++) {
                 clearRow(sheet, r);
             }
@@ -205,39 +225,58 @@ public class ExcelTemplateMergeService {
             return;
         }
 
-        int extraRows = (n - 1) * templateRowCount;
-        if (extraRows > 0) {
-            sheet.shiftRows(templateEnd + 1, Math.max(lastRowNum, templateEnd), extraRows, true, false);
+        // {{line_end}} 標記列 (含) 之後的所有列 (合計/頁尾等) 要整段往下搬, 挪出空間放複製出來的明細列。
+        // 完全不呼叫 Sheet.shiftRows() (原因見上面 CORRUPTION NOTE): 自己先把這段範圍 (含合併儲存格) 整份
+        // 拍照起來並從工作表移除, 等明細列都展開完, 再把拍照的內容整份寫回新位置。
+        int tailStart = endRowIdx;
+        List<RowSnapshot> tail = new ArrayList<>();
+        for (int r = tailStart; r <= lastRowNum; r++) {
+            tail.add(RowSnapshot.capture(sheet, r));
+        }
+        List<CellRangeAddress> tailMerges = mergedRegionsWithin(sheet, tailStart, lastRowNum);
+
+        for (int r = templateStart; r <= lastRowNum; r++) {
+            Row row = sheet.getRow(r);
+            if (row != null) sheet.removeRow(row);
         }
 
         // 依序把每一筆明細的資料填進對應的列版面
         for (int i = 0; i < n; i++) {
             Map<String, String> data = lineRows.get(i);
+            int blockStart = templateStart + i * templateRowCount;
             for (int j = 0; j < templateRowCount; j++) {
-                int targetRowIdx = templateStart + i * templateRowCount + j;
-                RowSnapshot snap = template.get(j);
-                Row targetRow = sheet.getRow(targetRowIdx);
-                if (targetRow == null) targetRow = sheet.createRow(targetRowIdx);
-                snap.applyTo(targetRow);
+                int targetRowIdx = blockStart + j;
+                Row targetRow = sheet.createRow(targetRowIdx);
+                template.get(j).applyTo(targetRow);
                 for (Cell cell : targetRow) {
                     if (cell.getCellType() == CellType.STRING) {
                         applyPlaceholderToCell(cell, data);
                     }
                 }
             }
-            // 每一份複製的合併儲存格範圍也跟著位移
-            int offset = i * templateRowCount;
+            // 每一份複製的合併儲存格範圍也跟著位移 (絕對座標 = 這一份的起始列 + 範本內的相對列)
             for (CellRangeAddress merge : templateMerges) {
                 sheet.addMergedRegion(new CellRangeAddress(
-                        merge.getFirstRow() + offset, merge.getLastRow() + offset,
+                        merge.getFirstRow() + blockStart, merge.getLastRow() + blockStart,
                         merge.getFirstColumn(), merge.getLastColumn()));
             }
         }
 
+        // 把先前拍照起來的「{{line_end}} 標記列之後」內容整份寫回新位置
+        int newTailStart = templateStart + n * templateRowCount;
+        for (int k = 0; k < tail.size(); k++) {
+            Row row = sheet.createRow(newTailStart + k);
+            tail.get(k).applyTo(row);
+        }
+        for (CellRangeAddress merge : tailMerges) {
+            sheet.addMergedRegion(new CellRangeAddress(
+                    merge.getFirstRow() + newTailStart, merge.getLastRow() + newTailStart,
+                    merge.getFirstColumn(), merge.getLastColumn()));
+        }
+
         // 標記列 (起點/終點) 清空成空白列, 不留 {{line_start}} / {{line_end}} 字樣
         clearRow(sheet, startRowIdx);
-        int newEndRowIdx = templateStart + n * templateRowCount;
-        clearRow(sheet, newEndRowIdx);
+        clearRow(sheet, newTailStart); // 這是搬到新位置之後的 {{line_end}} 標記列
     }
 
     /** 如果這一列「只有」一個字串儲存格且內容剛好是某個標記, 回傳該標記文字; 否則回傳 null。 */
@@ -307,6 +346,24 @@ public class ExcelTemplateMergeService {
      * 如果這個儲存格「整格」剛好就是一個佔位符 (例如整格只有 {{line.unit_price}}), 而且對應的值是數字,
      * 就直接寫成數字儲存格 (不是文字), 這樣範本裡如果有 SUM 公式加總這一欄才會正常運作；
      * 其他情況 (佔位符跟其他文字混在同一格, 或值本身不是數字) 一律當文字處理。
+     *
+     * 真正抓到你這次「已經套用 shiftRows 修法、還是壞檔」的根因就在這個方法: 拿使用者實際匯出壞掉的檔案拆開
+     * sheet1.xml 檢查, 發現像 B4（{{group_name}}）這種儲存格長這樣:
+     *   <c r="B4" s="4" t="inlineStr"><v>新馬5日～星耀樟宜...（第 2 版）</v><is><t>{{group_name}}</t></is></c>
+     * 同一格「同時」有 <v>(新值) 跟 <is><t>(舊的佔位符文字), type 還留著原本的 t="inlineStr"——這是不合法的
+     * OOXML (t="inlineStr" 的儲存格照規格只能有 <is>, 不能有 <v>), Excel 嚴格解析器直接判定內容損毀。
+     *
+     * 對照 Apache POI 原始碼 (XSSFCell.setCellValue(RichTextString)／setCellValue(double)) 確認: 如果呼叫
+     * setCellValue() 的當下, 這個儲存格「本來就是」inlineStr 型別 (這份範本本身就是用 inlineStr 存文字,
+     * 不是 sharedStrings), POI 會直接執行 `_cell.setV(新值)` 把新值寫進 <v>, 但完全沒有把舊的 <is> 元素、
+     * 也沒有把 t="inlineStr" 這個型別標記清掉——兩者疊加寫進同一格, 產生上面那種壞掉的 XML。範本裡凡是
+     * 「單次替換」的佔位符 (團體名稱/報價狀態/國家/天數/團體人數/備註...這些不在 {{line_start}}~{{line_end}}
+     * 明細列區塊裡面的欄位) 全部會踩到這個問題, 而且這是從最一開始 (patch 36 之前) 就存在的既有 bug, 跟
+     * shiftRows／合併儲存格座標完全是兩回事, 只是這次剛好被下一層蓋住了才一直沒被單獨抓出來。
+     *
+     * 修法: 寫入新值之前先呼叫 cell.setBlank() 把儲存格徹底清空 (型別重設成 BLANK, 底層 <is>/<v> 都會被清掉),
+     * 再呼叫 setCellValue()——這樣不管這個儲存格原本是不是 inlineStr, 都會從乾淨的狀態重新寫入, 不會再殘留
+     * 舊的 <is> 元素。
      */
     private void applyPlaceholderToCell(Cell cell, Map<String, String> values) {
         String original = cell.getStringCellValue();
@@ -318,6 +375,7 @@ public class ExcelTemplateMergeService {
             String value = values.get(key);
             if (value == null) return; // 找不到對應的值, 保留原本的佔位符字樣方便除錯
             Double numeric = tryParseNumber(value);
+            cell.setBlank(); // 先清空, 避免原本是 inlineStr 型別時舊的 <is> 元素殘留跟新值一起寫進 XML
             if (numeric != null) {
                 cell.setCellValue(numeric);
             } else {
@@ -325,7 +383,9 @@ public class ExcelTemplateMergeService {
             }
             return;
         }
-        cell.setCellValue(replacePlaceholders(original, values));
+        String replaced = replacePlaceholders(original, values);
+        cell.setBlank(); // 同上, 混合文字的情況一樣要先清空避免殘留舊的 <is> 元素
+        cell.setCellValue(replaced);
     }
 
     private Double tryParseNumber(String value) {
@@ -366,11 +426,24 @@ public class ExcelTemplateMergeService {
         return value == null ? "" : value;
     }
 
-    /** 記錄一列的儲存格樣式跟公式/文字內容範本 (值本身之後會被佔位符替換蓋掉), 用來複製到新產生的列上。 */
+    /**
+     * 記錄一列的儲存格樣式跟內容 (字串/數字/布林/公式), 用來複製到新產生的列上。
+     * 明細列範本用這個記錄「版面長相」(值之後會被佔位符替換蓋掉); 現在 {{line_end}} 之後的合計/頁尾列
+     * 也改用這個記錄再整份搬到新位置 (取代原本的 Sheet.shiftRows()), 所以型別要完整記錄, 不能只記字串——
+     * 不然合計區裡如果有人自己加了公式或純數字, 搬過去就會憑空消失變空白。
+     * 注意: 公式儲存格只是原封不動存/還原公式文字本身, 不會像 shiftRows() 那樣自動調整公式裡引用到的儲存格
+     * 座標——如果範本合計區用公式引用「同一列」的其他欄位 (例如 H13 寫 =E13*1.15), 搬到新列之後那個公式
+     * 引用的欄位座標不會跟著變, 要注意這點, 目前的範本規格本來就是靠 {{total.xxx}} 佔位符讓後端算好數字
+     * 直接寫入, 不建議在合計區用公式引用明細列以外的欄位。
+     */
     private static class RowSnapshot {
         final float height;
         final Map<Integer, CellStyle> styles = new HashMap<>();
+        final Map<Integer, CellType> types = new HashMap<>();
         final Map<Integer, String> stringValues = new HashMap<>();
+        final Map<Integer, Double> numericValues = new HashMap<>();
+        final Map<Integer, Boolean> booleanValues = new HashMap<>();
+        final Map<Integer, String> formulaValues = new HashMap<>();
 
         private RowSnapshot(float height) { this.height = height; }
 
@@ -379,9 +452,16 @@ public class ExcelTemplateMergeService {
             RowSnapshot snap = new RowSnapshot(row != null ? row.getHeightInPoints() : sheet.getDefaultRowHeightInPoints());
             if (row == null) return snap;
             for (Cell cell : row) {
-                snap.styles.put(cell.getColumnIndex(), cell.getCellStyle());
-                if (cell.getCellType() == CellType.STRING) {
-                    snap.stringValues.put(cell.getColumnIndex(), cell.getStringCellValue());
+                int col = cell.getColumnIndex();
+                snap.styles.put(col, cell.getCellStyle());
+                CellType type = cell.getCellType();
+                snap.types.put(col, type);
+                switch (type) {
+                    case STRING -> snap.stringValues.put(col, cell.getStringCellValue());
+                    case NUMERIC -> snap.numericValues.put(col, cell.getNumericCellValue());
+                    case BOOLEAN -> snap.booleanValues.put(col, cell.getBooleanCellValue());
+                    case FORMULA -> snap.formulaValues.put(col, cell.getCellFormula());
+                    default -> { /* BLANK / ERROR / _NONE: 只需要樣式, 不用管值 */ }
                 }
             }
             return snap;
@@ -390,11 +470,19 @@ public class ExcelTemplateMergeService {
         void applyTo(Row targetRow) {
             targetRow.setHeightInPoints(height);
             for (Map.Entry<Integer, CellStyle> entry : styles.entrySet()) {
-                Cell cell = targetRow.getCell(entry.getKey());
-                if (cell == null) cell = targetRow.createCell(entry.getKey());
+                int col = entry.getKey();
+                Cell cell = targetRow.getCell(col);
+                if (cell == null) cell = targetRow.createCell(col);
                 cell.setCellStyle(entry.getValue());
-                String template = stringValues.get(entry.getKey());
-                if (template != null) cell.setCellValue(template);
+                CellType type = types.get(col);
+                if (type == null) continue;
+                switch (type) {
+                    case STRING -> cell.setCellValue(stringValues.get(col));
+                    case NUMERIC -> cell.setCellValue(numericValues.get(col));
+                    case BOOLEAN -> cell.setCellValue(booleanValues.get(col));
+                    case FORMULA -> cell.setCellFormula(formulaValues.get(col));
+                    default -> { }
+                }
             }
         }
     }

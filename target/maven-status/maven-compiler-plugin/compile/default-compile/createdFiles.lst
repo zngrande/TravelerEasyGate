@@ -100,6 +100,7 @@ com\example\travelereasygate\service\GoogleMapsClient$DistanceResult.class
 com\example\travelereasygate\entity\QuotationGroupTier.class
 com\example\travelereasygate\service\ExportService$ExportOptions.class
 com\example\travelereasygate\DAO\CurrencyDAO.class
+com\example\travelereasygate\service\ExcelTemplateMergeService$1.class
 com\example\travelereasygate\DAO\PoiOverrideDAO.class
 com\example\travelereasygate\entity\AgencyExportTemplate.class
 com\example\travelereasygate\controller\ReferenceCodeController.class
