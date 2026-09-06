@@ -6,6 +6,8 @@ import com.example.travelereasygate.entity.Itinerary;
 import com.example.travelereasygate.service.AiParseService;
 import com.example.travelereasygate.service.DocumentExtractionService;
 import jakarta.servlet.http.HttpSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -20,6 +22,8 @@ import java.util.Map;
 @Controller
 @RequestMapping("/ai-import")
 public class AiImportController {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AiImportController.class);
 
     private final AiParseService aiParseService;
     private final DocumentExtractionService documentExtractionService;
@@ -147,12 +151,30 @@ public class AiImportController {
                           @RequestParam String country,
                           @RequestParam(required = false) String region,
                           @RequestParam(required = false) String startDate,
-                          HttpSession session) {
+                          HttpSession session,
+                          org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
 
         java.time.LocalDate parsedDate = (startDate != null && !startDate.isBlank())
                 ? java.time.LocalDate.parse(startDate) : null;
-        Itinerary itinerary = aiParseService.confirmImport(IPID, title, country, region, parsedDate);
-        return "redirect:/itinerary/" + itinerary.getITID() + "/board";
+        try {
+            Itinerary itinerary = aiParseService.confirmImport(IPID, title, country, region, parsedDate);
+            return "redirect:/itinerary/" + itinerary.getITID() + "/board";
+        } catch (Exception e) {
+            // 使用者反映「行程排版看板：AI解析沒出現行程」——確認匯入這一步 (confirmImport) 原本完全沒有
+            // 防護, 逐天把 AI 解析出來的項目寫進正式行程時, 只要中間某一筆項目丟出例外 (例如比對到的 POI
+            // 剛好被刪除、或某個欄位資料格式異常), 整個迴圈會立刻中斷、剩下的天數/項目完全不會被寫入——
+            // 但這時候 createItinerary() 早就已經成功建好行程骨架 (Day1~DayN), 使用者被導去 (或事後自己
+            // 打開) 看板時就會看到「行程存在, 但每一天都是空的」這種畫面, 同時這個 request 本身因為例外
+            // 沒被接住, 會顯示「系統發生錯誤」——這正好對上「AI解析沒出現行程」+「AI安排行程報錯」兩個
+            // 症狀同時出現的回報。改成: 失敗就留 log、導回 review 頁面並提示錯誤, 不要讓使用者卡在看不到
+            // 內容也看不懂原因的系統錯誤頁——確認匯入本來就允許重新來一次 (review 頁面的資料不會被這次
+            // 失敗的嘗試清掉)。
+            LOGGER.warn("AI 解析確認匯入失敗 (IPID={}, title={}, country={}, region={}): {}",
+                    IPID, title, country, region, e.toString(), e);
+            redirectAttributes.addFlashAttribute("confirmError",
+                    "確認匯入失敗，行程可能沒有完整建立，請重新整理後再試一次；如果持續失敗，請聯絡客服並提供這個時間點。");
+            return "redirect:/ai-import/" + IPID + "/review";
+        }
     }
 }

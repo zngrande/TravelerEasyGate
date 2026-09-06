@@ -9,6 +9,8 @@ import com.example.travelereasygate.service.ItineraryService;
 import com.example.travelereasygate.service.PermissionService;
 import com.example.travelereasygate.service.PoiService;
 import jakarta.servlet.http.HttpSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -25,6 +27,8 @@ import java.util.Map;
 @RequestMapping("/itinerary")
 public class ItineraryController {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ItineraryController.class);
+
     private final ItineraryService itineraryService;
     private final PoiService poiService;
     private final GoogleMapsClient googleMapsClient;
@@ -32,7 +36,7 @@ public class ItineraryController {
 
     @Autowired
     public ItineraryController(ItineraryService itineraryService, PoiService poiService,
-                                GoogleMapsClient googleMapsClient, PermissionService permissionService) {
+                               GoogleMapsClient googleMapsClient, PermissionService permissionService) {
         this.itineraryService = itineraryService;
         this.poiService = poiService;
         this.googleMapsClient = googleMapsClient;
@@ -78,7 +82,7 @@ public class ItineraryController {
     // 也不會動到已經加入看板的去程/回程班機項目, 所以這裡不用像 create() 一樣還要處理一大串班機欄位。
     @GetMapping("/{id}/edit-basic")
     public String editBasicForm(@PathVariable("id") int ITID, HttpSession session, Model model,
-                                 org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+                                org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         String err = checkEditPermission(session, ITID);
         if (err != null) {
             if (session.getAttribute("AID") == null) return "redirect:/login";
@@ -108,13 +112,13 @@ public class ItineraryController {
     // 天數變少或不變則完全不動既有天數 (不刪除), 避免誤刪已經排好的資料。
     @PostMapping("/{id}/edit-basic")
     public String updateBasic(@PathVariable("id") int ITID,
-                               @RequestParam String title,
-                               @RequestParam String country,
-                               @RequestParam(required = false) String region,
-                               @RequestParam int daysCount,
-                               @RequestParam(required = false) String startDate,
-                               HttpSession session,
-                               org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+                              @RequestParam String title,
+                              @RequestParam String country,
+                              @RequestParam(required = false) String region,
+                              @RequestParam int daysCount,
+                              @RequestParam(required = false) String startDate,
+                              HttpSession session,
+                              org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         String err = checkEditPermission(session, ITID);
         if (err != null) {
             if (session.getAttribute("AID") == null) return "redirect:/login";
@@ -167,15 +171,28 @@ public class ItineraryController {
 
         LocalDate parsedDate = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
         Itinerary itinerary = itineraryService.createItinerary(AID, UID, title, country, region, daysCount, parsedDate, dayCities);
-        itineraryService.attachFlightItems(itinerary.getITID(),
-                outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
-                retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
-        // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
-        // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
-        itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
-        // 去程/回程機場銜接的拉車距離/時間——一定要在上面兩個呼叫都跑完之後才算, 見
-        // ItineraryService.calculateAirportTransferSegments() 說明。
-        itineraryService.calculateAirportTransferSegments(itinerary.getITID());
+        try {
+            itineraryService.attachFlightItems(itinerary.getITID(),
+                    outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
+                    retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+            // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
+            // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
+            itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
+            // 去程/回程機場銜接的拉車距離/時間——一定要在上面兩個呼叫都跑完之後才算, 見
+            // ItineraryService.calculateAirportTransferSegments() 說明。
+            itineraryService.calculateAirportTransferSegments(itinerary.getITID());
+        } catch (Exception e) {
+            // 使用者反映「建立行程/AI安排行程」偶爾會直接跳「系統發生錯誤」畫面——這三步 (插入去程/回程
+            // 班機、隱藏跟班機時間重疊的餐食、算機場銜接路線的拉車距離, 後兩步都要打 Google Maps API)
+            // 原本完全沒有防護, 任何一步丟出例外都會讓整個 request 被 GlobalExceptionHandler 攔截、
+            // 直接顯示系統錯誤頁——但這時候 createItinerary() 早就已經成功寫入資料庫, 使用者反而會看到
+            // 一個更混亂的狀態: 畫面顯示系統錯誤, 但行程其實已經建立好了 (只是班機資訊/機場銜接路線沒加
+            // 上去)。改成: 這三步都不應該讓「建立行程」整個失敗, 失敗就跳過、留 log, 讓使用者至少能正常
+            // 導到看板頁面——calculateAirportTransferSegments() 在 board() 裡本來就會自動補跑一次
+            // (見該方法註解), 之後重新整理看板頁通常就會自動補上。
+            LOGGER.warn("建立行程後補插入去程/回程班機或計算機場銜接路線失敗 (ITID={}): {}",
+                    itinerary.getITID(), e.toString(), e);
+        }
         return "redirect:/itinerary/" + itinerary.getITID() + "/board";
     }
 
@@ -183,25 +200,25 @@ public class ItineraryController {
     // 不是空白行程。跟旁邊「建立行程並進入看板」共用同一組表單欄位, 只是多這個按鈕會多跑一次 AI 排程。
     @PostMapping("/new/ai")
     public String createWithAiPlan(@RequestParam String title,
-                                    @RequestParam String country,
-                                    @RequestParam(required = false) String region,
-                                    @RequestParam int daysCount,
-                                    @RequestParam(required = false) String startDate,
-                                    @RequestParam(required = false) List<String> dayCities,
-                                    @RequestParam(required = false) List<String> outFlightNo,
-                                    @RequestParam(required = false) List<String> outDepAirport,
-                                    @RequestParam(required = false) List<String> outDepTime,
-                                    @RequestParam(required = false) List<String> outArrAirport,
-                                    @RequestParam(required = false) List<String> outArrTime,
-                                    @RequestParam(required = false) List<String> outDepDay,
-                                    @RequestParam(required = false) List<String> retFlightNo,
-                                    @RequestParam(required = false) List<String> retDepAirport,
-                                    @RequestParam(required = false) List<String> retDepTime,
-                                    @RequestParam(required = false) List<String> retArrAirport,
-                                    @RequestParam(required = false) List<String> retArrTime,
-                                    @RequestParam(required = false) List<String> retDepDay,
-                                    HttpSession session,
-                                    org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+                                   @RequestParam String country,
+                                   @RequestParam(required = false) String region,
+                                   @RequestParam int daysCount,
+                                   @RequestParam(required = false) String startDate,
+                                   @RequestParam(required = false) List<String> dayCities,
+                                   @RequestParam(required = false) List<String> outFlightNo,
+                                   @RequestParam(required = false) List<String> outDepAirport,
+                                   @RequestParam(required = false) List<String> outDepTime,
+                                   @RequestParam(required = false) List<String> outArrAirport,
+                                   @RequestParam(required = false) List<String> outArrTime,
+                                   @RequestParam(required = false) List<String> outDepDay,
+                                   @RequestParam(required = false) List<String> retFlightNo,
+                                   @RequestParam(required = false) List<String> retDepAirport,
+                                   @RequestParam(required = false) List<String> retDepTime,
+                                   @RequestParam(required = false) List<String> retArrAirport,
+                                   @RequestParam(required = false) List<String> retArrTime,
+                                   @RequestParam(required = false) List<String> retDepDay,
+                                   HttpSession session,
+                                   org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         if (AID == null || UID == null) return "redirect:/login";
@@ -217,17 +234,31 @@ public class ItineraryController {
         // 使用者反而不知道 AI 其實沒排到任何真正的景點。
         boolean aiFoundNothing = !itineraryService.hasAnyItem(itinerary.getITID());
 
-        // 一定要等 createItineraryWithAiPlan() 內部的自動整理 (meal_time) 全部跑完才能插入去程/回程班機,
-        // 不然剛插好的「第一筆/最後一筆」會被自動整理重新洗牌 (見 ItineraryService.attachFlightItems 說明)
-        itineraryService.attachFlightItems(itinerary.getITID(),
-                outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
-                retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
-        // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
-        // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
-        itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
-        // 去程/回程機場銜接的拉車距離/時間——一定要在上面兩個呼叫都跑完之後才算, 見
-        // ItineraryService.calculateAirportTransferSegments() 說明。
-        itineraryService.calculateAirportTransferSegments(itinerary.getITID());
+        try {
+            // 一定要等 createItineraryWithAiPlan() 內部的自動整理 (meal_time) 全部跑完才能插入去程/回程班機,
+            // 不然剛插好的「第一筆/最後一筆」會被自動整理重新洗牌 (見 ItineraryService.attachFlightItems 說明)
+            itineraryService.attachFlightItems(itinerary.getITID(),
+                    outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
+                    retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+            // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間, 這餐就不需要呈現——一定要在班機轉成
+            // transport 項目之後才呼叫, 見 ItineraryService.hideMealsOverlappingFlights() 說明。
+            itineraryService.hideMealsOverlappingFlights(itinerary.getITID());
+            // 去程/回程機場銜接的拉車距離/時間——一定要在上面兩個呼叫都跑完之後才算, 見
+            // ItineraryService.calculateAirportTransferSegments() 說明。
+            itineraryService.calculateAirportTransferSegments(itinerary.getITID());
+        } catch (Exception e) {
+            // 使用者反映「AI安排行程報錯」(畫面直接跳「系統發生錯誤」, 不是回到看板頁看到提示訊息)——
+            // 這三步原本完全沒有防護, 任何一步丟出例外 (attachFlightItems 本身邏輯上很難丟例外, 但
+            // hideMealsOverlappingFlights/calculateAirportTransferSegments 都會查資料庫、後者還會打
+            // Google Maps API) 都會讓整個 request 被 GlobalExceptionHandler 攔截、直接顯示系統錯誤頁——
+            // 但 createItineraryWithAiPlan() 這時候早就已經成功建立好行程 (可能還排好了 AI 選的景點),
+            // 使用者反而會看到「畫面說系統錯誤, 但重新整理/回列表卻發現行程其實已經建立好了」這種更混亂
+            // 的狀態。改成: 這三步都不應該讓整個「AI 安排行程」失敗, 失敗就跳過、留 log, 讓使用者至少能
+            // 正常進入看板看到 AI 已經排好的內容——calculateAirportTransferSegments() 在 board() 裡
+            // 本來就會自動補跑一次 (見該方法註解), 之後重新整理看板頁通常就會自動補上機場銜接路線。
+            LOGGER.warn("AI 安排行程後補插入去程/回程班機或計算機場銜接路線失敗 (ITID={}): {}",
+                    itinerary.getITID(), e.toString(), e);
+        }
 
         if (aiFoundNothing) {
             redirectAttributes.addFlashAttribute("aiPlanNotice",
@@ -249,7 +280,24 @@ public class ItineraryController {
         // 判斷 (座標已經算過、showOnMap 也已經是 true 就直接跳過), 所以這個 patch 上線之前就已經建立好的
         // 舊行程, 只要重新整理一次看板頁就會自動補上這個功能, 不需要重新建立行程; 已經處理過的行程再次
         // 打開看板不會重打 Google API, 不用擔心效能/費用問題。
-        itineraryService.calculateAirportTransferSegments(ITID);
+        //
+        // 使用者反映「打開行程排版看板整頁空白（只剩頂部導覽列跟 Day 分頁, 下面完全沒有內容）」——追查後
+        // 發現這一行原本完全沒有防護, 而且是整個 board() 方法裡「查完 itinerary/days 之後、往 Model 塞
+        // 任何屬性之前」唯一一段還會再去查資料庫、還會打 Google Maps API 的地方 (跟 create()/
+        // createWithAiPlan() 剛補防護的那三步是同一批新功能、同一個 commit 一起上線的, 見那邊的註解)。
+        // 這個方法在每次打開看板頁時都會執行 (不是只有第一次), 只要這裡任何一次丟出例外 (例如某個舊行程
+        // 的機場文字剛好讓地理定位/距離矩陣 API 回應格式跑掉、API key 額度用完、或資料庫瞬斷), 整個
+        // request 就會在 Model 屬性都還沒設定、Thymeleaf 樣板都還沒開始渲染之前被攔截丟出——這個 sandbox
+        // 沒有辦法連上使用者實際的 MySQL/Google Maps 服務重現, 沒辦法 100% 斷定這就是使用者這次看到的
+        // 「只剩導覽列/Day分頁, 下面空白」那個畫面的唯一成因, 但這確實是目前唯一一處「打開看板」這個原本
+        // 應該是純顯示、不該失敗的動作, 卻完全沒有防護、會被這批新功能的外部 API 依賴拖累失敗的地方,
+        // 值得先補起來——跟 create()/createWithAiPlan() 那邊剛做的防護邏輯一致: 失敗就記錄 log、跳過
+        // 這一步, 不要讓整個看板頁打不開。
+        try {
+            itineraryService.calculateAirportTransferSegments(ITID);
+        } catch (Exception e) {
+            LOGGER.warn("開啟看板時補算機場銜接路線失敗, 已略過 (ITID={}): {}", ITID, e.toString(), e);
+        }
         model.addAttribute("itineraryId", ITID);
         model.addAttribute("itinerary", itinerary);
         model.addAttribute("days", days);
@@ -328,7 +376,7 @@ public class ItineraryController {
     // board.html 那邊用 fetch() 呼叫時, fetch 會自動跟隨 redirect 拿到最終的 200 回應, 不影響原本的 AJAX 邏輯。
     @PostMapping("/{id}/complete")
     public String complete(@PathVariable("id") int ITID, HttpSession session,
-                            org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+                           org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         String err = checkEditPermission(session, ITID);
         if (err != null) {
             if (session.getAttribute("AID") == null) return "redirect:/login";
@@ -342,6 +390,24 @@ public class ItineraryController {
                     "標記完成失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString()));
         }
         return "redirect:/agency/dashboard";
+    }
+
+    // POST /itinerary/{id}/revert-to-draft → 看板上「完成行程」按鈕在行程已經是 completed 狀態時會變成
+    // 「退回草稿」, 按下去呼叫這支 API 把狀態改回 draft。跟上面 /complete 不同的地方: 這裡用 @ResponseBody
+    // 直接回 200/錯誤訊息 (不像 /complete 是走 redirect 回首頁列表那一套), 因為使用者要求「退回草稿時要
+    // 停留在編輯行程頁面」——board.html 那邊拿到成功回應後只會重新整理「這一頁」(看板頁本身), 不會被導去
+    // 別的頁面, 用 redirect 反而不好處理 (form submit 才需要 redirect 到看得到結果的頁面)。
+    @PostMapping("/{id}/revert-to-draft")
+    @ResponseBody
+    public ResponseEntity<?> revertToDraft(@PathVariable("id") int ITID, HttpSession session) {
+        String err = checkEditPermission(session, ITID);
+        if (err != null) return ResponseEntity.status(403).body(err);
+        try {
+            itineraryService.revertToDraft(ITID);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage() != null ? e.getMessage() : e.toString());
+        }
     }
 
     // DELETE /itinerary/day/{IDID} → 刪除整天 (Day 分頁旁邊的刪除按鈕), 後面的天數會自動往前遞補一位
@@ -365,7 +431,7 @@ public class ItineraryController {
     // 複製成一份全新草稿, 常用於「同一條路線, 下一團客人只是日期/人數不同」不用重新排一次
     @PostMapping("/{id}/duplicate")
     public String duplicate(@PathVariable("id") int ITID, HttpSession session,
-                             org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+                            org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
         Integer AID = (Integer) session.getAttribute("AID");
         Integer UID = (Integer) session.getAttribute("UID");
         String role = (String) session.getAttribute("role");
@@ -497,7 +563,7 @@ public class ItineraryController {
     @PostMapping("/{id}/auto-arrange")
     @ResponseBody
     public ResponseEntity<?> autoArrangeItinerary(@PathVariable("id") int ITID, @RequestParam(defaultValue = "meal_time") String mode,
-                                                   HttpSession session) {
+                                                  HttpSession session) {
         String err = checkEditPermission(session, ITID);
         if (err != null) return ResponseEntity.status(403).body(err);
         itineraryService.autoArrangeItinerary(ITID, mode);
@@ -677,7 +743,7 @@ public class ItineraryController {
     @PostMapping("/{id}/reorder-days")
     @ResponseBody
     public ResponseEntity<?> reorderDays(@PathVariable("id") int ITID, @RequestBody Map<String, List<Integer>> body,
-                                          HttpSession session) {
+                                         HttpSession session) {
         String err = checkEditPermission(session, ITID);
         if (err != null) return ResponseEntity.status(403).body(err);
         itineraryService.reorderDays(ITID, body.get("order"));

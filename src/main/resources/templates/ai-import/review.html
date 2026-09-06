@@ -258,6 +258,10 @@
         </div>
     </div>
 
+    <!-- 確認匯入 (轉成正式行程) 失敗時的提示——見 AiImportController.confirm() 的 catch 區塊,
+         用 flash attribute 帶回這個 review 頁面而不是直接顯示系統錯誤頁 -->
+    <div th:if="${confirmError}" class="error-box" th:text="${confirmError}"></div>
+
     <!-- 頂部摘要與表單確認區 -->
     <div class="summary-card" style="flex-direction: column; align-items: stretch;" th:if="${aiImport != null and aiImport.status == 'parsed'}">
         <div class="summary-info" style="margin-bottom: 16px;">

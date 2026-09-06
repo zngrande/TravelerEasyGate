@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>景點 / 餐廳 / 飯店資料庫 - TRAVELER EASY GATE</title>
+    <title>圖片資源庫 - TRAVELER EASY GATE</title>
     <!-- Google Fonts & FontAwesome -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -29,98 +29,133 @@
         }
         a { text-decoration: none; color: inherit; }
 
-        /* 主內容工作區 */
+        /* Main Content */
         .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 32px 40px; }
 
         .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
         .page-title { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
 
-        .btn-primary {
-            background: var(--primary-blue);
-            color: #fff;
-            padding: 9px 18px;
-            border-radius: 6px;
-            font-weight: 500;
-            font-size: 13px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            border: none;
-            cursor: pointer;
-            transition: background 0.15s;
-        }
-        .btn-primary:hover { background: #1d4ed8; }
-
-        /* 錯誤警告區塊 */
-        .alert-error {
+        /* 錯誤訊息 */
+        .error-box {
             background: #fef2f2;
             color: #991b1b;
-            padding: 12px 18px;
+            padding: 14px 18px;
             border-radius: 10px;
             margin-bottom: 20px;
             font-size: 13.5px;
             border: 1px solid #fecaca;
+        }
+
+        /* 上傳卡片 */
+        .upload-card {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px 28px;
+            margin-bottom: 28px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        .upload-card h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
             display: flex;
             align-items: center;
             gap: 8px;
         }
+        .upload-hint {
+            font-size: 13px;
+            color: var(--text-gray);
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
 
-        /* 搜尋卡片與篩選欄位 */
-        .search-card {
-            background: #fff;
-            border: 1px solid var(--border-color);
-            border-radius: 14px;
-            padding: 18px 20px;
-            margin-bottom: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-        }
-        .search-form {
-            display: flex;
+        .filter-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
             gap: 12px;
+            margin-bottom: 16px;
+        }
+        .form-select {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 13.5px;
+            outline: none;
+            background: #fff;
+            color: var(--text-dark);
+        }
+        .form-select:focus {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        /* 篩選國家/地區改成跟「建立新行程」頁面「目的地國家/地區」同一套元件: 可以打中文名稱、也可以打
+           country_city_code 參考表的代碼 (例如日本=JP、東京=TYO) 篩選, 選項來源是那張參考表 (不是只列
+           「這個帳號景點資料庫目前剛好有的」), 選了之後才依「這個帳號景點資料庫實際有沒有這筆資料」標示
+           ⚠ 警示 (跟建立新行程頁面一樣的邏輯, 只是這裡的「有沒有資料」直接用這個頁面已經整包載入的
+           allPois 本機比對, 不用再另外呼叫 /poi/countries、/poi/cities API)。可以複選: 選多個國家/城市
+           時, 下面「選擇綁定景點」的下拉選單會列出符合任一個已選條件的景點。景點本身維持單選下拉選單,
+           不套用這個元件。 */
+        .ms-wrap {
+            position: relative;
+            width: 100%;
+            min-height: 38px;
+            padding: 5px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: #fff;
+            display: flex;
+            flex-wrap: wrap;
             align-items: center;
+            gap: 5px;
+            cursor: text;
+            box-sizing: border-box;
         }
-        .search-input {
-            flex: 2;
-            padding: 10px 14px;
-            font-size: 14px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            outline: none;
-            background: #fff;
-            transition: border-color 0.15s;
-        }
-        .search-input:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
-        .search-select {
-            flex: 1;
-            padding: 10px 14px;
-            font-size: 14px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            outline: none;
-            background: #fff;
-        }
-        .search-select:focus { border-color: var(--primary-blue); }
-        .btn-search {
-            padding: 10px 22px;
-            background: var(--primary-blue);
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
+        .ms-wrap:focus-within { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .ms-wrap.ms-disabled { background: #f8fafc; cursor: not-allowed; }
+        .ms-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+        .ms-chip {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            transition: background 0.15s;
+            gap: 5px;
+            background: #eff6ff;
+            color: var(--primary-blue);
+            font-size: 12px;
+            font-weight: 600;
+            padding: 3px 5px 3px 9px;
+            border-radius: 999px;
+            white-space: nowrap;
         }
-        .btn-search:hover { background: #1d4ed8; }
-
-        /* 「國家 / 城市」篩選欄位的自動完成建議清單, 樣式沿用 itinerary/new.html 機場欄位那套
-           (打字跳出建議、點擊填入), 資料來源改成 /reference/country-city/autocomplete, 同時支援打
-           中文名稱或代碼 (例如打 JP 也找得到「日本」)。 */
-        .cc-autocomplete-wrap { position: relative; flex: 1.4; }
-        .cc-suggest-list {
+        .ms-chip-remove {
+            border: none;
+            background: rgba(37, 99, 235, 0.12);
+            color: var(--primary-blue);
+            width: 15px;
+            height: 15px;
+            line-height: 1;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            padding: 0;
+        }
+        .ms-chip-remove:hover { background: rgba(37, 99, 235, 0.25); }
+        .ms-search-input {
+            flex: 1;
+            min-width: 80px;
+            border: none;
+            outline: none;
+            font-size: 13.5px;
+            font-family: inherit;
+            padding: 3px 2px;
+            background: transparent;
+        }
+        .ms-search-input:disabled { background: transparent; cursor: not-allowed; }
+        .ms-dropdown {
             display: none;
             position: absolute;
             top: 100%; left: 0; right: 0;
@@ -129,121 +164,260 @@
             border-radius: 8px;
             margin-top: 4px;
             box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-            max-height: 220px;
+            max-height: 260px;
             overflow-y: auto;
             z-index: 20;
         }
-        .cc-suggest-list.open { display: block; }
-        .cc-suggest-item {
-            padding: 8px 12px;
+        .ms-dropdown.open { display: block; }
+        .ms-group-label {
+            padding: 6px 12px 4px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-gray);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        .ms-option {
+            padding: 7px 12px;
             font-size: 13px;
             cursor: pointer;
             display: flex;
             align-items: center;
-            justify-content: space-between;
             gap: 8px;
         }
-        .cc-suggest-item:hover { background: #eff6ff; }
-        .cc-suggest-item .cc-suggest-code {
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--primary-blue);
-            background: #eff6ff;
-            padding: 1px 6px;
-            border-radius: 4px;
-            white-space: nowrap;
+        .ms-option:hover { background: #eff6ff; }
+        .ms-option input[type="checkbox"] { pointer-events: none; }
+        .ms-option span:first-of-type { flex: 1; }
+        .ms-option.warn span:first-of-type { color: #b45309; }
+        .ms-warn-badge { font-size: 12px; cursor: help; }
+        .ms-empty { padding: 10px 12px; font-size: 12.5px; color: var(--text-gray); }
+
+        .file-input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 10px;
         }
-        .cc-suggest-item .cc-suggest-type {
-            font-size: 11px;
+        .btn-upload {
+            padding: 9px 20px;
+            background: var(--primary-blue);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.15s;
+        }
+        .btn-upload:hover { background: #1d4ed8; }
+        .loading-hint { display: none; color: var(--primary-purple); font-size: 13px; font-weight: 600; }
+
+        /* 標籤頁過濾 (Filter Bar) */
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .filter-tab {
+            padding: 7px 18px;
+            border-radius: 20px;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            font-size: 13.5px;
+            font-weight: 500;
             color: var(--text-gray);
+            transition: all 0.15s;
+        }
+        .filter-tab:hover { background: #f8fafc; color: var(--text-dark); }
+        .filter-tab.active {
+            background: #eff6ff;
+            color: var(--primary-blue);
+            border-color: #bfdbfe;
+            font-weight: 600;
         }
 
-        /* 資料表格 */
-        .table-container {
+        /* 圖片網格 (Grid) */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 20px;
+        }
+        .image-card {
             background: #fff;
             border: 1px solid var(--border-color);
             border-radius: 14px;
-            overflow: hidden;
             box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.15s, box-shadow 0.15s;
         }
-        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
-        th {
-            background: #f8fafc;
-            padding: 16px 20px;
-            font-size: 13px;
-            color: var(--text-gray);
-            font-weight: 600;
-            border-bottom: 1px solid var(--border-color);
+        .image-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
-        td {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border-color);
-            vertical-align: middle;
+        .image-thumb-wrap {
+            width: 100%;
+            height: 165px;
+            background: #f1f5f9;
+            overflow: hidden;
+            border-radius: 14px 14px 0 0;
+            position: relative;
         }
-        tr:last-child td { border-bottom: none; }
-        tr:hover td { background: #fcfdfe; }
+        .image-thumb {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
 
-        /* 類型標籤 */
-        .tag-category {
+        .card-body {
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            justify-content: space-between;
+        }
+
+        .tag-status {
             display: inline-block;
-            padding: 3px 10px;
+            font-size: 11.5px;
+            font-weight: 600;
+            padding: 2px 8px;
             border-radius: 6px;
-            font-size: 12px;
+            margin-bottom: 10px;
+            width: fit-content;
+        }
+        .tag-status.linked { background: #dcfce7; color: #15803d; }
+        .tag-status.unlinked { background: #fef3c7; color: #b45309; }
+
+        /* 景點綁定搜尋選擇器: 觸發列本身還在卡片上, 但改成點擊後彈出「小視窗」(跟匯出報價單同一套 Modal 樣式),
+           在視窗裡用國家/地區/景點名稱三個欄位搜尋、點選結果直接套用並關閉視窗。 */
+        .poi-picker-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            padding: 7px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: #f8fafc;
+            font-size: 12.5px;
+            color: var(--text-dark);
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 4px;
+        }
+        .poi-picker-trigger:hover { border-color: var(--primary-blue); background: #eff6ff; }
+        .poi-picker-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .poi-picker-trigger i { font-size: 10px; color: var(--text-gray); flex-shrink: 0; }
+
+        /* 選擇景點彈窗 (Modal), 樣式跟匯出報價單那個彈窗共用同一套設計 */
+        .poi-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,0.6);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .poi-modal {
+            background: #fff;
+            border-radius: 16px;
+            padding: 24px 28px;
+            width: 420px;
+            max-width: calc(100vw - 40px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        .poi-modal h3 { margin: 0 0 16px 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+        .poi-search-input {
+            width: 100%;
+            padding: 8px 10px;
+            font-size: 13px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            outline: none;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+        }
+        .poi-search-input:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        .poi-picker-list {
+            max-height: 260px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 4px;
+        }
+        .poi-picker-item {
+            padding: 9px 10px;
+            font-size: 13px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .poi-picker-item:hover { background: #eff6ff; color: var(--primary-blue); }
+        .poi-picker-empty { padding: 14px; font-size: 13px; color: var(--text-gray); text-align: center; }
+        .poi-modal-actions { margin-top: 20px; display: flex; gap: 10px; }
+        .poi-modal-actions button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13.5px;
             font-weight: 600;
             background: #f1f5f9;
             color: #475569;
         }
-        .tag-category.景點 { background: #eff6ff; color: var(--primary-blue); }
-        .tag-category.餐廳 { background: #fff7ed; color: #ea580c; }
-        .tag-category.飯店 { background: #f0fdfa; color: #0d9488; }
-        .tag-category.休息站 { background: #faf5ff; color: var(--primary-purple); }
-        .tag-category.機場 { background: #ecfeff; color: #0891b2; }
-        .tag-category.交通 { background: #f0f9ff; color: #0369a1; }
-        .tag-category.購物 { background: #fdf2f8; color: #db2777; }
+        .poi-modal-actions button:hover { background: #e2e8f0; }
 
-        /* 定位狀態標籤 */
-        .geo-badge {
-            font-size: 12.5px;
-            font-weight: 500;
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .geo-badge.located { color: #16a34a; }
-        .geo-badge.unlocated { color: #d97706; }
-
-        /* 操作按鈕組 */
-        .action-links {
+        .card-footer {
             display: flex;
+            justify-content: flex-end;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
         }
-        .btn-edit {
-            color: var(--primary-blue);
+        .btn-apply {
+            font-size: 12px;
             font-weight: 600;
-            font-size: 13.5px;
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .btn-edit:hover { text-decoration: underline; }
-
-        .btn-delete-plain {
-            background: none;
+            padding: 5px 12px;
+            background: var(--primary-blue);
+            color: #fff;
             border: none;
-            color: #ef4444;
+            border-radius: 6px;
             cursor: pointer;
-            padding: 0;
-            font-size: 13.5px;
-            font-weight: 600;
+            transition: background 0.15s;
+        }
+        .btn-apply:hover { background: #1d4ed8; }
+        .btn-delete {
+            font-size: 12px;
+            font-weight: 500;
+            padding: 4px 10px;
+            background: #fff;
+            color: #ef4444;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            cursor: pointer;
             display: inline-flex;
             align-items: center;
             gap: 4px;
+            transition: all 0.15s;
         }
-        .btn-delete-plain:hover { text-decoration: underline; }
+        .btn-delete:hover { background: #fef2f2; }
 
         .empty-state {
-            padding: 60px 20px;
+            background: #fff;
+            border: 2px dashed var(--border-color);
+            border-radius: 16px;
+            padding: 50px 20px;
             text-align: center;
             color: var(--text-gray);
             font-size: 14px;
@@ -252,193 +426,506 @@
 </head>
 <body>
 
-<!-- 左側主選單 (TEG 標準側邊欄) -->
-<aside th:replace="~{fragments/sidebar :: sidebar(active='poi', userName=${session.name})}"></aside>
+<!-- Sidebar -->
+<aside th:replace="~{fragments/sidebar :: sidebar(active='images', userName=${session.name})}"></aside>
 
-<!-- 主內容工作區 -->
+<!-- Main Content -->
 <main class="main-content">
     <div class="page-header">
         <div class="page-title">
-            <i class="fa-solid fa-location-dot" style="color: var(--primary-blue);"></i> 景點 / 餐廳 / 飯店資料庫
+            <i class="fa-regular fa-image" style="color: var(--primary-blue);"></i> 圖片資源庫
         </div>
-        <div style="display:flex; gap:12px; align-items:center;">
-            <a th:href="@{/agency/dashboard}" style="color: var(--text-gray); font-size: 14px; font-weight: 500;">
-                <i class="fa-solid fa-arrow-left"></i> 回行程列表
-            </a>
-            <a th:href="@{/poi/new}" class="btn-primary">
-                <i class="fa-solid fa-plus"></i> 新增資料
-            </a>
-        </div>
+        <a th:href="@{/agency/dashboard}" style="color: var(--text-gray); font-size: 14px; font-weight: 500;">
+            <i class="fa-solid fa-arrow-left"></i> 回行程列表
+        </a>
     </div>
 
-    <!-- 刪除失敗或錯誤訊息提示 -->
-    <div th:if="${deleteError}" class="alert-error">
-        <i class="fa-solid fa-triangle-exclamation"></i>
-        <span th:text="${deleteError}"></span>
+    <!-- 錯誤提示 -->
+    <div th:if="${uploadErrors}" class="error-box">
+        <div th:each="err : ${uploadErrors}" th:text="${err}"></div>
     </div>
 
-    <!-- 關鍵字與類型搜尋列 -->
-    <div class="search-card">
-        <form class="search-form" method="get" th:action="@{/poi}">
-            <input type="text" name="keyword" class="search-input" placeholder="搜尋景點名稱、原文地名、國家或城市..." th:value="${keyword}" />
-            <!-- 「國家 / 城市」篩選: 打字或輸入國家城市代碼即時顯示建議清單, 樣式/互動方式比照
-                 itinerary/new.html 機場欄位那套, 資料來源是 country_city_code 參考表 (打「JP」也找得到「日本」)。
-                 選了建議項目後把「顯示名稱」填回輸入框, 送出時後端會拿這個名稱去比對 poi.country/poi.city。 -->
-            <div class="cc-autocomplete-wrap">
-                <input type="text" name="location" id="locationInput" class="search-input" style="width:100%;"
-                       placeholder="輸入國家/城市名稱或代碼..." th:value="${location}" autocomplete="off" />
-                <div class="cc-suggest-list" id="locationSuggestList"></div>
+    <!-- 上傳照片卡片 (含國家/地區/景點篩選綁定) -->
+    <div class="upload-card">
+        <h3><i class="fa-solid fa-cloud-arrow-up" style="color: var(--primary-blue);"></i> 批次上傳照片</h3>
+        <div class="upload-hint">
+            可先篩選國家（可複選）與地區（限選一個）選擇欲綁定的景點，上傳照片將自動關聯；亦可直接上傳後，在下方卡片中手動關聯景點。
+        </div>
+
+        <form method="post" th:action="@{/images/upload}" enctype="multipart/form-data" onsubmit="showLoading()">
+            <div class="filter-row">
+                <div>
+                    <div class="ms-wrap" id="imgCountryMsWrap">
+                        <div class="ms-chips" id="imgCountryChips"></div>
+                        <input type="text" id="imgCountrySearchInput" class="ms-search-input" placeholder="篩選國家：輸入中文或代碼 (JP/TW...)" autocomplete="off" />
+                        <div class="ms-dropdown" id="imgCountryDropdown"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="ms-wrap ms-disabled" id="imgRegionMsWrap">
+                        <div class="ms-chips" id="imgRegionChips"></div>
+                        <input type="text" id="imgRegionSearchInput" class="ms-search-input" placeholder="請先選擇國家" autocomplete="off" disabled />
+                        <div class="ms-dropdown" id="imgRegionDropdown"></div>
+                    </div>
+                </div>
+                <select id="poiSelect" name="poiId" class="form-select">
+                    <option value="">（不綁定景點，之後再選）</option>
+                </select>
             </div>
-            <select name="category" class="search-select">
-                <option value="">全部類型</option>
-                <option value="景點" th:selected="${category == '景點'}">景點</option>
-                <option value="餐廳" th:selected="${category == '餐廳'}">餐廳</option>
-                <option value="飯店" th:selected="${category == '飯店'}">飯店</option>
-                <option value="休息站" th:selected="${category == '休息站'}">休息站</option>
-                <option value="機場" th:selected="${category == '機場'}">機場</option>
-                <option value="交通" th:selected="${category == '交通'}">交通</option>
-                <option value="購物" th:selected="${category == '購物'}">購物</option>
-            </select>
-            <button type="submit" class="btn-search">
-                <i class="fa-solid fa-magnifying-glass"></i> 搜尋
-            </button>
+
+            <div class="file-input-wrapper">
+                <input type="file" name="files" accept="image/*" multiple required style="font-size: 13.5px; color: var(--text-gray);" />
+                <button type="submit" class="btn-upload">
+                    <i class="fa-solid fa-arrow-up-from-bracket"></i> 上傳圖片
+                </button>
+                <div class="loading-hint" id="loadingHint">
+                    <i class="fa-solid fa-spinner fa-spin"></i> 圖片上傳中，請稍候...
+                </div>
+            </div>
         </form>
     </div>
 
-    <!-- 資料庫表格清單 -->
-    <div class="table-container">
-        <table th:if="${pois != null and !pois.isEmpty()}">
-            <thead>
-            <tr>
-                <th>名稱</th>
-                <th>類型</th>
-                <th>國家 / 城市</th>
-                <th>建議停留時間</th>
-                <th>座標定位</th>
-                <th>操作</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr th:each="poi : ${pois}">
-                <td>
-                    <strong th:text="${poi.name}" style="color: var(--text-dark); font-size:14.5px;"></strong>
-                    <div th:if="${poi.originalName != null and !poi.originalName.isBlank()}"
-                         th:text="${poi.originalName}" style="color: var(--text-gray); font-size:12px; margin-top:2px;"></div>
-                </td>
-                <td>
-                    <span class="tag-category" th:classappend="${poi.category}" th:switch="${poi.category}">
-                        <th:block th:case="'景點'">景點</th:block>
-                        <th:block th:case="'餐廳'">餐廳</th:block>
-                        <th:block th:case="'飯店'">飯店</th:block>
-                        <th:block th:case="'休息站'">休息站</th:block>
-                        <th:block th:case="'機場'">機場</th:block>
-                        <th:block th:case="'交通'">交通</th:block>
-                        <th:block th:case="'購物'">購物</th:block>
-                        <th:block th:case="*" th:text="${poi.category}"></th:block>
-                    </span>
-                </td>
-                <td th:text="${poi.country} + ' / ' + ${poi.city}"></td>
-                <td th:text="${poi.suggestedStayMin != null ? poi.suggestedStayMin + ' 分鐘' : '-'}"></td>
-                <td>
-                        <span th:if="${poi.latitude != null}" class="geo-badge located">
-                            <i class="fa-solid fa-circle-check"></i> 已定位
-                        </span>
-                    <span th:if="${poi.latitude == null}" class="geo-badge unlocated">
-                            <i class="fa-solid fa-circle-question"></i> 未定位
-                        </span>
-                </td>
-                <td>
-                    <div class="action-links">
-                        <a th:href="@{'/poi/' + ${poi.PID} + '/edit'}" class="btn-edit">
-                            <i class="fa-solid fa-pen"></i> 編輯
-                        </a>
-                        <span style="color: #cbd5e1;">|</span>
-                        <form method="post" th:action="@{'/poi/' + ${poi.PID} + '/delete'}" style="display:inline; margin:0;"
-                              onsubmit="return confirm('確定要刪除「' + this.dataset.name + '」這筆資料嗎？此動作無法復原。');"
-                              th:attr="data-name=${poi.name}">
-                            <button type="submit" class="btn-delete-plain">
-                                <i class="fa-solid fa-trash-can"></i> 刪除
-                            </button>
-                        </form>
-                    </div>
-                </td>
-            </tr>
-            </tbody>
-        </table>
+    <!-- 篩選標籤列 -->
+    <div class="filter-bar">
+        <a th:href="@{/images}" class="filter-tab" th:classappend="${!unlinkedOnly} ? ' active'">全部圖片</a>
+        <a th:href="@{/images(unlinkedOnly=true)}" class="filter-tab" th:classappend="${unlinkedOnly} ? ' active'">只看未綁定景點</a>
+    </div>
 
-        <!-- 空白/無資料狀態 -->
-        <div th:if="${pois == null or pois.isEmpty()}" class="empty-state">
-            <i class="fa-solid fa-folder-open" style="font-size: 42px; color: #cbd5e1; margin-bottom: 12px; display: block;"></i>
-            沒有符合條件的資料，點擊右上角「＋ 新增資料」開始建立景點庫！
+    <!-- 圖片網格 -->
+    <div class="grid" th:if="${!images.isEmpty()}">
+        <div class="image-card" th:each="img : ${images}">
+            <div class="image-thumb-wrap">
+                <img class="image-thumb" th:src="@{'/images/' + ${img.IAID} + '/file'}" th:alt="${img.originalFilename}" />
+            </div>
+            <div class="card-body">
+                <div>
+                    <!-- 景點綁定搜尋選擇器: 點擊開啟彈窗選擇 -->
+                    <div class="poi-picker-trigger" th:onclick="|openPoiPickerModal(${img.IAID})|">
+                        <span th:id="'poiPickerLabel-' + ${img.IAID}">
+                            <span th:if="${img.matchedPid == null}">尚未綁定景點，點擊選擇</span>
+                            <span th:each="p : ${allPois}" th:if="${img.matchedPid != null and p.PID == img.matchedPid}"
+                                  th:text="${p.name} + (${p.city} != null ? ' (' + ${p.city} + ')' : '')"></span>
+                        </span>
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </div>
+
+                    <span th:if="${img.matchedPid != null}" class="tag-status linked" style="margin-top:8px;"><i class="fa-solid fa-check"></i> 已綁定景點</span>
+                    <span th:if="${img.matchedPid == null}" class="tag-status unlinked" style="margin-top:8px;"><i class="fa-solid fa-circle-exclamation"></i> 未綁定景點</span>
+
+                    <!-- 綁定表單: 只放隱藏欄位, 實際值由彈窗選擇器設定 -->
+                    <form class="link-form" method="post" th:id="'linkForm-' + ${img.IAID}" th:action="@{'/images/' + ${img.IAID} + '/link-poi'}" style="display:none;">
+                        <input type="hidden" name="poiId" th:id="'poiIdInput-' + ${img.IAID}" th:value="${img.matchedPid}" />
+                    </form>
+                </div>
+
+                <!-- 套用 + 刪除按鈕 -->
+                <div class="card-footer">
+                    <button type="button" class="btn-apply" th:onclick="|document.getElementById('linkForm-' + ${img.IAID}).submit()|">套用</button>
+                    <form method="post" th:action="@{'/images/' + ${img.IAID} + '/delete'}"
+                          onsubmit="return confirm('確定要刪除這張圖片嗎？');" style="margin:0;">
+                        <button type="submit" class="btn-delete">
+                            <i class="fa-solid fa-trash-can"></i> 刪除
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
+    </div>
+
+    <!-- 空白狀態 -->
+    <div th:if="${images.isEmpty()}" class="empty-state">
+        <i class="fa-regular fa-image" style="font-size: 42px; color: #cbd5e1; margin-bottom: 12px; display: block;"></i>
+        還沒有任何圖片素材，立即透過上方上傳第一張照片試試看！
     </div>
 </main>
 
-<script>
-    // 「國家 / 城市」篩選欄位自動完成: 打字或輸入國家城市代碼即時顯示建議清單, 資料來源是
-    // /reference/country-city/autocomplete (不帶 type 參數, 國家/城市都一起比對, 同時支援比對
-    // 顯示名稱跟代碼, 例如打「JP」也找得到「日本」), 邏輯比照 itinerary/new.html 機場欄位的
-    // setupAirportAutocomplete()。選了建議項目後把「顯示名稱」填回輸入框, 送出表單時後端會拿這個
-    // 名稱去比對 poi.country/poi.city (LIKE 比對, 見 PoiDAOImpl.searchByKeyword 的 location 參數)。
-    document.addEventListener('DOMContentLoaded', function () {
-        const input = document.getElementById('locationInput');
-        const list = document.getElementById('locationSuggestList');
-        if (!input || !list) return;
+<!-- 選擇綁定景點彈窗 (所有圖片卡片共用同一個, 用 currentPoiPickerIAID 記住目前是在幫哪張圖片選) -->
+<div id="poiModalOverlay" class="poi-modal-overlay" onclick="if(event.target===this) closePoiPickerModal()">
+    <div class="poi-modal">
+        <h3><i class="fa-solid fa-location-dot" style="color: var(--primary-blue);"></i> 選擇綁定景點</h3>
+        <input type="text" class="poi-search-input" id="modalSearchCountry" placeholder="搜尋國家..." oninput="renderPoiPickerModal()" />
+        <input type="text" class="poi-search-input" id="modalSearchRegion" placeholder="搜尋地區..." oninput="renderPoiPickerModal()" />
+        <input type="text" class="poi-search-input" id="modalSearchKeyword" placeholder="搜尋景點名稱..." oninput="renderPoiPickerModal()" />
+        <div class="poi-picker-list" id="modalPoiList"></div>
+        <div class="poi-modal-actions">
+            <button type="button" onclick="clearPoiForCurrentImage()">不綁定景點</button>
+            <button type="button" onclick="closePoiPickerModal()">取消</button>
+        </div>
+    </div>
+</div>
 
-        let debounceTimer = null;
+<script th:inline="javascript">
+    const allPois = /*[[${allPois}]]*/ [];
 
-        input.addEventListener('input', function () {
-            const keyword = input.value.trim();
-            clearTimeout(debounceTimer);
-            if (!keyword) { closeList(); return; }
-            debounceTimer = setTimeout(function () { fetchSuggestions(keyword); }, 200);
-        });
+    // ------------------------------------------------------------------
+    // 篩選國家/地區改成跟「建立新行程」頁面「目的地國家/地區」同一套可複選、可打代碼搜尋的元件
+    // (使用者反映「之前是用像 itinerary/new 的國家城市一樣, 可以輸入中文或國家城市代碼」)。
+    // 選項來源是 country_city_code 參考表 (GET /reference/country-city/countries、/cities), 不是只列
+    // 「這個帳號景點資料庫目前剛好有的」——這樣才能用代碼 (JP/TYO 這種) 搜尋, 選了之後再依這個帳號景點
+    // 資料庫「實際有沒有這筆資料」標示 ⚠ 警示。「有沒有資料」直接用這個頁面已經整包載入的 allPois 本機
+    // 比對即可, 不需要像 itinerary/new 那樣另外呼叫 /poi/countries、/poi/cities (那兩支是給沒有整包
+    // POI 資料在手上的頁面用的)。景點本身 (poiSelect) 維持原本的單選下拉選單, 不套用這個元件。
+    //
+    // createMultiSelect() 這個共用元件是直接從 itinerary/new.html 原樣搬過來的 (同一份邏輯: chip 顯示
+    // 已選項目、輸入框打字用 matchesKeyword() 同時比對中文名稱跟代碼、下拉選單依 group 分組), 兩邊之後
+    // 如果要修共用邏輯, 記得兩份都要改 (目前專案沒有共用的靜態 JS 檔案可以放, 兩邊各自維護一份)。
+    // ------------------------------------------------------------------
+    function matchesKeyword(option, keyword) {
+        if (!keyword) return true;
+        if (option.name && option.name.indexOf(keyword) !== -1) return true;
+        if (option.code && option.code.toUpperCase().indexOf(keyword.toUpperCase()) !== -1) return true;
+        return false;
+    }
 
-        input.addEventListener('blur', function () {
-            setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
-        });
+    // singleSelect (選填, 預設 false): 使用者反映「加入圖片選取的城市要只有一個, 不能多選」——地區/城市
+    // 這個欄位在上傳照片這個情境裡, 目的是narrow down 到某一個具體地點方便挑選要綁定的景點, 選好幾個城市
+    // 反而失去「narrow down」的意義, 所以只有這裡 (images/list.html 的 regionMs) 傳 true 改成單選；
+    // 國家欄位維持可以複選 (使用者這次沒有要求改, 一個行程/一次上傳本來就可能橫跨多國)。單選模式下選中
+    // 一個新項目時會直接把 selected 陣列整個換成只有這一筆 (不是 push 累加), 畫面上永遠只會看到一個 chip，
+    // 其餘 UI (打字搜尋、下拉選單、移除 chip) 完全共用, 不用另外寫一套單選元件。
+    function createMultiSelect(wrap, chipsEl, inputEl, dropdownEl, fetchOptions, onChange, singleSelect) {
+        let selected = []; // [{value, label, ...}]
+        let currentOptions = [];
 
-        function fetchSuggestions(keyword) {
-            fetch('/reference/country-city/autocomplete?keyword=' + encodeURIComponent(keyword))
-                .then(function (res) { return res.ok ? res.json() : []; })
-                .then(renderList)
-                .catch(closeList);
+        function renderChips() {
+            chipsEl.innerHTML = '';
+            selected.forEach(function (item) {
+                const chip = document.createElement('span');
+                chip.className = 'ms-chip';
+                const label = document.createElement('span');
+                label.textContent = item.label;
+                chip.appendChild(label);
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'ms-chip-remove';
+                removeBtn.innerHTML = '&times;';
+                removeBtn.title = '移除';
+                removeBtn.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeItem(item.value);
+                });
+                chip.appendChild(removeBtn);
+                chipsEl.appendChild(chip);
+            });
         }
 
-        function renderList(items) {
-            if (!items || items.length === 0) { closeList(); return; }
-            list.innerHTML = '';
-            items.forEach(function (item) {
+        function removeItem(value) {
+            selected = selected.filter(function (s) { return s.value !== value; });
+            renderChips();
+            if (onChange) onChange(selected);
+            inputEl.value = '';
+            refreshDropdown();
+        }
+
+        function addItem(item) {
+            if (singleSelect) {
+                // 單選模式: 不管原本選了誰, 直接整個換成這一筆, 確保 selected 永遠最多只有一個元素
+                selected = [item];
+                renderChips();
+                if (onChange) onChange(selected);
+            } else if (!selected.some(function (s) { return s.value === item.value; })) {
+                selected.push(item);
+                renderChips();
+                if (onChange) onChange(selected);
+            }
+            inputEl.value = '';
+            refreshDropdown();
+        }
+
+        function renderDropdown() {
+            dropdownEl.innerHTML = '';
+            if (!currentOptions || currentOptions.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'ms-empty';
+                empty.textContent = '沒有可選的項目';
+                dropdownEl.appendChild(empty);
+                dropdownEl.classList.add('open');
+                return;
+            }
+            let lastGroup = null;
+            currentOptions.forEach(function (opt) {
+                if (opt.group && opt.group !== lastGroup) {
+                    const groupEl = document.createElement('div');
+                    groupEl.className = 'ms-group-label';
+                    groupEl.textContent = opt.group;
+                    dropdownEl.appendChild(groupEl);
+                    lastGroup = opt.group;
+                }
+                const isChecked = selected.some(function (s) { return s.value === opt.value; });
                 const row = document.createElement('div');
-                row.className = 'cc-suggest-item';
+                row.className = 'ms-option' + (opt.warn ? ' warn' : '');
 
-                const left = document.createElement('span');
-                const typeLabel = item.type === 'country' ? '國家' : (item.type === 'city' ? '城市' : item.type);
-                left.innerHTML = item.name + ' <span class="cc-suggest-type">（' + typeLabel + '）</span>';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = isChecked;
+                row.appendChild(checkbox);
 
-                const codeSpan = document.createElement('span');
-                codeSpan.className = 'cc-suggest-code';
-                codeSpan.textContent = item.code || '';
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = opt.label;
+                row.appendChild(labelSpan);
 
-                row.appendChild(left);
-                if (item.code) row.appendChild(codeSpan);
+                if (opt.warn) {
+                    const warnBadge = document.createElement('span');
+                    warnBadge.className = 'ms-warn-badge';
+                    warnBadge.textContent = '⚠';
+                    warnBadge.title = opt.warnTitle || '這個帳號的景點資料庫目前還沒有這筆資料';
+                    row.appendChild(warnBadge);
+                }
 
                 row.addEventListener('mousedown', function (e) {
                     e.preventDefault();
-                    input.value = item.name;
-                    closeList();
+                    if (isChecked) removeItem(opt.value); else addItem(opt);
                 });
-                list.appendChild(row);
+                dropdownEl.appendChild(row);
             });
-            list.classList.add('open');
+            dropdownEl.classList.add('open');
         }
 
-        function closeList() {
-            list.classList.remove('open');
-            list.innerHTML = '';
+        function closeDropdown() {
+            dropdownEl.classList.remove('open');
         }
-    });
+
+        function refreshDropdown() {
+            if (inputEl.disabled) return;
+            Promise.resolve(fetchOptions(inputEl.value.trim())).then(function (options) {
+                currentOptions = options || [];
+                renderDropdown();
+            });
+        }
+
+        let debounceTimer = null;
+        inputEl.addEventListener('input', function () {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(refreshDropdown, 150);
+        });
+        inputEl.addEventListener('focus', refreshDropdown);
+        inputEl.addEventListener('blur', function () {
+            setTimeout(closeDropdown, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+        wrap.addEventListener('mousedown', function (e) {
+            if (e.target === inputEl) return;
+            if (!inputEl.disabled) inputEl.focus();
+        });
+
+        return {
+            getSelected: function () { return selected; },
+            setEnabled: function (enabled) {
+                inputEl.disabled = !enabled;
+                wrap.classList.toggle('ms-disabled', !enabled);
+                inputEl.placeholder = enabled ? inputEl.dataset.enabledPlaceholder : inputEl.dataset.disabledPlaceholder;
+            },
+            clear: function () {
+                selected = [];
+                renderChips();
+            }
+        };
+    }
+
+    // country_city_code 參考表 (國家/城市清單一次抓回來, 資料量小, 前端自己打字篩選), 跟這個帳號景點
+    // 資料庫實際有的國家/城市 (直接從已經整包載入的 allPois 算, 不用再打 API) 交叉比對出 ⚠ 警示。
+    let ccCountriesPromise = null;
+    function loadCcCountries() {
+        if (!ccCountriesPromise) {
+            ccCountriesPromise = fetch('/reference/country-city/countries')
+                .then(function (r) { return r.ok ? r.json() : []; })
+                .catch(function () { return []; });
+        }
+        return ccCountriesPromise;
+    }
+    const ccCitiesCache = {};
+    function loadCcCities(countryCodes) {
+        const key = countryCodes.slice().sort().join(',');
+        if (!ccCitiesCache[key]) {
+            ccCitiesCache[key] = fetch('/reference/country-city/cities?countryCodes=' + encodeURIComponent(countryCodes.join(',')))
+                .then(function (r) { return r.ok ? r.json() : []; })
+                .catch(function () { return []; });
+        }
+        return ccCitiesCache[key];
+    }
+    const poiCountrySet = new Set(allPois.map(function (p) { return p.country; }).filter(Boolean));
+    function poiCitySetForCountry(countryName) {
+        return new Set(allPois.filter(function (p) { return p.country === countryName; }).map(function (p) { return p.city; }).filter(Boolean));
+    }
+
+    let countryMs = null;
+    let regionMs = null;
+
+    function initFilters() {
+        const countryInput = document.getElementById('imgCountrySearchInput');
+        countryInput.dataset.enabledPlaceholder = countryInput.placeholder;
+
+        const regionInput = document.getElementById('imgRegionSearchInput');
+        regionInput.dataset.enabledPlaceholder = '篩選地區：輸入中文或代碼 (TYO...)';
+        regionInput.dataset.disabledPlaceholder = '請先選擇國家';
+
+        countryMs = createMultiSelect(
+            document.getElementById('imgCountryMsWrap'),
+            document.getElementById('imgCountryChips'),
+            countryInput,
+            document.getElementById('imgCountryDropdown'),
+            function (keyword) {
+                return loadCcCountries().then(function (ccCountries) {
+                    return ccCountries
+                        .filter(function (c) { return matchesKeyword(c, keyword); })
+                        .map(function (c) {
+                            const hasPoi = poiCountrySet.has(c.name);
+                            return {
+                                value: c.code,
+                                label: c.name,
+                                warn: !hasPoi,
+                                warnTitle: hasPoi ? '' : '景點資料庫目前還沒有「' + c.name + '」的資料'
+                            };
+                        });
+                });
+            },
+            function () { onFilterChanged(); }
+        );
+
+        regionMs = createMultiSelect(
+            document.getElementById('imgRegionMsWrap'),
+            document.getElementById('imgRegionChips'),
+            regionInput,
+            document.getElementById('imgRegionDropdown'),
+            function (keyword) {
+                const countries = countryMs.getSelected();
+                if (countries.length === 0) return Promise.resolve([]);
+                const countryCodes = countries.map(function (c) { return c.value; });
+                const codeToName = {};
+                countries.forEach(function (c) { codeToName[c.value] = c.label; });
+                return loadCcCities(countryCodes).then(function (ccCities) {
+                    return ccCities
+                        .filter(function (c) { return matchesKeyword(c, keyword); })
+                        .map(function (c) {
+                            const countryName = codeToName[c.countryCode] || '';
+                            const hasPoi = poiCitySetForCountry(countryName).has(c.name);
+                            return {
+                                value: c.code,
+                                label: c.name,
+                                group: countryName,
+                                countryCode: c.countryCode,
+                                warn: !hasPoi,
+                                warnTitle: hasPoi ? '' : '景點資料庫在「' + countryName + '」目前還沒有「' + c.name + '」的資料'
+                            };
+                        });
+                });
+            },
+            function () { onFilterChanged(); },
+            true // singleSelect: 城市只能選一個, 見上面 createMultiSelect() 的說明
+        );
+
+        populatePoiSelect(allPois);
+    }
+
+    // 國家/地區篩選異動時 (加選/移除都會觸發): 地區欄位是否啟用依「有沒有選任何國家」決定, 移除已經
+    // 不屬於目前已選國家的城市 (比照 itinerary/new 的 onCountryChanged), 最後重新整理景點下拉選單。
+    function onFilterChanged() {
+        const countries = countryMs.getSelected();
+        if (countries.length === 0) {
+            regionMs.clear();
+            regionMs.setEnabled(false);
+        } else {
+            regionMs.setEnabled(true);
+            const validCountryNames = new Set(countries.map(function (c) { return c.label; }));
+            const stillValid = regionMs.getSelected().filter(function (r) { return validCountryNames.has(r.group); });
+            if (stillValid.length !== regionMs.getSelected().length) {
+                regionMs.clear();
+                stillValid.forEach(function (r) { /* clear() 已經清空, 這裡不用重新加回去: 城市清單本來就會
+                    隨國家異動重新查詢, 使用者可以再選一次, 避免殘留一個「所屬國家」跟畫面對不上的城市 chip */ });
+            }
+        }
+        applyPoiFilter();
+    }
+
+    // 依目前已選的國家/地區 chip 篩選 allPois: 完全沒選的維度不篩選 (跟原本「篩選（全部）」的語意一樣),
+    // 有選的維度只要符合「任一個」已選項目就算 (複選是「或」的關係, 不是要求同時符合每一個)。
+    function applyPoiFilter() {
+        const countryNames = countryMs.getSelected().map(function (c) { return c.label; });
+        const regionNames = regionMs.getSelected().map(function (r) { return r.label; });
+        let filtered = allPois;
+        if (countryNames.length > 0) {
+            const countrySet = new Set(countryNames);
+            filtered = filtered.filter(function (p) { return countrySet.has(p.country); });
+        }
+        if (regionNames.length > 0) {
+            const regionSet = new Set(regionNames);
+            filtered = filtered.filter(function (p) { return regionSet.has(p.city); });
+        }
+        populatePoiSelect(filtered);
+    }
+
+    function populatePoiSelect(list) {
+        const poiSelect = document.getElementById('poiSelect');
+        poiSelect.innerHTML = '<option value="">（不綁定景點，之後再選）</option>';
+        list.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.PID;
+            opt.textContent = p.name + (p.city ? ` (${p.city})` : '');
+            poiSelect.appendChild(opt);
+        });
+    }
+
+    function showLoading() {
+        document.getElementById('loadingHint').style.display = 'inline-flex';
+    }
+
+    // ---------------- 選擇綁定景點彈窗 (所有圖片卡片共用同一個 Modal) ----------------
+    let currentPoiPickerIAID = null;
+
+    function openPoiPickerModal(iaid) {
+        currentPoiPickerIAID = iaid;
+        document.getElementById('modalSearchCountry').value = '';
+        document.getElementById('modalSearchRegion').value = '';
+        document.getElementById('modalSearchKeyword').value = '';
+        document.getElementById('poiModalOverlay').style.display = 'flex';
+        renderPoiPickerModal();
+        document.getElementById('modalSearchKeyword').focus();
+    }
+
+    function closePoiPickerModal() {
+        document.getElementById('poiModalOverlay').style.display = 'none';
+        currentPoiPickerIAID = null;
+    }
+
+    function renderPoiPickerModal() {
+        const country = document.getElementById('modalSearchCountry').value.trim().toLowerCase();
+        const region = document.getElementById('modalSearchRegion').value.trim().toLowerCase();
+        const keyword = document.getElementById('modalSearchKeyword').value.trim().toLowerCase();
+
+        const filtered = allPois.filter(p =>
+            (!country || (p.country || '').toLowerCase().includes(country)) &&
+            (!region || (p.city || '').toLowerCase().includes(region)) &&
+            (!keyword || (p.name || '').toLowerCase().includes(keyword))
+        );
+
+        const listEl = document.getElementById('modalPoiList');
+        if (filtered.length === 0) {
+            listEl.innerHTML = '<div class="poi-picker-empty">沒有符合的景點</div>';
+            return;
+        }
+        listEl.innerHTML = filtered.map(p => {
+            const label = p.name + (p.city ? ` (${p.city})` : '');
+            const safeLabel = label.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `<div class="poi-picker-item" onclick="selectPoiForCurrentImage(${p.PID}, '${safeLabel}')">${label}</div>`;
+        }).join('');
+    }
+
+    function selectPoiForCurrentImage(pid, label) {
+        applyPoiSelection(pid, label);
+    }
+
+    function clearPoiForCurrentImage() {
+        applyPoiSelection('', '');
+    }
+
+    function applyPoiSelection(pid, label) {
+        if (currentPoiPickerIAID == null) return;
+        document.getElementById('poiIdInput-' + currentPoiPickerIAID).value = pid;
+        document.getElementById('poiPickerLabel-' + currentPoiPickerIAID).textContent = pid ? label : '尚未綁定景點，點擊選擇';
+        closePoiPickerModal();
+    }
+
+    initFilters();
 </script>
-
 </body>
 </html>

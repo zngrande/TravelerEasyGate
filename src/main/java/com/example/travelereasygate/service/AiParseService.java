@@ -6,6 +6,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -23,6 +25,8 @@ import java.util.List;
  */
 @Service
 public class AiParseService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AiParseService.class);
 
     private final AnthropicClient anthropicClient;
     private final AiImportDAO aiImportDAO;
@@ -624,56 +628,80 @@ public class AiParseService {
         Itinerary itinerary = itineraryService.createItinerary(
                 aiImport.getAID(), aiImport.getCreatedBy(), title, country, region, daysCount, startDate);
 
-        // 把使用者選擇的企劃書風格帶到正式行程上, 匯出企劃書時會套用同樣風格
-        itineraryService.updateTemplateStyle(itinerary.getITID(), aiImport.getTemplateStyle());
-        itinerary.setTemplateStyle(aiImport.getTemplateStyle());
+        // 使用者反映「AI 解析確認匯入後, 行程有些天完全沒有出現任何項目」/「SQL 有資料, 可是行程沒有出現」
+        // ——追查後發現: 上面 createItinerary() 先把「行程 + 每一天」的骨架存進資料庫、各自獨立 commit,
+        // 接下來下面這整段逐天把暫存資料轉成正式項目的迴圈, 原本完全沒有錯誤處理。只要其中一筆項目在轉入
+        // 過程中丟出例外 (例如地理編碼逾時、資料庫瞬斷), 已經處理過的前幾天資料仍然真的留在資料庫裡
+        // (每個 DAO save 都是各自獨立 commit, 不是整批一起送出才生效), 只有例外發生那一天(含)之後的內容
+        // 完全不會被建立——結果就是一個「有些天有資料、有些天完全空白」的半殘行程, 而且它還是會正常出現在
+        // 使用者的行程列表裡，點進去才發現缺東缺西, 很容易被誤以為是「畫面沒把資料庫裡的東西讀出來」的
+        // 顯示 bug, 但其實資料庫裡那幾天真的就是空的。
+        // 修正: 這裡屬於「全有全無」的一次性匯入動作, 失敗就不該留下一個殘缺不全、卻還留在列表裡混淆視聽的
+        // 「幽靈行程」——直接把剛剛建立的這個行程 (含骨架、含已經加進去的部分項目) 整個刪除乾淨, 再把例外
+        // 往上丟給 controller (AiImportController.confirm() 已經有 try/catch 會顯示清楚的錯誤訊息、
+        // 讓使用者可以重新確認匯入一次), 而不是留下一個看起來像正常行程、點進去卻缺東缺西的東西。
+        try {
+            // 把使用者選擇的企劃書風格帶到正式行程上, 匯出企劃書時會套用同樣風格
+            itineraryService.updateTemplateStyle(itinerary.getITID(), aiImport.getTemplateStyle());
+            itinerary.setTemplateStyle(aiImport.getTemplateStyle());
 
-        List<ItineraryDay> realDays = itineraryService.getDays(itinerary.getITID());
+            List<ItineraryDay> realDays = itineraryService.getDays(itinerary.getITID());
 
-        for (AiParsedDay day : days) {
-            // day_number 對應到剛剛自動產生的 itinerary_day
-            ItineraryDay realDay = realDays.stream()
-                    .filter(d -> d.getDayNumber() == day.getDayNumber())
-                    .findFirst()
-                    .orElse(realDays.get(0)); // 保底: 找不到對應天數就丟第一天
+            for (AiParsedDay day : days) {
+                // day_number 對應到剛剛自動產生的 itinerary_day
+                ItineraryDay realDay = realDays.stream()
+                        .filter(d -> d.getDayNumber() == day.getDayNumber())
+                        .findFirst()
+                        .orElse(realDays.get(0)); // 保底: 找不到對應天數就丟第一天
 
-            for (AiParsedItem item : aiParsedItemDAO.findByDay(day.getAPDID())) {
-                if ("transport".equals(item.getItemType())) {
-                    // 交通項目 (航班/高鐵/包車等): 不連結 POI, 直接用跟「建立新行程」手動填去程/回程班機
-                    // 一致的方式組成項目 (ItineraryService.addTransportItem → buildFlightLabel), 顯示格式
-                    // 統一是「航班/車次編號 出發地→目的地」(沒填編號就退回「交通：出發地→目的地」)。
-                    itineraryService.addTransportItem(realDay.getIDID(), "交通",
-                            item.getTransportMethod(), item.getTransportNumber(),
-                            item.getFromLocation(), item.getToLocation(),
-                            item.getDepartureTime(), item.getArrivalTime(),
-                            item.getNote());
-                    continue;
-                }
-
-                // 使用者反映: review 頁面顯示「已比對」, 但轉成正式行程後項目名稱還是 AI 自己解析出來的文字,
-                // 不是資料庫裡登記的正式名稱。原因: 這裡原本不管有沒有比對到 POI, 一律用 item.getName()
-                // (AI 生成的文字) 當顯示名稱。修正: 有比對到 POI 的話, 改用該筆 POI 資料庫裡的正式名稱,
-                // 真正做到「已比對=採用資料庫資料」, 沒比對到才維持用 AI 解析出來的文字。
-                String displayName = item.getName();
-                if (item.getMatchedPid() != null) {
-                    Poi matchedPoi = poiDAO.findById(item.getMatchedPid());
-                    if (matchedPoi != null && matchedPoi.getName() != null && !matchedPoi.getName().isBlank()) {
-                        displayName = matchedPoi.getName();
+                for (AiParsedItem item : aiParsedItemDAO.findByDay(day.getAPDID())) {
+                    if ("transport".equals(item.getItemType())) {
+                        // 交通項目 (航班/高鐵/包車等): 不連結 POI, 直接用跟「建立新行程」手動填去程/回程班機
+                        // 一致的方式組成項目 (ItineraryService.addTransportItem → buildFlightLabel), 顯示格式
+                        // 統一是「航班/車次編號 出發地→目的地」(沒填編號就退回「交通：出發地→目的地」)。
+                        itineraryService.addTransportItem(realDay.getIDID(), "交通",
+                                item.getTransportMethod(), item.getTransportNumber(),
+                                item.getFromLocation(), item.getToLocation(),
+                                item.getDepartureTime(), item.getArrivalTime(),
+                                item.getNote());
+                        continue;
                     }
+
+                    // 使用者反映: review 頁面顯示「已比對」, 但轉成正式行程後項目名稱還是 AI 自己解析出來的文字,
+                    // 不是資料庫裡登記的正式名稱。原因: 這裡原本不管有沒有比對到 POI, 一律用 item.getName()
+                    // (AI 生成的文字) 當顯示名稱。修正: 有比對到 POI 的話, 改用該筆 POI 資料庫裡的正式名稱,
+                    // 真正做到「已比對=採用資料庫資料」, 沒比對到才維持用 AI 解析出來的文字。
+                    String displayName = item.getName();
+                    if (item.getMatchedPid() != null) {
+                        Poi matchedPoi = poiDAO.findById(item.getMatchedPid());
+                        if (matchedPoi != null && matchedPoi.getName() != null && !matchedPoi.getName().isBlank()) {
+                            displayName = matchedPoi.getName();
+                        }
+                    }
+                    itineraryService.addItem(realDay.getIDID(), item.getMatchedPid(), item.getItemType(),
+                            displayName, item.getStayMinutes(), item.getItemCountry(), item.getItemRegion(),
+                            item.getTimeSlot());
                 }
-                itineraryService.addItem(realDay.getIDID(), item.getMatchedPid(), item.getItemType(),
-                        displayName, item.getStayMinutes(), item.getItemCountry(), item.getItemRegion(),
-                        item.getTimeSlot());
+
+                // 套用預設規則: 早餐固定第一個、中午安排午餐、晚上安排晚餐 (只補沒時段的餐廳)、飯店固定排這天最後
+                itineraryService.autoArrangeDay(realDay.getIDID());
             }
 
-            // 套用預設規則: 早餐固定第一個、中午安排午餐、晚上安排晚餐 (只補沒時段的餐廳)、飯店固定排這天最後
-            itineraryService.autoArrangeDay(realDay.getIDID());
+            aiImport.setStatus("confirmed");
+            aiImport.setResultItineraryId(itinerary.getITID());
+            aiImportDAO.save(aiImport);
+
+            return itinerary;
+        } catch (Exception e) {
+            LOGGER.warn("AI 解析確認匯入失敗, 已刪除殘缺的行程骨架 (ITID={}, IPID={}, title={}): {}",
+                    itinerary.getITID(), IPID, title, e.toString(), e);
+            try {
+                itineraryService.deleteItinerary(itinerary.getITID());
+            } catch (Exception cleanupEx) {
+                LOGGER.warn("AI 解析確認匯入失敗後, 清除殘缺行程 (ITID={}) 也失敗, 請手動檢查/刪除這筆行程: {}",
+                        itinerary.getITID(), cleanupEx.toString(), cleanupEx);
+            }
+            throw new RuntimeException("AI 解析確認匯入失敗: " + (e.getMessage() != null ? e.getMessage() : e.toString()), e);
         }
-
-        aiImport.setStatus("confirmed");
-        aiImport.setResultItineraryId(itinerary.getITID());
-        aiImportDAO.save(aiImport);
-
-        return itinerary;
     }
 }

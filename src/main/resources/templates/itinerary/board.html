@@ -80,6 +80,23 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            /* 使用者反映「行程名稱很長時，旁邊按鈕的字會變成第二行」——根因是這個元素跟旁邊 .nav-actions
+               同屬 .top-navbar 這個 flex 容器裡的兩個 flex item, 這裡原本沒有設定 flex-shrink/min-width,
+               預設 min-width:auto 會讓瀏覽器盡量保留它「完整內容」需要的寬度, 行程名稱 (itinerary.title)
+               一長就會把 .nav-actions 擠到不夠寬——.nav-actions 底下大部份按鈕都有 white-space:nowrap
+               (見 .btn-nav), 但少數用 inline style 寫死的按鈕 (已儲存/上一步/鎖定行程, 見下方 HTML) 沒有
+               這個屬性, 空間不夠時文字就折成第二行, 看起來像「按鈕字換行」。
+               修正: 讓標題這塊可以收縮並用「...」截斷過長的行程名稱, 把空間讓給右邊的按鈕列 (.nav-actions
+               本身已經有 overflow-x:auto, 真的太多按鈕放不下時是整排橫向捲動, 不會讓文字換行)。 */
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+        }
+        .navbar-title-suffix {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
         }
         .nav-actions {
             display: flex;
@@ -87,6 +104,16 @@
             gap: 12px;
             flex-wrap: nowrap;
             overflow-x: auto;
+            flex-shrink: 0;
+        }
+        /* 上面提到的「少數用 inline style 寫死、沒有 white-space:nowrap」的按鈕 (已儲存/上一步/鎖定行程),
+           統一用選擇器補上, 不用逐個改 inline style；.nav-actions 已經 flex-shrink:0 (見上面), 真的
+           放不下是整排橫向捲動, 不會讓任何一顆按鈕自己被壓縮到文字換行。 */
+        .nav-actions > button,
+        .nav-actions > a,
+        .nav-actions > .export-dropdown-wrap {
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         .btn-nav {
             padding: 7px 14px;
@@ -113,6 +140,11 @@
         .btn-nav.comp:hover { background: #dbeafe; }
         .btn-nav.done { background: #f0fdf4; border-color: #bbf7d0; color: #16a34a; }
         .btn-nav.done:hover { background: #dcfce7; }
+        /* 「完成行程」按鈕在行程已經是 completed 狀態時, 會變成「退回草稿」——用橘色跟綠色的「完成行程」
+           做出區隔 (橘色代表「這是一個會撤銷完成狀態」的動作, 提醒使用者按下去會改變狀態), 跟狀態徽章
+           的草稿藍色刻意不同, 單純是想讓「按下去會改變狀態」這件事在一排按鈕裡更顯眼一點 */
+        .btn-nav.draft-toggle { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
+        .btn-nav.draft-toggle:hover { background: #ffedd5; }
 
         /* 「匯出行程」按鈕: 原本客戶版/同業版是兩顆分開的按鈕, 使用者反映整排按鈕太擠、字會換行,
            改成一顆按鈕 + 一個小選單, 點下去先選要輸出客戶版還是同業版, 選完才進原本的匯出設定視窗
@@ -955,9 +987,12 @@
     <!-- 頂部操作導覽列 -->
     <header class="top-navbar">
         <div class="navbar-title">
-            <i class="fa-solid fa-chalkboard" style="color: var(--primary-blue);"></i> 行程排版看板
+            <i class="fa-solid fa-chalkboard" style="color: var(--primary-blue); flex-shrink:0;"></i>
+            <span style="flex-shrink:0;">行程排版看板</span>
             <span th:if="${itinerary != null and itinerary.title != null and !itinerary.title.isBlank()}"
                   th:text="'－ ' + ${itinerary.title}"
+                  th:title="${itinerary.title}"
+                  class="navbar-title-suffix"
                   style="font-weight:500;color:var(--text-gray);font-size:15px;margin-left:6px;"></span>
         </div>
         <div class="nav-actions">
@@ -984,8 +1019,15 @@
                 <i class="fa-solid" th:classappend="${itinerary != null and itinerary.locked} ? 'fa-lock' : 'fa-lock-open'"></i>
                 <span th:text="${itinerary != null and itinerary.locked} ? '解鎖行程' : '鎖定行程'"></span>
             </button>
-            <a href="#" onclick="completeItinerary(); return false;" class="btn-nav done">
-                <i class="fa-solid fa-circle-check"></i> 完成行程
+            <!-- 使用者要求: 這顆按鈕在行程「已完成」狀態時要變成「退回草稿」, 按下去才能繼續編輯內容,
+                 而且退回草稿後要停留在這個看板頁面 (不能跟完成行程一樣被導去首頁列表) ——跟上方
+                 lockToggleBtn (鎖定/解鎖行程) 用同一套「一顆按鈕依 th:attr 存的目前狀態, 用 JS 切換文字/
+                 圖示/呼叫的 API」寫法, 見下面 toggleItineraryComplete()。 -->
+            <a href="#" id="completeToggleBtn" onclick="toggleItineraryComplete(); return false;"
+               th:attr="data-completed=${itinerary != null and itinerary.status == 'completed'}"
+               th:class="${itinerary != null and itinerary.status == 'completed'} ? 'btn-nav draft-toggle' : 'btn-nav done'">
+                <i class="fa-solid" th:classappend="${itinerary != null and itinerary.status == 'completed'} ? 'fa-rotate-left' : 'fa-circle-check'"></i>
+                <span th:text="${itinerary != null and itinerary.status == 'completed'} ? '退回草稿' : '完成行程'"></span>
             </a>
             <div class="export-dropdown-wrap">
                 <a href="#" onclick="toggleExportDropdown(event); return false;" class="btn-nav b2c" id="exportDropdownBtn">
@@ -1066,7 +1108,18 @@
                     <div class="timeline-controls">
                         <div class="control-row">
                             <span><i class="fa-regular fa-clock"></i> 出發時間</span>
-                            <input type="time" th:id="'starttime-' + ${!days.isEmpty() ? days[0].IDID : ''}"
+                            <!-- 使用者反映這裡「跑版」(自製日期時間選擇器 datetime-picker.js 全站自動接管所有
+                                 input[type=time]/date], 按鈕圖示疊到旁邊的「出發時間」文字上)——追查後發現:
+                                 這裡是跟一段純文字 <span> 標籤共用同一個 justify-content:space-between 的
+                                 flex 列 (.control-row), 跟 datetime-picker.js 原本設計預期的版面 (獨立
+                                 一格的表單欄位, 例如 itinerary/new.html 的 CSS Grid 欄位、quotation/edit.html
+                                 的表單列) 不一樣, 沒有在那份共用腳本已知的版面情境測試過, 會量出跟這個窄版面
+                                 對不起來的按鈕寬度。這個欄位本身操作很單純 (單純選時間, 不像新增航班那種需要
+                                 好看排版的表單), 用 data-dtp-skip 讓這支全站共用腳本跳過這個欄位, 恢復成原本
+                                 瀏覽器原生的時間選擇器, 不用冒風險去改動另外兩個頁面已經很多次修過、現在正常
+                                 運作的共用元件邏輯。 -->
+                            <input type="time" data-dtp-skip
+                                   th:id="'starttime-' + ${!days.isEmpty() ? days[0].IDID : ''}"
                                    th:value="${!days.isEmpty() ? days[0].startTime : null}"
                                    th:attr="onchange=|updateStartTime(currentDayId, this.value)|" />
                         </div>
@@ -1280,18 +1333,36 @@
             });
     }
 
-    // 頂部「完成行程」按鈕: 把這個行程的狀態改成 completed, 首頁「進行中行程」統計會變成「已完成行程」
-    function completeItinerary() {
-        if (!confirm('確定要把這個行程標記為已完成嗎？完成後仍可以回到這裡繼續編輯。')) return;
-        fetch(`/itinerary/${itineraryId}/complete`, { method: 'POST' })
-            .then(res => {
-                if (!res.ok) {
-                    return res.text().then(msg => { throw new Error(msg); });
-                }
-                alert('已將這個行程標記為完成！');
-                window.location.href = '/agency/dashboard';
-            })
-            .catch(err => alert('標記完成失敗：' + err.message));
+    // 頂部「完成行程 / 退回草稿」切換按鈕: 使用者要求這顆按鈕在行程「已完成」狀態時要變成「退回草稿」,
+    // 按下去才能繼續編輯內容 (跟看板另一顆「鎖定行程」按鈕 toggleItineraryLock() 同一套寫法: 從按鈕的
+    // data-completed 屬性讀目前狀態, 決定要打哪一支 API、彈出哪一句確認訊息), 而且「退回草稿時要停留在
+    // 編輯行程頁面」——所以這裡兩個方向都是 fetch() 打 API 之後 reload 這一頁 (跟 toggleItineraryLock()
+    // 一致), 不會像最早的版本那樣, 標記完成後直接整頁跳轉去首頁行程列表。
+    function toggleItineraryComplete() {
+        const btn = document.getElementById('completeToggleBtn');
+        const currentlyCompleted = btn.dataset.completed === 'true';
+
+        if (currentlyCompleted) {
+            if (!confirm('確定要把這個行程退回草稿嗎？退回後就可以繼續編輯內容。')) return;
+            fetch(`/itinerary/${itineraryId}/revert-to-draft`, { method: 'POST' })
+                .then(res => {
+                    if (!res.ok) {
+                        return res.text().then(msg => { throw new Error(msg); });
+                    }
+                    window.location.reload();
+                })
+                .catch(err => alert('退回草稿失敗：' + err.message));
+        } else {
+            if (!confirm('確定要把這個行程標記為已完成嗎？完成後如果需要再編輯內容，要先按「退回草稿」。')) return;
+            fetch(`/itinerary/${itineraryId}/complete`, { method: 'POST' })
+                .then(res => {
+                    if (!res.ok) {
+                        return res.text().then(msg => { throw new Error(msg); });
+                    }
+                    window.location.reload();
+                })
+                .catch(err => alert('標記完成失敗：' + err.message));
+        }
     }
 
     // 左側三大展開式模組切換 (Timeline / Custom / Poi / null)
@@ -1544,21 +1615,50 @@
     }
 
     // 從後端重新抓某一天的最新資料 (只有第一次載入 / 新增項目類的動作後 / 存檔完成後才會呼叫)
+    //
+    // 使用者反映「資料庫確定有 AI 安排的資料, 但看板上這天完全不會顯示」——追查後發現這整段原本完全沒有
+    // 錯誤處理: 下面三個平行請求 (items/routes/carry-over-hotel) 跟後續逐一項目查詢候選點 (options) 的
+    // fetch 只要任何一個回傳非 2xx (例如某個項目的資料觸發後端例外、伺服器連線瞬斷), `.then(r => r.json())`
+    // 會直接對著錯誤頁的 HTML 內容硬解析 JSON 而丟出 SyntaxError, 導致整個 Promise.all 被 reject、
+    // dayCache 永遠不會被寫入、renderDay() 也永遠不會被呼叫——畫面上只會停在 HTML 預設就有的
+    // 「這天還沒有安排行程」空白提示, 跟「這天真的沒有排任何項目」長得一模一樣, 完全看不出來是載入失敗,
+    // 使用者也就沒辦法回報是哪裡出錯。
+    // 修正: 每個請求都先檢查 r.ok, 失敗就丟出帶有 API 路徑/狀態碼的錯誤, 整段包 try/catch 接住——
+    // 接住後不讓它整個炸開, 而是把錯誤訊息存進 dayCache[idid].loadError, 讓 renderDay() 可以把它顯示
+    // 成清楚的紅色錯誤提示 (不是「還沒有安排行程」那種正常空白狀態), 使用者就能直接把畫面上這段錯誤訊息
+    // 回報回來, 不用再另外開瀏覽器開發者工具才查得到。
     async function fetchDay(idid) {
-        const [items, routes, carryOverHotel] = await Promise.all([
-            fetch(`/itinerary/day/${idid}/items`).then(r => r.json()),
-            fetch(`/itinerary/day/${idid}/routes`).then(r => r.json()),
-            // 沒有可以帶入的前一晚住宿時後端回傳空 body (不是 JSON 的 null), 直接 .json() 會噴錯, 這裡先讀成文字再自己判斷
-            fetch(`/itinerary/day/${idid}/carry-over-hotel`).then(r => r.ok ? r.text() : '').then(t => t ? JSON.parse(t) : null)
-        ]);
+        try {
+            const [items, routes, carryOverHotel] = await Promise.all([
+                fetch(`/itinerary/day/${idid}/items`).then(r => {
+                    if (!r.ok) throw new Error(`載入行程項目失敗 (/itinerary/day/${idid}/items 回應 ${r.status})`);
+                    return r.json();
+                }),
+                fetch(`/itinerary/day/${idid}/routes`).then(r => {
+                    if (!r.ok) throw new Error(`載入拉車路線失敗 (/itinerary/day/${idid}/routes 回應 ${r.status})`);
+                    return r.json();
+                }),
+                // 沒有可以帶入的前一晚住宿時後端回傳空 body (不是 JSON 的 null), 直接 .json() 會噴錯, 這裡先讀成文字再自己判斷
+                fetch(`/itinerary/day/${idid}/carry-over-hotel`).then(r => r.ok ? r.text() : '').then(t => t ? JSON.parse(t) : null)
+            ]);
 
-        const optionsList = await Promise.all(
-            items.map(item => fetch(`/itinerary/day/${idid}/items/${item.IIID}/options`).then(r => r.json()))
-        );
-        const optionsMap = {};
-        items.forEach((item, i) => { optionsMap[item.IIID] = optionsList[i]; });
+            const optionsList = await Promise.all(
+                items.map(item => fetch(`/itinerary/day/${idid}/items/${item.IIID}/options`).then(r => {
+                    if (!r.ok) throw new Error(`載入候選點失敗 (項目 IIID=${item.IIID} 回應 ${r.status})`);
+                    return r.json();
+                }))
+            );
+            const optionsMap = {};
+            items.forEach((item, i) => { optionsMap[item.IIID] = optionsList[i]; });
 
-        dayCache[idid] = { items, routes, optionsMap, carryOverHotel };
+            dayCache[idid] = { items, routes, optionsMap, carryOverHotel };
+        } catch (e) {
+            console.error(`[看板] 載入第 ${idid} 天資料失敗:`, e);
+            dayCache[idid] = {
+                items: [], routes: [], optionsMap: {}, carryOverHotel: null,
+                loadError: (e && e.message) ? e.message : String(e)
+            };
+        }
     }
 
     async function loadDay(idid) {
@@ -1603,6 +1703,18 @@
         const emptyHint = document.getElementById('empty-' + idid);
         list.innerHTML = '';
 
+        // 這天的資料載入失敗 (見上面 fetchDay 的說明) 時, 顯示清楚的紅色錯誤提示, 不要讓畫面看起來
+        // 跟「這天真的沒有排任何項目」一樣, 使用者才能直接把這段錯誤訊息回報回來。
+        const loadError = dayCache[idid] && dayCache[idid].loadError;
+        if (loadError) {
+            emptyHint.style.display = 'none';
+            const errorBox = document.createElement('div');
+            errorBox.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:12px 16px;margin-bottom:8px;font-size:13px;color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:12px;';
+            errorBox.innerHTML = `<span>⚠️</span><span>這天的行程資料載入失敗，不是真的沒有排項目：<br><code style="white-space:pre-wrap;">${loadError.replace(/</g, '&lt;')}</code><br>請把這段錯誤訊息回報，或按右上角重新整理再試一次。</span>`;
+            list.appendChild(errorBox);
+            return;
+        }
+
         if (items.length === 0) {
             emptyHint.style.display = 'block';
         } else {
@@ -1630,9 +1742,13 @@
 
             const carryRoute = routes.find(r => r.fromItemId === carryOverHotel.IIID);
             if (carryRoute && items.length > 0) {
+                // 跟下面主要清單迴圈裡的 suppressRouteDetails 同一套規則: 今天第一個項目如果本身就是
+                // 交通/班機項目, 一樣不顯示這段從「前一晚住宿」算出來的拉車距離/時間 (原本這裡沒有比照
+                // 判斷, 只有主要清單迴圈裡有加, 這裡是延續前一晚住宿的第一段, 沒理由不一致)。
+                const suppressCarryRouteDetails = isPlainTransportItem(items[0]) || isFlightItem(items[0]);
                 const info = document.createElement('div');
-                info.className = 'route-info' + (carryRoute.backtrack ? ' backtrack' : '');
-                info.innerHTML = buildRouteInfoHtml(carryRoute, idid);
+                info.className = 'route-info' + (carryRoute.backtrack && !suppressCarryRouteDetails ? ' backtrack' : '');
+                info.innerHTML = suppressCarryRouteDetails ? '' : buildRouteInfoHtml(carryRoute, idid);
                 list.appendChild(info);
             }
         }
@@ -1785,10 +1901,33 @@
                     <input type="text" id="edit-transportmethod-${item.IIID}" value="${esc(item.transportMethod)}" placeholder="例如: 高鐵/飛機/遊覽車/計程車" />
                     <label>通勤時間 (分鐘)</label>
                     <input type="number" id="edit-commuteduration-${item.IIID}" value="${item.commuteDurationMin ?? ''}" step="5" min="0" placeholder="例如: 90" />
+                    <!-- 使用者反映「航班和交通的編輯，時間跑版」——上一版的處理方式是幫這兩個出發/抵達時間欄位
+                         加 data-dtp-skip, 讓它們跳過全站共用的 datetime-picker.js, 退回瀏覽器原生時間選擇器
+                         (原因: 這支腳本 enhance() 量測「要不要撐滿整行寬度」時是讀 getBoundingClientRect(),
+                         但這個編輯表單 (item-edit-form) 一建立、插入 DOM 當下就是 display:none (見上面
+                         editForm.style.display = 'none'; 那行, 要按「編輯」再靠 toggleItemEdit() 切成
+                         display:block 才會真的顯示), 腳本的 MutationObserver 抓到新插入的 input 那一刻表單
+                         還是隱藏的, 量到的寬度是 0, 誤判成「不是撐滿整行的欄位」, 進而把觸發按鈕的寬度硬釘死
+                         成 0px——而且 toggleItemEdit() 只是切 style.display, 不是重新插入節點, 腳本的
+                         MutationObserver 只聽 childList 異動, 不會因為這個切換又重新量一次, 所以按鈕永遠卡在
+                         縮成只剩圖示的 0 寬度, 這才是「時間跑版」真正的根因)。
+                         使用者這次要求「飛機跟交通的時間欄位也要跟 itinerary/new 一樣的選時間樣式」——不能繼續
+                         跳過這支腳本, 但問題本來就出在「用量測寬度來判斳要不要撐滿整行」這個做法在「一開始就是
+                         隱藏起來的表單」裡不可靠, 不是這支共用腳本本身邏輯錯誤 (itinerary/new.html 等其他頁面
+                         的欄位一直都是「一開始就看得到」, 從來沒踩過這個情境, 所以沒有理由去改動那支在多個頁面
+                         都穩定運作的共用邏輯, 風險也比較高)。這裡改成直接在這兩個 input 上加行內
+                         style="width:100%" (原本這個效果是靠 CSS 類別 .item-edit-form input { width:100% }
+                         達成, 這裡明講成行內樣式)——datetime-picker.js 的 enhance() 一開頭就會判斷
+                         input.style.width 是不是有值 (見那支腳本「1. 行內 style="width:..." 直接照抄」那段),
+                         有值的話直接照抄成 wrap 的寬度, 完全不用再靠量測 rect 猜「是不是想撐滿整行」——
+                         width:100% 是交給瀏覽器 CSS 引擎依「父層當下的實際寬度」隨時計算, 不是 JS 算好釘死的
+                         固定 px 數字, 就算量測當下父層還是 display:none, 之後 toggleItemEdit() 切成
+                         display:block 讓表單真的顯示出來時, 瀏覽器一樣會照 100% 重新算出正確寬度, 不會卡住,
+                         徹底解掉這個「隱藏時測量」的根本問題, 不用再靠 data-dtp-skip 迴避。 -->
                     <label>出發時間 (選填, 例如班機起飛時間)</label>
-                    <input type="time" id="edit-starttime-${item.IIID}" value="${esc(item.startTime)}" />
+                    <input type="time" style="width:100%" id="edit-starttime-${item.IIID}" value="${esc(item.startTime)}" />
                     <label>抵達時間 (選填, 例如班機降落時間)</label>
-                    <input type="time" id="edit-endtime-${item.IIID}" value="${esc(item.endTime)}" />
+                    <input type="time" style="width:100%" id="edit-endtime-${item.IIID}" value="${esc(item.endTime)}" />
                 </div>
 
                 <label>備註 (只跟著這個行程項目, 不會存進景點資料庫, 匯出企劃書時會一併輸出)</label>
@@ -1806,13 +1945,18 @@
                 loadItemDescription(item.PID, item.IIID);
             }
 
-            // 通勤拉車資訊 + 交通方式選單——如果這一段的頭尾任一邊是「一般交通」項目 (不是班機), 使用者
-            // 這次明確要求把預估通勤時間/距離、走路/開車選單拿掉 (那個交通項目自己就是一段行程了, 前後
-            // 再多顯示一段計算出來的「拉車距離」沒有意義), 但下面的「推薦順路景點」仍然要保留, 所以這裡
+            // 通勤拉車資訊 + 交通方式選單——如果這一段的頭尾任一邊是「交通」項目 (不管是一般交通還是班機),
+            // 使用者這次明確要求把預估通勤時間/距離、走路/開車選單拿掉 (那個交通/班機項目自己就是一段行程了,
+            // 前後再多顯示一段計算出來的「拉車距離」沒有意義), 但下面的「推薦順路景點」仍然要保留, 所以這裡
             // 只是不塞內容進 routeInfoEl, 容器本身照樣建立, 讓推薦按鈕還有地方可以附著。
+            // 使用者反映「之前有說過航班/交通都要拿掉距離時間, 目前只有交通是對的」——追查後發現這裡原本
+            // 只判斷了 isPlainTransportItem (item_type=transport 但 transportMethod 不是「飛機」), 沒有
+            // 一併判斷 isFlightItem, 所以班機項目前後還是照樣顯示了拉車距離/時間跟走路開車選單, 沒有跟一般
+            // 交通項目一致——這裡補上 isFlightItem 的判斷。
             const nextItem = items[index + 1];
             const route = routes.find(r => r.fromItemId === item.IIID);
-            const suppressRouteDetails = isPlainTransportItem(item) || isPlainTransportItem(nextItem);
+            const suppressRouteDetails = isPlainTransportItem(item) || isPlainTransportItem(nextItem)
+                || isFlightItem(item) || isFlightItem(nextItem);
             let routeInfoEl = null;
             if (route) {
                 routeInfoEl = document.createElement('div');
@@ -1824,9 +1968,13 @@
             // 智慧中途推薦：先偷看有沒有推薦結果, 沒有的話這顆按鈕都不顯示。按鈕改放在交通方式下拉選單旁邊 (同一行),
             // 點下去會在旁邊彈出一個小面板 (可以按 X 關掉), 不再佔一整排空間。
             // 判斷條件原本要求兩邊都要有 PID (連結公司景點資料庫) 才查, 交通/班機項目沒有 PID 但有自己的
-            // 座標——改成跟後端 suggestPoiBetween() 一致, 只要兩邊都能拿到座標就可以查, 這樣「交通/班機
+            // 座標——改成跟後端 suggestPoiBetween() 一致, 只要兩邊都能拿到座標就可以查, 這樣「交通
             // 跟景點中間」才會出現推薦順路景點。
-            if (nextItem && hasRouteCoord(item) && hasRouteCoord(nextItem)) {
+            // 使用者反映「飛機不應該出現推薦景點」——一般交通 (開車/走路/大眾運輸) 中途繞去一個順路景點還算
+            // 合理, 但班機是搭機直接從起飛機場「傳送」到降落機場, 半路上根本沒有「經過」任何地方, 推薦一個
+            // 「順路景點」在物理上沒有意義 (使用者也不可能真的中途下機去晃一圈)——這裡補上 isFlightItem 排除,
+            // 只有一般交通/景點跟景點之間才會顯示這顆按鈕, 頭尾任一邊是班機就不查、不顯示。
+            if (nextItem && !isFlightItem(item) && !isFlightItem(nextItem) && hasRouteCoord(item) && hasRouteCoord(nextItem)) {
                 const suggestBtn = document.createElement('button');
                 suggestBtn.type = 'button';
                 suggestBtn.className = 'suggest-inline-btn';
@@ -2049,8 +2197,21 @@
             wrap.appendChild(node);
             current = end;
 
+            // 使用者反映「左側時間表會出現原本航班的預估開車時間」——這裡原本不管頭尾是不是交通/班機項目,
+            // 一律把 routes 算出來的「拉車時間」(route.durationMin) 當成一段真的要花的通勤時間疊加進時間表,
+            // 但交通/班機項目本身就是一段完整的行程 (起訖點之間的移動早就靠它自己完成了), routes 對這種
+            // 頭尾接著交通/班機的路段算出來的距離/時間其實是「兩個座標點之間」的直線估算 (見 RouteService),
+            // 對班機來說完全沒有意義 (例如高雄飛加拿大, 算出來的「開車時間」會是幾千分鐘這種荒謬數字),
+            // 這正是使用者截圖看到「開車 8120 分鐘」的成因——跟主清單的 route-info (見上面 suppressRouteDetails
+            // 的說明) 是同一個問題, 只是這裡 (renderTimeline) 是另一段獨立的渲染邏輯, 沒有套用到一樣的判斷。
+            // 修正: 頭尾任一邊是交通/班機項目時, 完全不建立這個「拉車」節點, 時間軸也不要疊加這段拉車時間
+            // (current 維持在交通/班機項目自己算出來的真實結束時間 end, 不要再往後多加一段虛構的通勤時間;
+            // 下一個項目如果自己有真實的出發/抵達時間會直接採用, 沒有的話才會用這個 current 當起算點)。
+            const nextTimelineItem = items[i + 1];
+            const suppressTimelineRoute = isPlainTransportItem(item) || isPlainTransportItem(nextTimelineItem)
+                || isFlightItem(item) || isFlightItem(nextTimelineItem);
             const route = routes.find(r => r.fromItemId === item.IIID);
-            if (route && i < items.length - 1) {
+            if (route && i < items.length - 1 && !suppressTimelineRoute) {
                 const travelStart = current;
                 const travelEnd = current + route.durationMin;
                 const travelNode = document.createElement('div');
@@ -2613,6 +2774,21 @@
         renderDay(idid);
     }
 
+    // 使用者要求「[更改停留時間] 當下改完就會顯示, 不用儲存後才顯示」——把 startTime + 停留時間 = 新的
+    // endTime 這個算法搬一份到前端來 (跟 ItineraryService.updateItemDetails() 那邊的邏輯一致, 純粹是
+    // 本地端的「立即預覽」版本, 不打任何 API), 讓 saveItemEdit() 按下編輯表單裡的「儲存」的當下, 卡片上
+    // 的時間徽章就能立刻反映新的停留時間, 不用等按右上角「儲存編輯」真的送出存檔請求、伺服器重算完
+    // 再重新抓一次資料才看得到。timeStr 是後端傳回來的格式 ("HH:mm" 或 "HH:mm:ss" 都接受, LocalTime
+    // 序列化預設格式), 格式不對或缺分鐘數就直接回傳原本的字串 (不強制猜測, 保底不要讓畫面顯示壞掉)。
+    function addMinutesToTimeString(timeStr, minutesToAdd) {
+        const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec((timeStr || '').trim());
+        if (!m || minutesToAdd == null || isNaN(minutesToAdd)) return timeStr;
+        const totalMin = (((parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) + minutesToAdd) % (24 * 60) + 24 * 60) % (24 * 60);
+        const hh = String(Math.floor(totalMin / 60)).padStart(2, '0');
+        const mm = String(totalMin % 60).padStart(2, '0');
+        return `${hh}:${mm}:${m[3] || '00'}`;
+    }
+
     function saveItemEdit(idid, iiid) {
         const typeSelect = document.getElementById('edit-type-' + iiid);
         const currentItem = buildDisplayItems(idid).find(it => it.IIID === iiid);
@@ -2674,20 +2850,40 @@
             overrides.stayDurationMin = stay ? Number(stay) : null;
             overrides.locationHint = hint || null;
 
+            // 停留時間有改、而且這個項目本來就已經排定開始時間 (代表已經在時間軸上, 不是完全沒時間概念的
+            // 項目) 的話, 立刻在本地端重算結束時間, 讓時間徽章馬上反映剛剛改的停留時間 (見上面
+            // addMinutesToTimeString 的說明)。stayDurationMin 沒填 (清空停留時間) 就不用重算, 維持原本的
+            // 結束時間不動——「清空停留時間」跟「結束時間也要跟著消失」是兩件不同的事, 使用者只是想清掉
+            // 停留時間這個數字, 沒有要連時間徽章都一起清掉。
+            if (currentItem && currentItem.itemType !== 'transport' && currentItem.startTime && overrides.stayDurationMin != null) {
+                overrides.endTime = addMinutesToTimeString(currentItem.startTime, overrides.stayDurationMin);
+            }
+
             // 介紹說明只有已連結公司資料庫景點的項目才有 (textarea 不存在代表還沒連結), 存檔時要記住是哪個 PID
             const descTextarea = document.getElementById('edit-description-' + iiid);
             overrides.description = descTextarea ? descTextarea.value : null;
             overrides.descriptionPid = (descTextarea && currentItem) ? currentItem.PID : null;
 
-            // 換成非交通類別時順便清掉舊的交通專屬欄位, 避免類別換來換去殘留舊資料
-            overrides.fromLocation = null;
-            overrides.fromAddress = null;
-            overrides.toLocation = null;
-            overrides.toAddress = null;
-            overrides.transportMethod = null;
-            overrides.commuteDurationMin = null;
-            overrides.startTime = null;
-            overrides.endTime = null;
+            // 使用者反映「更改餐廳的時間, 時段會消失」——追查後發現: 這裡原本不管這個項目「本來就不是
+            // 交通類別」還是「這次才從交通類別換過來」, 一律把 startTime/endTime 清成 null (連同其他交通
+            // 專屬欄位一起), 用意是「換成非交通類別時順便清掉舊的交通專屬欄位, 避免類別換來換去殘留舊
+            // 資料」。但 startTime/endTime 不是只有交通項目在用——餐廳/景點/住宿這些項目的 startTime/
+            // endTime 是自動整理排序 (autoArrangeDay()) 或 AI 解析匯入時算出來的顯示時間 (項目卡片上
+            // 「🕐 18:00 → 19:15」那個時間徽章直接讀這兩個欄位), 每次編輯「本來就不是交通」的項目 (例如
+            // 只是想改個名稱、停留時間) 也會一起被這段清空, 存檔後時間徽章就跟著消失了。
+            // 修正: 只有「這次真的是從交通類別換成別的類別」(currentItem 原本是 transport) 才需要清掉這些
+            // 交通專屬欄位；本來就不是交通類別的項目, 完全不去動 startTime/endTime/fromLocation 這些欄位
+            // (不塞進 overrides, 讓 buildPendingEditPayload() 的 base 沿用原本的值, 不會被清空)。
+            if (currentItem && currentItem.itemType === 'transport') {
+                overrides.fromLocation = null;
+                overrides.fromAddress = null;
+                overrides.toLocation = null;
+                overrides.toAddress = null;
+                overrides.transportMethod = null;
+                overrides.commuteDurationMin = null;
+                overrides.startTime = null;
+                overrides.endTime = null;
+            }
         }
 
         pendingEdits[iiid] = buildPendingEditPayload(idid, iiid, overrides);

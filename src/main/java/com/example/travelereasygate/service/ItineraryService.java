@@ -171,13 +171,25 @@ public class ItineraryService {
                                                int daysCount, LocalDate startDate, List<String> dayCities) {
         Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate, dayCities);
 
-        List<Poi> candidates = poiDAO.findByAgencyAndCountry(AID, country, region);
-        if (candidates.isEmpty() && region != null && !region.isBlank()) {
-            // 地區篩選完全找不到候選景點時, 先退回成只用國家篩選再試一次 ——
-            // 使用者選的地區/城市 (例如「佛羅倫斯、威尼斯、比薩、米蘭、羅馬」) 常常跟
-            // poi.city 實際存的字串沒辦法字面 exact match 上, 但這個國家在資料庫裡其實有大量景點,
-            // 不應該只因為城市名稱顆粒度對不上就整個放棄、建出空白行程。
-            candidates = poiDAO.findByAgencyAndCountry(AID, country, null);
+        List<Poi> candidates;
+        try {
+            candidates = poiDAO.findByAgencyAndCountry(AID, country, region);
+            if (candidates.isEmpty() && region != null && !region.isBlank()) {
+                // 地區篩選完全找不到候選景點時, 先退回成只用國家篩選再試一次 ——
+                // 使用者選的地區/城市 (例如「佛羅倫斯、威尼斯、比薩、米蘭、羅馬」) 常常跟
+                // poi.city 實際存的字串沒辦法字面 exact match 上, 但這個國家在資料庫裡其實有大量景點,
+                // 不應該只因為城市名稱顆粒度對不上就整個放棄、建出空白行程。
+                candidates = poiDAO.findByAgencyAndCountry(AID, country, null);
+            }
+        } catch (Exception e) {
+            // 使用者反映「AI安排行程報錯」(畫面直接跳系統錯誤頁, 不是回傳空白行程) ——這裡原本完全沒有
+            // try/catch 保護, 是整個 createItineraryWithAiPlan() 唯一一段查資料庫查候選景點就有可能丟出
+            // 例外、卻沒被下面那個大 try/catch 涵蓋到的地方 (下面那個 try 是從決定「怎麼分天篩選候選」才
+            // 開始, 這兩行候選查詢在那之前)。跟下面 AI 呼叫失敗的處理方式一致: 記錄下來, 保留已經建立好的
+            // 空白行程骨架, 不要讓整個「建立行程」request 直接失敗變成系統錯誤頁。
+            LOGGER.warn("AI 安排行程：查詢候選景點失敗 (ITID={}, country={}, region={}): {}",
+                    itinerary.getITID(), country, region, e.toString(), e);
+            return itinerary;
         }
         if (candidates.isEmpty()) return itinerary; // 這個國家在資料庫裡完全沒有景點, 保持空白行程讓使用者自己排
 
@@ -363,7 +375,24 @@ public class ItineraryService {
             // 保留已經建立好的空白行程骨架, 讓使用者可以照原本流程手動編排 ——
             // 但一定要留下 log, 不然「AI 排程失敗」永遠只會看到畫面上那句籠統的提示, 沒辦法從外面判斷
             // 真正原因是 API Key 沒設定、AI 回應被截斷、還是候選景點清單太大讓 AI 輸出格式跑掉。
-            LOGGER.warn("AI 安排行程失敗 (ITID={}, country={}, region={}, daysCount={}, candidates={}): {}",
+            //
+            // 使用者反映「AI解析沒出現行程」/「SQL有資料,可是行程沒有出現」——追查後發現: 上面這一整段
+            // (從逐天篩候選開始, 到補餐食/補住宿、trimDaysExceedingCutoff 為止) 完全沒有分批提交的保護,
+            // 每一次 addItem()/deleteById() 都是各自獨立 commit。如果例外是在處理到「第 2 天」才發生
+            // (例如某天候選名單剛好觸發 AI 回應格式跑掉), 進到這裡的時候, 第 1 天其實已經真的加好項目、
+            // 存進資料庫了, 但這裡原本什麼清理都沒做就直接把這個 (半殘的) itinerary 回傳出去——結果就是
+            // 使用者打開行程一看, 有些天有內容、有些天卻完全空白, 誤以為是「畫面沒把資料庫裡的東西讀出來」,
+            // 但其實資料庫裡那幾天真的就是空的。既然上面註解寫的設計本意是「失敗就退回成一個乾淨的空白
+            // 行程」, 這裡補上真正的清理: 把這次呼叫已經加進任何一天的項目全部刪掉 (連同會擋刪除的拉車
+            // 距離快取), 確保回傳出去的一定是「整個行程都是空的」, 不會再出現「有些天有、有些天沒有」
+            // 這種一半一半、容易被誤判成顯示 bug 的詭異狀態。
+            for (ItineraryDay day : days) {
+                routeSegmentDAO.deleteByDay(day.getIDID());
+                for (ItineraryItem leftover : itineraryItemDAO.findByDay(day.getIDID())) {
+                    itineraryItemDAO.deleteById(leftover.getIIID());
+                }
+            }
+            LOGGER.warn("AI 安排行程失敗, 已清空這次嘗試加入的項目、退回乾淨的空白行程 (ITID={}, country={}, region={}, daysCount={}, candidates={}): {}",
                     itinerary.getITID(), country, region, daysCount, candidates.size(), e.toString(), e);
         }
 
@@ -546,7 +575,7 @@ public class ItineraryService {
                                             List<String> arrAirports, List<String> arrTimes,
                                             List<String> dayIndexes) {
         int legCount = Math.max(Math.max(listSize(depAirports), listSize(depTimes)),
-                                Math.max(listSize(arrAirports), listSize(arrTimes)));
+                Math.max(listSize(arrAirports), listSize(arrTimes)));
         if (legCount == 0) return;
 
         int defaultDayIndex = isOutbound ? 1 : days.size();
@@ -806,7 +835,7 @@ public class ItineraryService {
     // 在 JSON 前後夾帶解說文字甚至拒答」的問題, 也讓沒有指定城市的天 (candidates 是空陣列) 保證拿到
     // pids=[] 的結果, 不會被排入任何行程。
     private Map<Integer, List<Integer>> planDaysWithAiPerDay(String country, List<ItineraryDay> days,
-            Map<Integer, List<String>> cityTokensByDay, Map<Integer, List<Poi>> candidatesByDay) throws Exception {
+                                                             Map<Integer, List<String>> cityTokensByDay, Map<Integer, List<Poi>> candidatesByDay) throws Exception {
         String system = """
             你是旅遊行程規劃助手, 負責幫旅行社從「已有的景點/餐廳/飯店資料庫」裡挑選並安排出一份多天的行程初稿。
             使用者已經先幫每一天指定好「這天要去哪個/哪些城市」, 並且已經依城市把候選景點/餐廳/飯店篩好、
@@ -982,6 +1011,7 @@ public class ItineraryService {
     public void toggleItemImageExport(int IIID, int IAID) {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) return;
+        revertToDraftIfCompletedByDay(item.getIDID()); // 見上方「標記已完成後再編輯要退回草稿」的說明
 
         java.util.LinkedHashSet<Integer> excluded = new java.util.LinkedHashSet<>(item.getExcludedImageIdSet());
         if (!excluded.remove(IAID)) {
@@ -1003,7 +1033,7 @@ public class ItineraryService {
      * 不再重複警告。天數不變則什麼都不動。
      */
     public void updateBasicInfo(int ITID, String title, String country, String region,
-                                 int daysCount, LocalDate startDate) {
+                                int daysCount, LocalDate startDate) {
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary == null) return;
 
@@ -1050,6 +1080,12 @@ public class ItineraryService {
             itinerary.setEndDate(finalDaysCount > 0 ? startDate.plusDays(finalDaysCount - 1) : startDate);
         }
 
+        // 見上方「標記已完成後再編輯要退回草稿」的說明——這裡已經拿到最新的 itinerary 物件, 順便一起改,
+        // 不用再多查一次資料庫
+        if ("completed".equals(itinerary.getStatus())) {
+            itinerary.setStatus("draft");
+        }
+
         itineraryDAO.save(itinerary);
     }
 
@@ -1066,6 +1102,7 @@ public class ItineraryService {
         if (dayToDelete == null) return;
         int ITID = dayToDelete.getITID();
         int deletedDayNumber = dayToDelete.getDayNumber();
+        revertToDraftIfCompleted(ITID); // 見上方「標記已完成後再編輯要退回草稿」的說明 (要在刪除前查, 不然之後就找不到 ITID 了)
 
         // route_segment 對 itinerary_item 的外鍵沒有 ON DELETE CASCADE, 要先清掉這天算過的拉車距離快取,
         // 不然刪除這天 (連帶 CASCADE 刪除底下的 itinerary_item) 會在這一關被擋住, 跟 deleteItinerary() 一樣的道理。
@@ -1131,6 +1168,10 @@ public class ItineraryService {
         }
         if (itinerary.getStartDate() != null) {
             itinerary.setEndDate(itinerary.getStartDate().plusDays(newDayNumber - 1));
+        }
+        // 見上方「標記已完成後再編輯要退回草稿」的說明——已經拿到 itinerary 物件, 順便一起改
+        if ("completed".equals(itinerary.getStatus())) {
+            itinerary.setStatus("draft");
         }
         itineraryDAO.save(itinerary);
 
@@ -1274,6 +1315,7 @@ public class ItineraryService {
     public void updateDayStartTime(int IDID, java.time.LocalTime startTime) {
         ItineraryDay day = itineraryDayDAO.findById(IDID);
         if (day != null) {
+            revertToDraftIfCompleted(day.getITID()); // 見上方「標記已完成後再編輯要退回草稿」的說明
             day.setStartTime(startTime);
             itineraryDayDAO.save(day);
         }
@@ -1333,6 +1375,7 @@ public class ItineraryService {
     public void updateDayTransportMode(int IDID, String transportMode) {
         ItineraryDay day = itineraryDayDAO.findById(IDID);
         if (day != null) {
+            revertToDraftIfCompleted(day.getITID()); // 見上方「標記已完成後再編輯要退回草稿」的說明
             String normalized = "walking".equalsIgnoreCase(transportMode) ? "walking"
                     : "auto".equalsIgnoreCase(transportMode) ? "auto" : "driving";
             day.setTransportMode(normalized);
@@ -1367,6 +1410,56 @@ public class ItineraryService {
         itineraryDAO.save(itinerary);
     }
 
+    // 使用者要求: 看板上的「完成行程」按鈕在行程已經是 completed 狀態時要變成「退回草稿」, 讓使用者可以
+    // 明確地按一下、自己主動決定要把這個已完成的行程改回草稿狀態才繼續編輯——是跟下面那組「編輯內容時
+    // 自動退回草稿」的安全網互補的另一個入口 (使用者可能還沒編輯任何東西, 純粹想先把狀態改回草稿),
+    // 對應 ItineraryController 的 POST /itinerary/{id}/revert-to-draft。
+    public void revertToDraft(int ITID) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) throw new IllegalArgumentException("找不到這個行程");
+        itinerary.setStatus("draft");
+        itineraryDAO.save(itinerary);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 使用者反映:「標記已完成後，再編輯還是會顯示已完成，應該要變成返回草稿之類的」——原本 markCompleted()
+    // 把狀態改成 completed 之後，看板上任何編輯動作 (改名稱/停留時間/時段、新增刪除項目、拖曳排序、
+    // 切換交通方式、自動整理、編輯行程基本資料...) 完全不會去動 status 欄位，所以行程被改過內容之後，
+    // 首頁/看板上顯示的狀態卻還停在「已完成」——跟使用者的認知不符：「已完成」應該代表「這份行程已經
+    // 定案、不會再變動了」，一旦又跑回來改內容，就代表這份還沒真的定案，應該要自動退回「草稿」狀態，
+    // 提醒自己 (或提醒團隊其他人) 這份行程其實又被動過，需要重新確認一輪、再按一次「完成行程」才會
+    // 再變回「已完成」。
+    //
+    // 下面這組 private 方法統一處理這件事，只有目前真的是 completed 狀態才會存檔改回 draft (本來就是
+    // draft/其他狀態就什麼都不做，避免每次編輯都多一次不必要的 UPDATE)。提供三種情境的入口，因為看板
+    // 上大部分編輯動作收到的是 IDID (某一天) 或 IIID (單一項目)，不是直接拿到 ITID (整個行程)：
+    //   revertToDraftIfCompleted(ITID)         - 已經有 ITID 的情境 (行程層級的動作)
+    //   revertToDraftIfCompletedByDay(IDID)    - 只有 IDID 的情境, 會自己查 ItineraryDay 找出 ITID
+    //   revertToDraftIfCompletedByItem(IIID)   - 只有 IIID 的情境, 會自己查 ItineraryItem 再轉呼叫上面那個
+    // 這三個方法呼叫的時間點都要在真正刪除資料之前 (例如 deleteDay/removeItem)，不然刪掉之後就查不到
+    // 對應的 ITID 了。
+    private void revertToDraftIfCompleted(Integer ITID) {
+        if (ITID == null) return;
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary != null && "completed".equals(itinerary.getStatus())) {
+            itinerary.setStatus("draft");
+            itineraryDAO.save(itinerary);
+        }
+    }
+
+    private void revertToDraftIfCompletedByDay(Integer IDID) {
+        if (IDID == null) return;
+        ItineraryDay day = itineraryDayDAO.findById(IDID);
+        if (day != null) revertToDraftIfCompleted(day.getITID());
+    }
+
+    private void revertToDraftIfCompletedByItem(Integer IIID) {
+        if (IIID == null) return;
+        ItineraryItem item = itineraryItemDAO.findById(IIID);
+        if (item != null) revertToDraftIfCompletedByDay(item.getIDID());
+    }
+    // ---------------------------------------------------------------------------------------------
+
     /**
      * 把排版看板上「還沒連結 POI」的項目 (item.PID == null, 通常是手動打字加的自訂項目)
      * 寫進公司 POI 資料庫 (時間預設 NULL), 寫完後自動把這個項目連結到新建立的 POI
@@ -1377,6 +1470,7 @@ public class ItineraryService {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
         if (item.getPID() != null) throw new IllegalStateException("這個項目已經連結 POI 資料庫了");
+        revertToDraftIfCompletedByDay(item.getIDID()); // 見上方「標記已完成後再編輯要退回草稿」的說明
 
         String category = mapItemTypeToPoiCategory(item.getItemType());
         if (category == null) {
@@ -1528,6 +1622,7 @@ public class ItineraryService {
      */
     public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName, Integer stayDurationMin,
                                  String itemCountry, String itemRegion, String timeSlot) {
+        revertToDraftIfCompletedByDay(IDID); // 見上方「標記已完成後再編輯要退回草稿」的說明
         List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
         int nextOrder = existing.size();
 
@@ -1580,6 +1675,7 @@ public class ItineraryService {
      * 預設選第一個, 之後可以用 selectItemOption() 切換
      */
     public ItineraryItem addCustomItem(int IDID, String itemType, String rawName, Integer stayDurationMin, String locationHint) {
+        revertToDraftIfCompletedByDay(IDID); // 見上方「標記已完成後再編輯要退回草稿」的說明
         String[] candidates = rawName.split("或");
         List<String> names = new ArrayList<>();
         for (String c : candidates) {
@@ -1646,6 +1742,7 @@ public class ItineraryService {
      * 切換某個項目要用哪一個候選點 (例如飯店 A或B或C, 這裡選定其中一個), 地圖會跟著更新
      */
     public void selectItemOption(int IIID, int IIOID) {
+        revertToDraftIfCompletedByItem(IIID); // 見上方「標記已完成後再編輯要退回草稿」的說明
         List<ItineraryItemOption> options = itineraryItemOptionDAO.findByItem(IIID);
         ItineraryItemOption chosen = options.stream().filter(o -> o.getIIOID() == IIOID).findFirst().orElse(null);
         if (chosen == null) throw new IllegalArgumentException("找不到這個選項");
@@ -1718,6 +1815,7 @@ public class ItineraryService {
                                   String commuteDuration, String startTime, String endTime, Integer commuteDurationMin) {
         ItineraryItem item = itineraryItemDAO.findById(IIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
+        revertToDraftIfCompletedByDay(item.getIDID()); // 見上方「標記已完成後再編輯要退回草稿」的說明
 
         item.setCustomName(customName);
         item.setStayDurationMin(stayDurationMin);
@@ -1786,6 +1884,21 @@ public class ItineraryService {
         }
         if (endTime != null) {
             item.setEndTime(endTime.isBlank() ? null : parseTimeOrNull(endTime));
+        }
+
+        // 使用者反映「更改餐廳的時間, 時段會消失」修好後 (board.html 那邊改成不去動非交通項目的
+        // startTime/endTime) 接著反映「時間不會更動」——情境是: 編輯餐廳/景點/住宿這種非交通類別項目的
+        // 「停留時間」, 期待卡片上顯示的時間徽章 (開始→結束) 能跟著調整, 不是維持上一次自動整理排序
+        // (autoArrangeDay()) 算出來的舊結束時間不變。因為 board.html 現在對「本來就不是交通類別」的項目,
+        // 每次存檔都會把目前的 startTime/endTime 原封不動送回來 (見那邊的說明——是為了不要清空它們),
+        // 上面兩段就只是把這個沒變的舊 endTime 又寫回去一次而已, 不會反映新的停留時間。
+        // 修正: 交通項目的 startTime/endTime 是各自獨立編輯的欄位 (不是從停留時間推算, 這裡不動它),
+        // 但非交通類別項目只要「有停留時間、也已經有開始時間」(代表這個項目已經被排定在時間軸上),
+        // 就重新推算 endTime = startTime + 這次的停留時間, 讓時間徽章即時反映剛剛改的停留時間,
+        // 不用整天重新按一次「自動整理」才會更新。
+        boolean isTransportItem = "transport".equals(item.getItemType());
+        if (!isTransportItem && stayDurationMin != null && item.getStartTime() != null) {
+            item.setEndTime(item.getStartTime().plusMinutes(stayDurationMin));
         }
 
         if (fromAddress != null && !fromAddress.isBlank()) {
@@ -1869,6 +1982,7 @@ public class ItineraryService {
     }
 
     public void removeItem(int IIID, int IDID) {
+        revertToDraftIfCompletedByDay(IDID); // 見上方「標記已完成後再編輯要退回草稿」的說明
         // 先清掉這天的路段快取 (route_segment 的外鍵沒設 CASCADE, 有算過拉車距離的項目直接刪會被擋)
         routeSegmentDAO.deleteByDay(IDID);
         itineraryItemDAO.deleteById(IIID);
@@ -1897,6 +2011,10 @@ public class ItineraryService {
 
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary != null) {
+            // 見上方「標記已完成後再編輯要退回草稿」的說明——已經拿到 itinerary 物件, 順便一起改
+            if ("completed".equals(itinerary.getStatus())) {
+                itinerary.setStatus("draft");
+            }
             itinerary.setArrangeMode("meal_time".equals(mode) ? "meal_time" : "all_last");
             itineraryDAO.save(itinerary);
         }
@@ -1909,6 +2027,7 @@ public class ItineraryService {
     public void autoArrangeDay(int IDID, String mode) {
         List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
         if (items.isEmpty()) return;
+        revertToDraftIfCompletedByDay(IDID); // 見上方「標記已完成後再編輯要退回草稿」的說明
 
         if ("all_last".equals(mode)) {
             List<ItineraryItem> anchors = new ArrayList<>();
@@ -2090,6 +2209,7 @@ public class ItineraryService {
      * 拖曳排序後呼叫: orderedItemIds 是前端拖完之後的新順序 (IIID 陣列)
      */
     public void reorderItems(int IDID, List<Integer> orderedItemIds) {
+        revertToDraftIfCompletedByDay(IDID); // 見上方「標記已完成後再編輯要退回草稿」的說明
         for (int i = 0; i < orderedItemIds.size(); i++) {
             itineraryItemDAO.updateSortOrder(orderedItemIds.get(i), i);
         }
@@ -2104,6 +2224,7 @@ public class ItineraryService {
      */
     public void reorderDays(int ITID, List<Integer> orderedDayIds) {
         if (orderedDayIds == null) return;
+        revertToDraftIfCompleted(ITID); // 見上方「標記已完成後再編輯要退回草稿」的說明
         Itinerary itinerary = itineraryDAO.findById(ITID);
         LocalDate startDate = itinerary != null ? itinerary.getStartDate() : null;
 
@@ -2330,6 +2451,7 @@ public class ItineraryService {
     }
 
     public void updateSegmentTransportMode(int IDID, int RSID, String mode) {
+        revertToDraftIfCompletedByDay(IDID); // 見上方「標記已完成後再編輯要退回草稿」的說明
         routeSegmentDAO.updateTransportMode(RSID, mode);
         // 只重算這一段, 不用整天重算
         routeService.recalculateSingleSegment(RSID, mode);

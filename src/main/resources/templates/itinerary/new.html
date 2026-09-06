@@ -477,7 +477,7 @@
                         <div class="leg-row" data-leg-row>
                             <div class="leg-field">
                                 <label>第幾天</label>
-                                <input type="number" name="outDepDay" class="form-control leg-day-input" min="1" placeholder="第1天" title="這段去程班機安排在第幾天，不填預設第1天" />
+                                <input type="number" name="outDepDay" class="form-control leg-day-input" min="1" value="1" placeholder="第1天" title="這段去程班機安排在第幾天，不填預設第1天" />
                             </div>
                             <div class="leg-field">
                                 <label>航班名稱</label>
@@ -655,6 +655,14 @@
             renderChips();
             updateHidden();
             if (onChange) onChange(selected);
+            // 使用者反映「點選後取消(取消勾選)搜尋列的不會反空白」——addItem() 選取時會清空搜尋輸入框
+            // 並重新整理下拉選單 (見上面 addItem), 但取消勾選 (removeItem, 從下拉選單裡點掉已勾選的項目)
+            // 原本完全沒有做這兩件事: 搜尋框裡如果還留著剛剛用來篩選的關鍵字文字不會被清掉, 而且因為
+            // 沒有呼叫 refreshDropdown() 重新渲染, 下拉選單裡的 checkbox 畫面也不會跟著取消勾選的動作
+            // 一起更新 (仍然顯示打勾, 直到使用者做了其他會觸發重新渲染的操作), 造成使用者以為「取消沒有生效」。
+            // 修正: 跟 addItem() 對稱, 取消勾選之後也清空搜尋框、重新整理下拉選單。
+            inputEl.value = '';
+            refreshDropdown();
         }
 
         function addItem(item) {
@@ -853,7 +861,37 @@
             row.remove();
         } else {
             row.querySelectorAll('input').forEach(function (input) { input.value = ''; });
+            // 使用者反映「去程/回程飛機第幾天不會預設之前的值」——原本這裡把整列 (含第幾天欄位) 清成空白,
+            // 清空之後這個欄位就只剩 placeholder 提示文字, 沒有真的預設值。改成清空後立刻補回預設值:
+            // 去程固定「1」；回程重設回目前「預計天數」欄位的數字, 並且重新啟用自動同步 (視同使用者放棄
+            // 手動指定, 之後調整「預計天數」會繼續跟著變, 見下面 syncReturnDayDefault())。
+            const dayInput = row.querySelector('.leg-day-input');
+            if (dayInput && container.id === 'outLegsContainer') {
+                dayInput.value = '1';
+            } else if (dayInput && container.id === 'retLegsContainer') {
+                retDepDayUserEdited = false;
+                syncReturnDayDefault();
+            }
         }
+    }
+
+    // 回程「第幾天」預設值跟著「預計天數」欄位即時同步 (去程固定第 1 天, 直接寫死在 HTML value 屬性,
+    // 不需要 JS 動態算)。retDepDayUserEdited 記錄使用者是否手動填過這個欄位——一旦使用者自己打字改過
+    // (下面 DOMContentLoaded 內用事件委派偵測 input 事件), 就代表是刻意指定的天數, 之後調整「預計天數」
+    // 不會再覆蓋掉使用者的選擇。故意不用固定 id 抓「回程第一列」, 改用 querySelector 動態抓「目前排在
+    // 最前面」的那一列, 這樣「+新增航段」/「移除」不管怎麼增減都能正確運作 (跟 addLeg() 抓 lastDayInput
+    // 是同一個原理)。retDepDayUserEdited/syncReturnDayDefault 刻意宣告在最外層 (不是 DOMContentLoaded
+    // 內部), 這樣上面 removeLeg() 才能直接呼叫得到。
+    let retDepDayUserEdited = false;
+    function syncReturnDayDefault() {
+        if (retDepDayUserEdited) return;
+        const firstRetDayInput = document.querySelector('#retLegsContainer .leg-day-input');
+        if (!firstRetDayInput) return;
+        const daysCountInput = document.getElementById('daysCountInput');
+        if (!daysCountInput) return;
+        const rawDays = parseInt(daysCountInput.value, 10);
+        const totalDays = Math.max(1, Math.min(30, isNaN(rawDays) ? 1 : rawDays));
+        firstRetDayInput.value = totalDays;
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -1184,6 +1222,9 @@
         // 地區/城市選擇變動 (regionMs 的 onChange, 已經在建立 regionMs 時掛上, 見下面補掛)。
         document.getElementById('daysCountInput').addEventListener('input', renderDayCitiesRows);
         document.getElementById('daysCountInput').addEventListener('change', renderDayCitiesRows);
+        // 回程「第幾天」預設值跟著「預計天數」即時同步 (見上面 syncReturnDayDefault 說明)
+        document.getElementById('daysCountInput').addEventListener('input', syncReturnDayDefault);
+        document.getElementById('daysCountInput').addEventListener('change', syncReturnDayDefault);
         ['outLegsContainer', 'retLegsContainer'].forEach(function (id) {
             const el = document.getElementById(id);
             if (el) {
@@ -1191,8 +1232,21 @@
                 el.addEventListener('change', renderDayCitiesRows);
             }
         });
+        // 偵測使用者是否手動打字改過回程「目前第一列」的「第幾天」欄位——事件委派掛在容器上 (不是掛在
+        // 個別 input 上), 不管「+新增航段」/「移除」怎麼增減列都不需要重新綁定。只有使用者編輯的當下
+        // 「目前排在最前面」的那一列才算數 (呼應 syncReturnDayDefault 只同步第一列)。
+        const retLegsContainerEl = document.getElementById('retLegsContainer');
+        if (retLegsContainerEl) {
+            retLegsContainerEl.addEventListener('input', function (e) {
+                if (!e.target.classList.contains('leg-day-input')) return;
+                if (e.target === document.querySelector('#retLegsContainer .leg-day-input')) {
+                    retDepDayUserEdited = true;
+                }
+            });
+        }
 
         renderDayCitiesRows(); // 初始渲染 (預設 5 天, 這時「地區/城市」通常還沒選, 每一列都會提示先選城市)
+        syncReturnDayDefault(); // 頁面載入時先同步一次回程「第幾天」預設值
 
         document.querySelectorAll('.leg-airport-input').forEach(function (input) {
             setupAirportAutocomplete(input);

@@ -91,6 +91,107 @@
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
 
+        /* 篩選國家/地區改成跟「建立新行程」頁面「目的地國家/地區」同一套元件: 可以打中文名稱、也可以打
+           country_city_code 參考表的代碼 (例如日本=JP、東京=TYO) 篩選, 選項來源是那張參考表 (不是只列
+           「這個帳號景點資料庫目前剛好有的」), 選了之後才依「這個帳號景點資料庫實際有沒有這筆資料」標示
+           ⚠ 警示 (跟建立新行程頁面一樣的邏輯, 只是這裡的「有沒有資料」直接用這個頁面已經整包載入的
+           allPois 本機比對, 不用再另外呼叫 /poi/countries、/poi/cities API)。可以複選: 選多個國家/城市
+           時, 下面「選擇綁定景點」的下拉選單會列出符合任一個已選條件的景點。景點本身維持單選下拉選單,
+           不套用這個元件。 */
+        .ms-wrap {
+            position: relative;
+            width: 100%;
+            min-height: 38px;
+            padding: 5px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: #fff;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 5px;
+            cursor: text;
+            box-sizing: border-box;
+        }
+        .ms-wrap:focus-within { border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .ms-wrap.ms-disabled { background: #f8fafc; cursor: not-allowed; }
+        .ms-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+        .ms-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #eff6ff;
+            color: var(--primary-blue);
+            font-size: 12px;
+            font-weight: 600;
+            padding: 3px 5px 3px 9px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .ms-chip-remove {
+            border: none;
+            background: rgba(37, 99, 235, 0.12);
+            color: var(--primary-blue);
+            width: 15px;
+            height: 15px;
+            line-height: 1;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            padding: 0;
+        }
+        .ms-chip-remove:hover { background: rgba(37, 99, 235, 0.25); }
+        .ms-search-input {
+            flex: 1;
+            min-width: 80px;
+            border: none;
+            outline: none;
+            font-size: 13.5px;
+            font-family: inherit;
+            padding: 3px 2px;
+            background: transparent;
+        }
+        .ms-search-input:disabled { background: transparent; cursor: not-allowed; }
+        .ms-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-height: 260px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .ms-dropdown.open { display: block; }
+        .ms-group-label {
+            padding: 6px 12px 4px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-gray);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        .ms-option {
+            padding: 7px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .ms-option:hover { background: #eff6ff; }
+        .ms-option input[type="checkbox"] { pointer-events: none; }
+        .ms-option span:first-of-type { flex: 1; }
+        .ms-option.warn span:first-of-type { color: #b45309; }
+        .ms-warn-badge { font-size: 12px; cursor: help; }
+        .ms-empty { padding: 10px 12px; font-size: 12.5px; color: var(--text-gray); }
+
         .file-input-wrapper {
             display: flex;
             align-items: center;
@@ -348,17 +449,25 @@
     <div class="upload-card">
         <h3><i class="fa-solid fa-cloud-arrow-up" style="color: var(--primary-blue);"></i> 批次上傳照片</h3>
         <div class="upload-hint">
-            可先篩選國家與地區選擇欲綁定的景點，上傳照片將自動關聯；亦可直接上傳後，在下方卡片中手動關聯景點。
+            可先篩選國家（可複選）與地區（限選一個）選擇欲綁定的景點，上傳照片將自動關聯；亦可直接上傳後，在下方卡片中手動關聯景點。
         </div>
 
         <form method="post" th:action="@{/images/upload}" enctype="multipart/form-data" onsubmit="showLoading()">
             <div class="filter-row">
-                <select id="filterCountry" class="form-select" onchange="onCountryChange()">
-                    <option value="">篩選國家（全部）</option>
-                </select>
-                <select id="filterRegion" class="form-select" onchange="onRegionChange()">
-                    <option value="">篩選地區（全部）</option>
-                </select>
+                <div>
+                    <div class="ms-wrap" id="imgCountryMsWrap">
+                        <div class="ms-chips" id="imgCountryChips"></div>
+                        <input type="text" id="imgCountrySearchInput" class="ms-search-input" placeholder="篩選國家：輸入中文或代碼 (JP/TW...)" autocomplete="off" />
+                        <div class="ms-dropdown" id="imgCountryDropdown"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="ms-wrap ms-disabled" id="imgRegionMsWrap">
+                        <div class="ms-chips" id="imgRegionChips"></div>
+                        <input type="text" id="imgRegionSearchInput" class="ms-search-input" placeholder="請先選擇國家" autocomplete="off" disabled />
+                        <div class="ms-dropdown" id="imgRegionDropdown"></div>
+                    </div>
+                </div>
                 <select id="poiSelect" name="poiId" class="form-select">
                     <option value="">（不綁定景點，之後再選）</option>
                 </select>
@@ -448,40 +557,315 @@
 <script th:inline="javascript">
     const allPois = /*[[${allPois}]]*/ [];
 
-    function uniqueSorted(values) {
-        return [...new Set(values.filter(v => v))].sort();
+    // ------------------------------------------------------------------
+    // 篩選國家/地區改成跟「建立新行程」頁面「目的地國家/地區」同一套可複選、可打代碼搜尋的元件
+    // (使用者反映「之前是用像 itinerary/new 的國家城市一樣, 可以輸入中文或國家城市代碼」)。
+    // 選項來源是 country_city_code 參考表 (GET /reference/country-city/countries、/cities), 不是只列
+    // 「這個帳號景點資料庫目前剛好有的」——這樣才能用代碼 (JP/TYO 這種) 搜尋, 選了之後再依這個帳號景點
+    // 資料庫「實際有沒有這筆資料」標示 ⚠ 警示。「有沒有資料」直接用這個頁面已經整包載入的 allPois 本機
+    // 比對即可, 不需要像 itinerary/new 那樣另外呼叫 /poi/countries、/poi/cities (那兩支是給沒有整包
+    // POI 資料在手上的頁面用的)。景點本身 (poiSelect) 維持原本的單選下拉選單, 不套用這個元件。
+    //
+    // createMultiSelect() 這個共用元件是直接從 itinerary/new.html 原樣搬過來的 (同一份邏輯: chip 顯示
+    // 已選項目、輸入框打字用 matchesKeyword() 同時比對中文名稱跟代碼、下拉選單依 group 分組), 兩邊之後
+    // 如果要修共用邏輯, 記得兩份都要改 (目前專案沒有共用的靜態 JS 檔案可以放, 兩邊各自維護一份)。
+    // ------------------------------------------------------------------
+    function matchesKeyword(option, keyword) {
+        if (!keyword) return true;
+        if (option.name && option.name.indexOf(keyword) !== -1) return true;
+        if (option.code && option.code.toUpperCase().indexOf(keyword.toUpperCase()) !== -1) return true;
+        return false;
     }
 
-    function initFilters() {
-        const countrySelect = document.getElementById('filterCountry');
-        uniqueSorted(allPois.map(p => p.country)).forEach(c => {
-            const opt = document.createElement('option');
-            opt.value = c; opt.textContent = c;
-            countrySelect.appendChild(opt);
+    // singleSelect (選填, 預設 false): 使用者反映「加入圖片選取的城市要只有一個, 不能多選」——地區/城市
+    // 這個欄位在上傳照片這個情境裡, 目的是narrow down 到某一個具體地點方便挑選要綁定的景點, 選好幾個城市
+    // 反而失去「narrow down」的意義, 所以只有這裡 (images/list.html 的 regionMs) 傳 true 改成單選；
+    // 國家欄位維持可以複選 (使用者這次沒有要求改, 一個行程/一次上傳本來就可能橫跨多國)。單選模式下選中
+    // 一個新項目時會直接把 selected 陣列整個換成只有這一筆 (不是 push 累加), 畫面上永遠只會看到一個 chip，
+    // 其餘 UI (打字搜尋、下拉選單、移除 chip) 完全共用, 不用另外寫一套單選元件。
+    function createMultiSelect(wrap, chipsEl, inputEl, dropdownEl, fetchOptions, onChange, singleSelect) {
+        let selected = []; // [{value, label, ...}]
+        let currentOptions = [];
+
+        function renderChips() {
+            chipsEl.innerHTML = '';
+            selected.forEach(function (item) {
+                const chip = document.createElement('span');
+                chip.className = 'ms-chip';
+                const label = document.createElement('span');
+                label.textContent = item.label;
+                chip.appendChild(label);
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'ms-chip-remove';
+                removeBtn.innerHTML = '&times;';
+                removeBtn.title = '移除';
+                removeBtn.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeItem(item.value);
+                });
+                chip.appendChild(removeBtn);
+                chipsEl.appendChild(chip);
+            });
+        }
+
+        function removeItem(value) {
+            selected = selected.filter(function (s) { return s.value !== value; });
+            renderChips();
+            if (onChange) onChange(selected);
+            inputEl.value = '';
+            refreshDropdown();
+        }
+
+        function addItem(item) {
+            if (singleSelect) {
+                // 單選模式: 不管原本選了誰, 直接整個換成這一筆, 確保 selected 永遠最多只有一個元素。
+                // 使用者反映「城市還是可以多選」——選完之後原本的寫法會繼續把下拉選單留著開啟、選項前面
+                // 也還是畫成 checkbox 的樣子, 雖然功能上已經是「選新的就取代舊的」, 但畫面看起來還是像
+                // 「可以繼續勾選很多個」的多選元件, 容易讓人以為沒改到。這裡額外做兩件事加強「這是單選」的
+                // 觀感: 選好之後直接關閉下拉選單、輸入框失焦 (不像多選那樣選完還留著讓人接著選下一個),
+                // 下面 renderDropdown() 也改成畫 radio 樣式的圓點 (不是方形 checkbox), 兩種輸入元件的
+                // 慣例本來就是「checkbox = 可複選」「radio = 只能選一個」, 用對元件才不會讓人誤會。
+                selected = [item];
+                renderChips();
+                if (onChange) onChange(selected);
+                inputEl.value = '';
+                closeDropdown();
+                inputEl.blur();
+                return;
+            }
+            if (!selected.some(function (s) { return s.value === item.value; })) {
+                selected.push(item);
+                renderChips();
+                if (onChange) onChange(selected);
+            }
+            inputEl.value = '';
+            refreshDropdown();
+        }
+
+        function renderDropdown() {
+            dropdownEl.innerHTML = '';
+            if (!currentOptions || currentOptions.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'ms-empty';
+                empty.textContent = '沒有可選的項目';
+                dropdownEl.appendChild(empty);
+                dropdownEl.classList.add('open');
+                return;
+            }
+            let lastGroup = null;
+            currentOptions.forEach(function (opt) {
+                if (opt.group && opt.group !== lastGroup) {
+                    const groupEl = document.createElement('div');
+                    groupEl.className = 'ms-group-label';
+                    groupEl.textContent = opt.group;
+                    dropdownEl.appendChild(groupEl);
+                    lastGroup = opt.group;
+                }
+                const isChecked = selected.some(function (s) { return s.value === opt.value; });
+                const row = document.createElement('div');
+                row.className = 'ms-option' + (opt.warn ? ' warn' : '');
+
+                const checkbox = document.createElement('input');
+                // 單選模式畫 radio (圓點), 複選模式畫 checkbox (方塊)——純粹是給使用者的視覺慣例提示
+                // (checkbox = 可複選, radio = 只能選一個), 實際的勾選/取消都是靠下面 row 的 mousedown
+                // 事件手動控制 selected 陣列 (見那段的 e.preventDefault()), 不是靠瀏覽器原生行為,
+                // 所以這裡單純換 type, 不用額外處理原生 radio 的分組 (name 屬性) 邏輯。
+                checkbox.type = singleSelect ? 'radio' : 'checkbox';
+                checkbox.checked = isChecked;
+                row.appendChild(checkbox);
+
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = opt.label;
+                row.appendChild(labelSpan);
+
+                if (opt.warn) {
+                    const warnBadge = document.createElement('span');
+                    warnBadge.className = 'ms-warn-badge';
+                    warnBadge.textContent = '⚠';
+                    warnBadge.title = opt.warnTitle || '這個帳號的景點資料庫目前還沒有這筆資料';
+                    row.appendChild(warnBadge);
+                }
+
+                row.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    if (isChecked) removeItem(opt.value); else addItem(opt);
+                });
+                dropdownEl.appendChild(row);
+            });
+            dropdownEl.classList.add('open');
+        }
+
+        function closeDropdown() {
+            dropdownEl.classList.remove('open');
+        }
+
+        function refreshDropdown() {
+            if (inputEl.disabled) return;
+            Promise.resolve(fetchOptions(inputEl.value.trim())).then(function (options) {
+                currentOptions = options || [];
+                renderDropdown();
+            });
+        }
+
+        let debounceTimer = null;
+        inputEl.addEventListener('input', function () {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(refreshDropdown, 150);
         });
+        inputEl.addEventListener('focus', refreshDropdown);
+        inputEl.addEventListener('blur', function () {
+            setTimeout(closeDropdown, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+        wrap.addEventListener('mousedown', function (e) {
+            if (e.target === inputEl) return;
+            if (!inputEl.disabled) inputEl.focus();
+        });
+
+        return {
+            getSelected: function () { return selected; },
+            setEnabled: function (enabled) {
+                inputEl.disabled = !enabled;
+                wrap.classList.toggle('ms-disabled', !enabled);
+                inputEl.placeholder = enabled ? inputEl.dataset.enabledPlaceholder : inputEl.dataset.disabledPlaceholder;
+            },
+            clear: function () {
+                selected = [];
+                renderChips();
+            }
+        };
+    }
+
+    // country_city_code 參考表 (國家/城市清單一次抓回來, 資料量小, 前端自己打字篩選), 跟這個帳號景點
+    // 資料庫實際有的國家/城市 (直接從已經整包載入的 allPois 算, 不用再打 API) 交叉比對出 ⚠ 警示。
+    let ccCountriesPromise = null;
+    function loadCcCountries() {
+        if (!ccCountriesPromise) {
+            ccCountriesPromise = fetch('/reference/country-city/countries')
+                .then(function (r) { return r.ok ? r.json() : []; })
+                .catch(function () { return []; });
+        }
+        return ccCountriesPromise;
+    }
+    const ccCitiesCache = {};
+    function loadCcCities(countryCodes) {
+        const key = countryCodes.slice().sort().join(',');
+        if (!ccCitiesCache[key]) {
+            ccCitiesCache[key] = fetch('/reference/country-city/cities?countryCodes=' + encodeURIComponent(countryCodes.join(',')))
+                .then(function (r) { return r.ok ? r.json() : []; })
+                .catch(function () { return []; });
+        }
+        return ccCitiesCache[key];
+    }
+    const poiCountrySet = new Set(allPois.map(function (p) { return p.country; }).filter(Boolean));
+    function poiCitySetForCountry(countryName) {
+        return new Set(allPois.filter(function (p) { return p.country === countryName; }).map(function (p) { return p.city; }).filter(Boolean));
+    }
+
+    let countryMs = null;
+    let regionMs = null;
+
+    function initFilters() {
+        const countryInput = document.getElementById('imgCountrySearchInput');
+        countryInput.dataset.enabledPlaceholder = countryInput.placeholder;
+
+        const regionInput = document.getElementById('imgRegionSearchInput');
+        regionInput.dataset.enabledPlaceholder = '篩選地區：輸入中文或代碼 (TYO...)';
+        regionInput.dataset.disabledPlaceholder = '請先選擇國家';
+
+        countryMs = createMultiSelect(
+            document.getElementById('imgCountryMsWrap'),
+            document.getElementById('imgCountryChips'),
+            countryInput,
+            document.getElementById('imgCountryDropdown'),
+            function (keyword) {
+                return loadCcCountries().then(function (ccCountries) {
+                    return ccCountries
+                        .filter(function (c) { return matchesKeyword(c, keyword); })
+                        .map(function (c) {
+                            const hasPoi = poiCountrySet.has(c.name);
+                            return {
+                                value: c.code,
+                                label: c.name,
+                                warn: !hasPoi,
+                                warnTitle: hasPoi ? '' : '景點資料庫目前還沒有「' + c.name + '」的資料'
+                            };
+                        });
+                });
+            },
+            function () { onFilterChanged(); }
+        );
+
+        regionMs = createMultiSelect(
+            document.getElementById('imgRegionMsWrap'),
+            document.getElementById('imgRegionChips'),
+            regionInput,
+            document.getElementById('imgRegionDropdown'),
+            function (keyword) {
+                const countries = countryMs.getSelected();
+                if (countries.length === 0) return Promise.resolve([]);
+                const countryCodes = countries.map(function (c) { return c.value; });
+                const codeToName = {};
+                countries.forEach(function (c) { codeToName[c.value] = c.label; });
+                return loadCcCities(countryCodes).then(function (ccCities) {
+                    return ccCities
+                        .filter(function (c) { return matchesKeyword(c, keyword); })
+                        .map(function (c) {
+                            const countryName = codeToName[c.countryCode] || '';
+                            const hasPoi = poiCitySetForCountry(countryName).has(c.name);
+                            return {
+                                value: c.code,
+                                label: c.name,
+                                group: countryName,
+                                countryCode: c.countryCode,
+                                warn: !hasPoi,
+                                warnTitle: hasPoi ? '' : '景點資料庫在「' + countryName + '」目前還沒有「' + c.name + '」的資料'
+                            };
+                        });
+                });
+            },
+            function () { onFilterChanged(); },
+            true // singleSelect: 城市只能選一個, 見上面 createMultiSelect() 的說明
+        );
+
         populatePoiSelect(allPois);
     }
 
-    function onCountryChange() {
-        const country = document.getElementById('filterCountry').value;
-        const regionSelect = document.getElementById('filterRegion');
-        regionSelect.innerHTML = '<option value="">篩選地區（全部）</option>';
-
-        const filtered = country ? allPois.filter(p => p.country === country) : allPois;
-        uniqueSorted(filtered.map(p => p.city)).forEach(city => {
-            const opt = document.createElement('option');
-            opt.value = city; opt.textContent = city;
-            regionSelect.appendChild(opt);
-        });
-        populatePoiSelect(filtered);
+    // 國家/地區篩選異動時 (加選/移除都會觸發): 地區欄位是否啟用依「有沒有選任何國家」決定, 移除已經
+    // 不屬於目前已選國家的城市 (比照 itinerary/new 的 onCountryChanged), 最後重新整理景點下拉選單。
+    function onFilterChanged() {
+        const countries = countryMs.getSelected();
+        if (countries.length === 0) {
+            regionMs.clear();
+            regionMs.setEnabled(false);
+        } else {
+            regionMs.setEnabled(true);
+            const validCountryNames = new Set(countries.map(function (c) { return c.label; }));
+            const stillValid = regionMs.getSelected().filter(function (r) { return validCountryNames.has(r.group); });
+            if (stillValid.length !== regionMs.getSelected().length) {
+                regionMs.clear();
+                stillValid.forEach(function (r) { /* clear() 已經清空, 這裡不用重新加回去: 城市清單本來就會
+                    隨國家異動重新查詢, 使用者可以再選一次, 避免殘留一個「所屬國家」跟畫面對不上的城市 chip */ });
+            }
+        }
+        applyPoiFilter();
     }
 
-    function onRegionChange() {
-        const country = document.getElementById('filterCountry').value;
-        const region = document.getElementById('filterRegion').value;
+    // 依目前已選的國家/地區 chip 篩選 allPois: 完全沒選的維度不篩選 (跟原本「篩選（全部）」的語意一樣),
+    // 有選的維度只要符合「任一個」已選項目就算 (複選是「或」的關係, 不是要求同時符合每一個)。
+    function applyPoiFilter() {
+        const countryNames = countryMs.getSelected().map(function (c) { return c.label; });
+        const regionNames = regionMs.getSelected().map(function (r) { return r.label; });
         let filtered = allPois;
-        if (country) filtered = filtered.filter(p => p.country === country);
-        if (region) filtered = filtered.filter(p => p.city === region);
+        if (countryNames.length > 0) {
+            const countrySet = new Set(countryNames);
+            filtered = filtered.filter(function (p) { return countrySet.has(p.country); });
+        }
+        if (regionNames.length > 0) {
+            const regionSet = new Set(regionNames);
+            filtered = filtered.filter(function (p) { return regionSet.has(p.city); });
+        }
         populatePoiSelect(filtered);
     }
 

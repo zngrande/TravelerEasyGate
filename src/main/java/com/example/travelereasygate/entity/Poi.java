@@ -1,5 +1,6 @@
 package com.example.travelereasygate.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -78,9 +79,33 @@ public class Poi {
         this.longitude = longitude;
     }
 
+    // 使用者反映「加入景點會出現加入失敗：Unexpected token '<'...」跟「上傳圖片出現 poiId=undefined 的錯誤」——
+    // 追查後發現根因: 這個專案裡有兩套 Jackson 同時在跑 (見 pom.xml 那份很長的註解)。Spring Boot 4 預設用
+    // Jackson 3 (tools.jackson.*, 給 @ResponseBody/ResponseEntity 那些 JSON API 用), 另外額外加了一份
+    // 「舊版」Jackson 2 (com.fasterxml.jackson.*, 只給 Thymeleaf 的 th:inline="javascript" 內嵌 JS 資料
+    // 用, 例如 board.html 的 poiList、images/list.html 的 allPois)。這兩套 Jackson 對「getPID() 這種
+    // 開頭是多個連續大寫字母的欄位」預設的命名規則不一樣: 實測 Jackson 2 (2.16.1/2.18.2 同一代, 預設沒開
+    // MapperFeature.USE_STD_BEAN_NAMING) 會把 getPID()/getAID() 這種 getter 名稱整段轉小寫變成 JSON 欄位
+    // 名稱 "pid"/"aid", 但 Jackson 3 預設會保留原本大小寫變成 "PID"/"AID" (整個專案所有即時 API,
+    // 例如 /itinerary/day/{id}/items 回傳的 item.PID/item.IIID/item.IDID, 全部都是靠這個「保留大小寫」的
+    // 行為才會跟 JS 裡到處寫的 poi.PID、item.IIID 這些大寫欄位名稱對得上)。
+    // 結果: 用 Jackson 2 內嵌的 poiList/allPois 這種陣列, 裡面每個景點物件的 PID 欄位在 JS 裡其實變成小寫
+    // 的 pid, 不是預期的大寫 PID——board.html 的 renderPoiQuickList()/景點快選面板「加入」按鈕
+    // (onclick="addToCurrentDay(${poi.PID}, ...)")、images/list.html 的 populatePoiSelect()/景點選擇器
+    // (opt.value = p.PID) 都在讀這個 (實際不存在的) 大寫 poi.PID, 拿到 JS 的 undefined, 组裝出來的請求
+    // 參數變成字面上的字串 "undefined" (PID=undefined / poiId=undefined) 送到後端——後端拿 Integer 去解析
+    // "undefined" 這個字串, 直接丟 NumberFormatException, 變成一頁看起來像系統錯誤的 HTML 例外頁 (不是
+    // 預期的 JSON), 前端 res.json() 解析這個 HTML 就會丟出「Unexpected token '<', "<!DOCTYPE "...」。
+    // 修法: 用 @JsonProperty 明確把這個欄位的 JSON 名稱釘死成 "PID" (不管是哪一套 Jackson 來序列化都一樣),
+    // 從根本解掉兩套 Jackson 對這種欄位命名規則不一致的問題——對 Jackson 3 那邊完全沒有影響 (它預設本來就是
+    // "PID", 這裡明講一次結果不變), 只有 Jackson 2 (Thymeleaf 內嵌 JS 用的那份) 的輸出會被修正回 "PID"。
+    // AID 欄位雖然這次沒有實際回報的錯誤, 但同樣是「多個連續大寫字母」的欄位名稱, 會踩到一模一樣的問題,
+    // 這裡一併預防性修掉, 避免以後哪個頁面用到 poi.AID 又重演一次一樣的 bug。
+    @JsonProperty("PID")
     public int getPID() { return PID; }
     public void setPID(int PID) { this.PID = PID; }
 
+    @JsonProperty("AID")
     public Integer getAID() { return AID; }
     public void setAID(Integer AID) { this.AID = AID; }
 

@@ -1,35 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-	<modelVersion>4.0.0</modelVersion>
-	<parent>
-		<groupId>org.springframework.boot</groupId>
-		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.0.1</version>
-		<relativePath/> <!-- lookup parent from repository -->
-	</parent>
-	<groupId>com.example</groupId>
-	<artifactId>TravelerEasyGate</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
-	<name>TravelerEasyGate</name>
-	<description>TRAVELER EASY GATE - 智慧行程規劃與企劃產出平台 (B2B/B2B2C for Taiwan travel agencies)</description>
-	<url/>
-	<licenses>
-		<license/>
-	</licenses>
-	<developers>
-		<developer/>
-	</developers>
-	<scm>
-		<connection/>
-		<developerConnection/>
-		<tag/>
-		<url/>
-	</scm>
-	<properties>
-		<java.version>21</java.version>
-	</properties>
-	<dependencies>
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.1</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.example</groupId>
+    <artifactId>TravelerEasyGate</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>TravelerEasyGate</name>
+    <description>TRAVELER EASY GATE - 智慧行程規劃與企劃產出平台 (B2B/B2B2C for Taiwan travel agencies)</description>
+    <url/>
+    <licenses>
+        <license/>
+    </licenses>
+    <developers>
+        <developer/>
+    </developers>
+    <scm>
+        <connection/>
+        <developerConnection/>
+        <tag/>
+        <url/>
+    </scm>
+    <properties>
+        <java.version>21</java.version>
+    </properties>
+    <dependencies>
 
         <!-- 熱重載與開發輔助工具 (DevTools) -->
         <dependency>
@@ -39,84 +39,135 @@
             <optional>true</optional>
         </dependency>
 
-		<!-- Web MVC -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
-		</dependency>
+        <!-- Web MVC -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
 
-		<!-- Thymeleaf (替代 Flask Jinja2 模板) -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-thymeleaf</artifactId>
-		</dependency>
+        <!-- Thymeleaf (替代 Flask Jinja2 模板) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
 
-		<!-- JPA + Hibernate -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa</artifactId>
-		</dependency>
+        <!-- ============================================================================================
+             找到「看板/圖片資料庫頁面整頁空白、按什麼都沒反應」的真正根因後補上的相依套件, 麻煩務必看完這段註解。
 
-		<!-- Flyway: 自動管理資料庫結構變更 (schema migration), 部署時自動套用還沒跑過的 SQL 檔案,
-		     取代原本「改完程式要記得手動去資料庫跑一支 SQL」的做法 (常常忘記跑, 上線後才發現欄位不存在)。
-		     新的 db 變更之後都放在 src/main/resources/db/migration/, 檔名照 V{數字}__說明.sql 命名,
-		     程式一啟動就會自動比對、依序套用所有還沒跑過的版本, 不用再手動執行。 -->
-		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-core</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-mysql</artifactId>
-		</dependency>
+             board.html (行程排版看板) 跟 images/list.html (圖片資料庫) 這兩個頁面, 都在頁面最下面用
+             Thymeleaf 的 th:inline="javascript" (寫法是 /*[[${poiList}]]*/、/*[[${allPois}]]*/ 這種)
+             把整包景點資料庫 (List<Poi>, 含 BigDecimal 的經緯度/星等/建議售價、LocalDateTime 的建立時間等欄位)
+             直接內嵌成一段 JS 陣列常值, 讓前端不用另外打 API 就能直接拿到整包資料。
 
-		<!-- MySQL Connector -->
-		<dependency>
-			<groupId>com.mysql</groupId>
-			<artifactId>mysql-connector-j</artifactId>
-			<scope>runtime</scope>
-		</dependency>
+             Thymeleaf 處理這種內嵌 JS 資料時, 需要靠 Jackson 把 Java 物件轉成 JSON 字串; 但 Thymeleaf 判斷
+             「有沒有 Jackson 可以用」的方式, 檢查的是classpath 上有沒有「舊版」的 com.fasterxml.jackson.databind.
+             ObjectMapper 這個類別——而這個專案 (Spring Boot 4) 預設整套換成全新的 Jackson 3 (套件名稱整個改成
+             tools.jackson.*, 不是舊的 com.fasterxml.jackson.*, 兩者是完全不同的兩個函式庫, 不會互相辨識到),
+             所以 Thymeleaf 完全偵測不到「有 Jackson 可以用」, 只能退回它自己內建、非常陽春、不支援 BigDecimal/
+             LocalDateTime 這種複雜型別的陽春序列化方式——遇到 poiList/allPois 這種帶有 BigDecimal/LocalDateTime
+             欄位的清單就會在序列化過程中直接丟例外。
 
-		<!-- 密碼雜湊 (登入/註冊用) -->
-		<dependency>
-			<groupId>org.springframework.security</groupId>
-			<artifactId>spring-security-crypto</artifactId>
-		</dependency>
+             這個例外發生的時間點是「回應已經開始用 chunked 編碼傳給瀏覽器之後」(頁面上面的導覽列、Day 分頁、
+             項目清單的空殼 HTML 都已經送出去了), 所以不會變成正常的 500 錯誤頁, 而是整個連線被攔腰截斷——瀏覽器
+             那邊看到的是 net::ERR_INCOMPLETE_CHUNKED_ENCODING (狀態碼還顯示 200 OK, 但內容不完整), 使用者這邊
+             看到的就是「畫面只剩導覽列/Day分頁, 下面完全空白, 按什麼都沒反應」——因為那段 <script> 標籤根本沒有
+             被完整送到瀏覽器 (少了結尾的 </script>), 瀏覽器不會執行任何一行沒收到結尾的 <script> 內容, 所以連
+             寫在 poiList 那行「前面」的 function (例如 toggleAccordion, 定義在 board.html 第 1328 行, 比出
+             問題的 poiList 那行第 2171 行還早) 也一樣完全沒被定義, 才會出現「toggleAccordion is not defined」
+             這種看起來邏輯不合理 (函式明明寫在前面) 的錯誤——這是找到瀏覽器主控台這兩個具體錯誤訊息
+             (ERR_INCOMPLETE_CHUNKED_ENCODING + toggleAccordion is not defined) 後才追出來的真正機制,
+             可以完美解釋這次「AI排行程/AI解析整頁空白」「images 篩選器打字沒反應」「看板完全不能點」這幾個
+             表面上看起來不相關的症狀, 其實是同一個根因。
 
-		<!-- PDF 文字擷取 (AI 行程解析: 上傳 PDF 用) -->
-		<dependency>
-			<groupId>org.apache.pdfbox</groupId>
-			<artifactId>pdfbox</artifactId>
-			<version>3.0.3</version>
-		</dependency>
+             修法: 額外加一份「舊版」Jackson databind (com.fasterxml.jackson.*, 跟這個專案其他地方用的
+             tools.jackson.* Jackson 3 是兩個完全獨立、座標/套件名稱都不同的函式庫, 可以同時共存在 classpath
+             上, 不會互相衝突/覆蓋), 純粹讓 Thymeleaf 偵測到「有 Jackson 可以用」, 改用功能完整的序列化方式
+             (可以正常處理 BigDecimal/LocalDateTime), 不會再半路序列化失敗——這個新加的 Jackson 2 只有
+             Thymeleaf 內部這裡會用到, 不影響專案其他地方 (Controller 的 @ResponseBody/ResponseEntity 那些
+             JSON API, 例如 /reference/country-city/countries、/itinerary/day/{id}/items 這些) 繼續用
+             原本的 Jackson 3, 兩者不會互相干擾。jackson-datatype-jsr310 是額外補上的模組, 讓這個「舊版」
+             Jackson 也認得 LocalDate/LocalDateTime/LocalTime 這幾個 Java 8+ 時間類別 (沒有這個模組的話,
+             即使 Jackson 2 本身能被 Thymeleaf 抓到用, 遇到 createdAt 這種 LocalDateTime 欄位還是會序列化
+             失敗)。版本號 2.18.2 是目前 (2026 年初) Jackson 2.x 系列穩定版本之一, 之後有更新版本可以自行升級,
+             不用綁死這個數字, 只要維持在 2.x 系列 (跟 3.x 是不同的大版本、套件名稱也不同) 即可。
+             ============================================================================================ -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.18.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>2.18.2</version>
+        </dependency>
 
-		<!-- Word (.docx) 文字擷取 (AI 行程解析: 上傳 Word 用) -->
-		<dependency>
-			<groupId>org.apache.poi</groupId>
-			<artifactId>poi-ooxml</artifactId>
-			<version>5.3.0</version>
-		</dependency>
+        <!-- JPA + Hibernate -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
 
-		<!-- Test -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-	</dependencies>
+        <!-- Flyway: 自動管理資料庫結構變更 (schema migration), 部署時自動套用還沒跑過的 SQL 檔案,
+             取代原本「改完程式要記得手動去資料庫跑一支 SQL」的做法 (常常忘記跑, 上線後才發現欄位不存在)。
+             新的 db 變更之後都放在 src/main/resources/db/migration/, 檔名照 V{數字}__說明.sql 命名,
+             程式一啟動就會自動比對、依序套用所有還沒跑過的版本, 不用再手動執行。 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
 
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-				<!-- addResources=true: mvn spring-boot:run 時直接把 src/main/resources 掛上 classpath，跟着原始檔案跑，
-				     改 html/css/js 不用重新編譯/重啟，存檔後直接刷新瀏覽器就會看到最新版本。 -->
-				<configuration>
-					<addResources>true</addResources>
-				</configuration>
-			</plugin>
-		</plugins>
-	</build>
+        <!-- MySQL Connector -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- 密碼雜湊 (登入/註冊用) -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!-- PDF 文字擷取 (AI 行程解析: 上傳 PDF 用) -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.3</version>
+        </dependency>
+
+        <!-- Word (.docx) 文字擷取 (AI 行程解析: 上傳 Word 用) -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.3.0</version>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <!-- addResources=true: mvn spring-boot:run 時直接把 src/main/resources 掛上 classpath，跟着原始檔案跑，
+                     改 html/css/js 不用重新編譯/重啟，存檔後直接刷新瀏覽器就會看到最新版本。 -->
+                <configuration>
+                    <addResources>true</addResources>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

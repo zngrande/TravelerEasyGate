@@ -330,265 +330,294 @@
 
         <!-- 右側：範本格式教學 (展開式模組, 跟其他頁面的手風琴設計同一套), 跟著左邊分頁籤切換內容 -->
         <div class="tools-col">
-        <div id="toolsCustomer" class="tools-col-inner active">
+            <div id="toolsCustomer" class="tools-col-inner active">
 
-            <!-- 模組一：一次性欄位 -->
-            <div id="triggerOnce" class="accordion-trigger" onclick="toggleDocAccordion('Once')">
-                <div class="trigger-left">
-                    <div class="trigger-icon"><i class="fa-solid fa-tag"></i></div>
-                    <div>
-                        <div class="trigger-text">一次性欄位</div>
-                        <div class="trigger-sub">標題、國家、天數...</div>
+                <!-- 模組一：一次性欄位 -->
+                <div id="triggerOnce" class="accordion-trigger" onclick="toggleDocAccordion('Once')">
+                    <div class="trigger-left">
+                        <div class="trigger-icon"><i class="fa-solid fa-tag"></i></div>
+                        <div>
+                            <div class="trigger-text">一次性欄位</div>
+                            <div class="trigger-sub">標題、國家、天數...</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+                </div>
+                <div id="panelOnce" class="accordion-panel">
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-solid fa-tag" style="color:#4f46e5;"></i> 一次性欄位</div>
+                        <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="doc-text">
+                        <p>文件裡任何地方都可以用，出現一次就換一次：</p>
+                        <table class="doc-table">
+                            <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                            <tbody>
+                            <tr><td><span class="doc-tag">{{title}}</span></td><td>行程標題</td></tr>
+                            <tr><td><span class="doc-tag">{{country}}</span></td><td>國家/地區</td></tr>
+                            <tr><td><span class="doc-tag">{{days_count}}</span></td><td>天數</td></tr>
+                            <tr><td><span class="doc-tag">{{date_range}}</span></td><td>出發～回程日期，格式 2026/03/01 ~ 2026/03/05</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
-            </div>
-            <div id="panelOnce" class="accordion-panel">
-                <div class="panel-header">
-                    <div class="panel-title"><i class="fa-solid fa-tag" style="color:#4f46e5;"></i> 一次性欄位</div>
-                    <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="doc-text">
-                    <p>文件裡任何地方都可以用，出現一次就換一次：</p>
-                    <table class="doc-table">
-                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
-                        <tbody>
-                        <tr><td><span class="doc-tag">{{title}}</span></td><td>行程標題</td></tr>
-                        <tr><td><span class="doc-tag">{{country}}</span></td><td>國家/地區</td></tr>
-                        <tr><td><span class="doc-tag">{{days_count}}</span></td><td>天數</td></tr>
-                        <tr><td><span class="doc-tag">{{date_range}}</span></td><td>出發～回程日期，格式 2026/03/01 ~ 2026/03/05</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
 
-            <!-- 模組二：圖片區塊 -->
-            <div id="triggerImages" class="accordion-trigger" onclick="toggleDocAccordion('Images')">
-                <div class="trigger-left">
-                    <div class="trigger-icon"><i class="fa-regular fa-images"></i></div>
-                    <div>
-                        <div class="trigger-text">圖片區塊</div>
-                        <div class="trigger-sub">圖片及景點名稱</div>
+                <!-- 模組二：圖片區塊 -->
+                <div id="triggerImages" class="accordion-trigger" onclick="toggleDocAccordion('Images')">
+                    <div class="trigger-left">
+                        <div class="trigger-icon"><i class="fa-regular fa-images"></i></div>
+                        <div>
+                            <div class="trigger-text">圖片區塊</div>
+                            <div class="trigger-sub">圖片及景點名稱</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+                </div>
+                <div id="panelImages" class="accordion-panel">
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-regular fa-images" style="color:#4f46e5;"></i> 圖片區塊</div>
+                        <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="doc-text">
+                        <p>在你想要放圖片的地方，<strong>單獨一個段落</strong>，裡面只打：</p>
+                        <div class="doc-code">{{images_block}}</div>
+                        <p>系統會把這一段換成這趟行程所有景點照片，<strong>每張照片下方自動附上名稱</strong>。如果這趟行程完全沒有照片，這個段落會被整個移除，不會留空白。</p>
                     </div>
                 </div>
-                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
-            </div>
-            <div id="panelImages" class="accordion-panel">
-                <div class="panel-header">
-                    <div class="panel-title"><i class="fa-regular fa-images" style="color:#4f46e5;"></i> 圖片區塊</div>
-                    <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="doc-text">
-                    <p>在你想要放圖片的地方，<strong>單獨一個段落</strong>，裡面只打：</p>
-                    <div class="doc-code">{{images_block}}</div>
-                    <p>系統會把這一段換成這趟行程所有景點照片，<strong>每張照片下方自動附上名稱</strong>。如果這趟行程完全沒有照片，這個段落會被整個移除，不會留空白。</p>
-                </div>
-            </div>
 
-            <!-- 模組三：每日行程區塊 -->
-            <div id="triggerDay" class="accordion-trigger" onclick="toggleDocAccordion('Day')">
-                <div class="trigger-left">
-                    <div class="trigger-icon"><i class="fa-solid fa-calendar-days"></i></div>
-                    <div>
-                        <div class="trigger-text">每日行程區塊</div>
-                        <div class="trigger-sub">依實際天數自動重複</div>
+                <!-- 模組三：每日行程區塊 -->
+                <div id="triggerDay" class="accordion-trigger" onclick="toggleDocAccordion('Day')">
+                    <div class="trigger-left">
+                        <div class="trigger-icon"><i class="fa-solid fa-calendar-days"></i></div>
+                        <div>
+                            <div class="trigger-text">每日行程區塊</div>
+                            <div class="trigger-sub">依實際天數自動重複</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+                </div>
+                <div id="panelDay" class="accordion-panel">
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-solid fa-calendar-days" style="color:#4f46e5;"></i> 每日行程區塊</div>
+                        <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="doc-text">
+                        <p>用兩個各自獨立的段落當「起點」跟「終點」標記：</p>
+                        <div class="doc-code">{{day_start}}
+
+                            中間放你想要的一天份版面
+                            可以是表格、可以是段落，隨便設計
+
+                            {{day_end}}</div>
+                        <p>系統會把 <span class="doc-tag">{{day_start}}</span> 和 <span class="doc-tag">{{day_end}}</span> 中間的內容，當成「一天的版面樣式」，依這趟行程實際天數複製多份，並把裡面的標記換成當天資料：</p>
+                        <table class="doc-table">
+                            <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                            <tbody>
+                            <tr><td><span class="doc-tag">{{day.number}}</span></td><td>第幾天（數字）</td></tr>
+                            <tr><td><span class="doc-tag">{{day.title}}</span></td><td>當天標題（自動把當天所有景點名稱串起來）</td></tr>
+                            <tr><td><span class="doc-tag">{{day.content}}</span></td><td>當天景點行程內容（條列成一整段文字）</td></tr>
+                            <tr><td><span class="doc-tag">{{day.meals}}</span></td><td>當天餐食安排</td></tr>
+                            <tr><td><span class="doc-tag">{{day.hotel}}</span></td><td>當天住宿</td></tr>
+                            <tr><td><span class="doc-tag">{{day.map}}</span></td><td>當天景點連線地圖圖片（沒設定地圖功能或抓不到座標，這個段落會整段移除，不留空白）</td></tr>
+                            </tbody>
+                        </table>
+                        <p><strong>範例</strong>：如果你的範本長這樣（一個表格）：</p>
+                        <div class="doc-code">{{day_start}}
+                            第{{day.number}}天 | {{day.title}}
+                            {{day.content}}
+                            餐食: {{day.meals}} | 住宿: {{day.hotel}}
+                            {{day.map}}
+                            {{day_end}}</div>
+                        <p>系統會依天數把這整個表格複製對應份數，各自帶入該天的資料。</p>
+
+                        <p style="margin-top:16px;"><strong>逐項目區塊（選用）</strong>：如果 <span class="doc-tag">{{day.content}}</span> 這種「全部景點擠成一整段文字」不夠用，想要每個景點自己獨立一列/一格（例如要分開排版、加框線），可以改用 <span class="doc-tag">{{item_start}}</span> / <span class="doc-tag">{{item_end}}</span>，放在 <span class="doc-tag">{{day_start}}</span>...<span class="doc-tag">{{day_end}}</span> 裡面的表格儲存格中：</p>
+                        <div class="doc-code">{{item_start}}
+                            {{item.name}} {{item.note}}
+                            {{item.description}}
+                            {{item.route}}
+                            {{item_end}}</div>
+                        <p>系統會依這一天實際的景點數量，把 <span class="doc-tag">{{item_start}}</span> 和 <span class="doc-tag">{{item_end}}</span> 中間的內容複製對應份數，各自帶入該景點的資料（餐食、住宿不算在內，只有景點/亮點類項目才會列進來）：</p>
+                        <table class="doc-table">
+                            <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                            <tbody>
+                            <tr><td><span class="doc-tag">{{item.name}}</span></td><td>景點/項目名稱</td></tr>
+                            <tr><td><span class="doc-tag">{{item.note}}</span></td><td>這個項目的備註</td></tr>
+                            <tr><td><span class="doc-tag">{{item.description}}</span></td><td>景點資料庫裡的介紹說明（自訂項目沒有連結資料庫就會是空的）</td></tr>
+                            <tr><td><span class="doc-tag">{{item.route}}</span></td><td>離開這個景點前往下一站的拉車距離/時間</td></tr>
+                            </tbody>
+                        </table>
+                        <p><span class="doc-tag">{{item_start}}</span>...<span class="doc-tag">{{item_end}}</span> 是選用的，跟 <span class="doc-tag">{{day.content}}</span> 兩種寫法擇一使用即可，沒放 <span class="doc-tag">{{item_start}}</span> 完全不影響 <span class="doc-tag">{{day.content}}</span> 正常運作。</p>
                     </div>
                 </div>
-                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
-            </div>
-            <div id="panelDay" class="accordion-panel">
-                <div class="panel-header">
-                    <div class="panel-title"><i class="fa-solid fa-calendar-days" style="color:#4f46e5;"></i> 每日行程區塊</div>
-                    <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+
+                <!-- 模組四：注意事項 -->
+                <div id="triggerNote" class="accordion-trigger" onclick="toggleDocAccordion('Note')">
+                    <div class="trigger-left">
+                        <div class="trigger-icon"><i class="fa-solid fa-circle-info"></i></div>
+                        <div>
+                            <div class="trigger-text">注意事項</div>
+                            <div class="trigger-sub">製作範本前務必看一下</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
                 </div>
-                <div class="doc-text">
-                    <p>用兩個各自獨立的段落當「起點」跟「終點」標記：</p>
-                    <div class="doc-code">{{day_start}}
-
-中間放你想要的一天份版面
-可以是表格、可以是段落，隨便設計
-
-{{day_end}}</div>
-                    <p>系統會把 <span class="doc-tag">{{day_start}}</span> 和 <span class="doc-tag">{{day_end}}</span> 中間的內容，當成「一天的版面樣式」，依這趟行程實際天數複製多份，並把裡面的標記換成當天資料：</p>
-                    <table class="doc-table">
-                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
-                        <tbody>
-                        <tr><td><span class="doc-tag">{{day.number}}</span></td><td>第幾天（數字）</td></tr>
-                        <tr><td><span class="doc-tag">{{day.title}}</span></td><td>當天標題（自動把當天所有景點名稱串起來）</td></tr>
-                        <tr><td><span class="doc-tag">{{day.content}}</span></td><td>當天景點行程內容（條列成一整段文字）</td></tr>
-                        <tr><td><span class="doc-tag">{{day.meals}}</span></td><td>當天餐食安排</td></tr>
-                        <tr><td><span class="doc-tag">{{day.hotel}}</span></td><td>當天住宿</td></tr>
-                        <tr><td><span class="doc-tag">{{day.map}}</span></td><td>當天景點連線地圖圖片（沒設定地圖功能或抓不到座標，這個段落會整段移除，不留空白）</td></tr>
-                        </tbody>
-                    </table>
-                    <p><strong>範例</strong>：如果你的範本長這樣（一個表格）：</p>
-                    <div class="doc-code">{{day_start}}
-第{{day.number}}天 | {{day.title}}
-{{day.content}}
-餐食: {{day.meals}} | 住宿: {{day.hotel}}
-{{day.map}}
-{{day_end}}</div>
-                    <p>系統會依天數把這整個表格複製對應份數，各自帶入該天的資料。</p>
-
-                    <p style="margin-top:16px;"><strong>逐項目區塊（選用）</strong>：如果 <span class="doc-tag">{{day.content}}</span> 這種「全部景點擠成一整段文字」不夠用，想要每個景點自己獨立一列/一格（例如要分開排版、加框線），可以改用 <span class="doc-tag">{{item_start}}</span> / <span class="doc-tag">{{item_end}}</span>，放在 <span class="doc-tag">{{day_start}}</span>...<span class="doc-tag">{{day_end}}</span> 裡面的表格儲存格中：</p>
-                    <div class="doc-code">{{item_start}}
-{{item.name}} {{item.note}}
-{{item.description}}
-{{item.route}}
-{{item_end}}</div>
-                    <p>系統會依這一天實際的景點數量，把 <span class="doc-tag">{{item_start}}</span> 和 <span class="doc-tag">{{item_end}}</span> 中間的內容複製對應份數，各自帶入該景點的資料（餐食、住宿不算在內，只有景點/亮點類項目才會列進來）：</p>
-                    <table class="doc-table">
-                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
-                        <tbody>
-                        <tr><td><span class="doc-tag">{{item.name}}</span></td><td>景點/項目名稱</td></tr>
-                        <tr><td><span class="doc-tag">{{item.note}}</span></td><td>這個項目的備註</td></tr>
-                        <tr><td><span class="doc-tag">{{item.description}}</span></td><td>景點資料庫裡的介紹說明（自訂項目沒有連結資料庫就會是空的）</td></tr>
-                        <tr><td><span class="doc-tag">{{item.route}}</span></td><td>離開這個景點前往下一站的拉車距離/時間</td></tr>
-                        </tbody>
-                    </table>
-                    <p><span class="doc-tag">{{item_start}}</span>...<span class="doc-tag">{{item_end}}</span> 是選用的，跟 <span class="doc-tag">{{day.content}}</span> 兩種寫法擇一使用即可，沒放 <span class="doc-tag">{{item_start}}</span> 完全不影響 <span class="doc-tag">{{day.content}}</span> 正常運作。</p>
-                </div>
-            </div>
-
-            <!-- 模組四：注意事項 -->
-            <div id="triggerNote" class="accordion-trigger" onclick="toggleDocAccordion('Note')">
-                <div class="trigger-left">
-                    <div class="trigger-icon"><i class="fa-solid fa-circle-info"></i></div>
-                    <div>
-                        <div class="trigger-text">注意事項</div>
-                        <div class="trigger-sub">製作範本前務必看一下</div>
+                <div id="panelNote" class="accordion-panel">
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-solid fa-circle-info" style="color:#4f46e5;"></i> 注意事項</div>
+                        <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="doc-text">
+                        <ul class="doc-list">
+                            <li><span class="doc-tag">{{day_start}}</span> / <span class="doc-tag">{{day_end}}</span> / <span class="doc-tag">{{images_block}}</span> 每份範本<strong>各限出現一次</strong>，且該段落<strong>只能有這個標記</strong>。</li>
+                            <li><span class="doc-tag">{{item_start}}</span> / <span class="doc-tag">{{item_end}}</span> 是 <span class="doc-tag">{{day_start}}</span>...<span class="doc-tag">{{day_end}}</span> 內的巢狀標記，同一版面<strong>各限出現一次</strong>；不放則照 <span class="doc-tag">{{day.content}}</span> 輸出。</li>
+                            <li>上傳範本後建議用系統的「預覽」功能實際看一次輸出結果，確認排版跟預期一致（尤其是表格框線、跨頁狀況）。</li>
+                            <li>目前不支援頁首/頁尾裡放逐日標記，逐日區塊請放在內文（正文）範圍。</li>
+                        </ul>
                     </div>
                 </div>
-                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
-            </div>
-            <div id="panelNote" class="accordion-panel">
-                <div class="panel-header">
-                    <div class="panel-title"><i class="fa-solid fa-circle-info" style="color:#4f46e5;"></i> 注意事項</div>
-                    <button type="button" class="btn-close-panel" onclick="toggleDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                <!-- 範例範本下載: 客戶版型/同業版型(Word) 各自獨立顯示, 依目前選的分頁籤決定顯示哪一個
+                     (改名成 TravelerEasyGate 那次重構意外整段刪掉了, 但 /sample-templates/ 底下的實際檔案從頭到尾
+                     都還在, 這次只是把連結補回來, 沒有動到任何檔案本身) -->
+                <div id="downloadCustomerWord" class="doc-text" style="flex:0 0 auto;">
+                    <p style="font-weight:700;color:var(--text-dark);margin-bottom:8px;">範例範本下載</p>
+                    <a href="/sample-templates/customer_word_sample.docx" download
+                       style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+                          color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
+                          padding:8px 14px;border-radius:8px;">
+                        <i class="fa-solid fa-download"></i> 下載客戶版型範例（.docx）
+                    </a>
                 </div>
-                <div class="doc-text">
-                    <ul class="doc-list">
-                        <li><span class="doc-tag">{{day_start}}</span> / <span class="doc-tag">{{day_end}}</span> / <span class="doc-tag">{{images_block}}</span> 每份範本<strong>各限出現一次</strong>，且該段落<strong>只能有這個標記</strong>。</li>
-                        <li><span class="doc-tag">{{item_start}}</span> / <span class="doc-tag">{{item_end}}</span> 是 <span class="doc-tag">{{day_start}}</span>...<span class="doc-tag">{{day_end}}</span> 內的巢狀標記，同一版面<strong>各限出現一次</strong>；不放則照 <span class="doc-tag">{{day.content}}</span> 輸出。</li>
-                        <li>上傳範本後建議用系統的「預覽」功能實際看一次輸出結果，確認排版跟預期一致（尤其是表格框線、跨頁狀況）。</li>
-                        <li>目前不支援頁首/頁尾裡放逐日標記，逐日區塊請放在內文（正文）範圍。</li>
-                    </ul>
+
+                <div id="downloadAgencyWord" class="doc-text" style="flex:0 0 auto; display:none;">
+                    <p style="font-weight:700;color:var(--text-dark);margin-bottom:8px;">範例範本下載</p>
+                    <a href="/sample-templates/agency_word_sample.docx" download
+                       style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+                          color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
+                          padding:8px 14px;border-radius:8px;">
+                        <i class="fa-solid fa-download"></i> 下載同業版型範例（.docx）
+                    </a>
                 </div>
             </div>
 
-        </div>
+            <div id="toolsAgency" class="tools-col-inner">
 
-        <div id="toolsAgency" class="tools-col-inner">
-
-            <!-- 模組一：一次性欄位 -->
-            <div id="triggerALine" class="accordion-trigger" onclick="toggleAgencyDocAccordion('ALine')">
-                <div class="trigger-left">
-                    <div class="trigger-icon"><i class="fa-solid fa-tag"></i></div>
-                    <div>
-                        <div class="trigger-text">一次性欄位</div>
-                        <div class="trigger-sub">團體名稱、天數、總計...</div>
+                <!-- 模組一：一次性欄位 -->
+                <div id="triggerALine" class="accordion-trigger" onclick="toggleAgencyDocAccordion('ALine')">
+                    <div class="trigger-left">
+                        <div class="trigger-icon"><i class="fa-solid fa-tag"></i></div>
+                        <div>
+                            <div class="trigger-text">一次性欄位</div>
+                            <div class="trigger-sub">團體名稱、天數、總計...</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+                </div>
+                <div id="panelALine" class="accordion-panel">
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-solid fa-tag" style="color:#4f46e5;"></i> 一次性欄位</div>
+                        <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="doc-text">
+                        <p>整份範本任何儲存格都可以用，出現一次就換一次：</p>
+                        <table class="doc-table">
+                            <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                            <tbody>
+                            <tr><td><span class="doc-tag">{{group_name}}</span></td><td>團體名稱（行程標題＋第幾版）</td></tr>
+                            <tr><td><span class="doc-tag">{{country}}</span></td><td>國家/地區</td></tr>
+                            <tr><td><span class="doc-tag">{{days_count}}</span></td><td>天數</td></tr>
+                            <tr><td><span class="doc-tag">{{date_range}}</span></td><td>出發～回程日期</td></tr>
+                            <tr><td><span class="doc-tag">{{group_size}}</span></td><td>團體人數</td></tr>
+                            <tr><td><span class="doc-tag">{{status}}</span></td><td>報價狀態（草稿/已鎖定/已確認）</td></tr>
+                            <tr><td><span class="doc-tag">{{note}}</span></td><td>報價單備註</td></tr>
+                            <tr><td><span class="doc-tag">{{total.gross_cost}}</span></td><td>總成本（Net）</td></tr>
+                            <tr><td><span class="doc-tag">{{total.net_cost}}</span></td><td>總淨成本（NNet）</td></tr>
+                            <tr><td><span class="doc-tag">{{total.basic_price}}</span></td><td>基本報價</td></tr>
+                            <tr><td><span class="doc-tag">{{total.trade_price}}</span></td><td>總同業價</td></tr>
+                            <tr><td><span class="doc-tag">{{total.retail_price}}</span></td><td>總直售價</td></tr>
+                            <tr><td><span class="doc-tag">{{total.rebate_amount}}</span></td><td>總退傭</td></tr>
+                            <tr><td><span class="doc-tag">{{total.profit_trade}}</span></td><td>利潤（同業）</td></tr>
+                            <tr><td><span class="doc-tag">{{total.profit_retail}}</span></td><td>利潤（直售）</td></tr>
+                            </tbody>
+                        </table>
+                        <p>如果儲存格「整格」剛好只放一個數字類標記（例如整格只有 <span class="doc-tag">{{total.trade_price}}</span>），系統會直接寫成數字儲存格，範本裡的 SUM 公式才能正常加總；跟其他文字混在同一格則一律當文字處理。</p>
                     </div>
                 </div>
-                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
-            </div>
-            <div id="panelALine" class="accordion-panel">
-                <div class="panel-header">
-                    <div class="panel-title"><i class="fa-solid fa-tag" style="color:#4f46e5;"></i> 一次性欄位</div>
-                    <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="doc-text">
-                    <p>整份範本任何儲存格都可以用，出現一次就換一次：</p>
-                    <table class="doc-table">
-                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
-                        <tbody>
-                        <tr><td><span class="doc-tag">{{group_name}}</span></td><td>團體名稱（行程標題＋第幾版）</td></tr>
-                        <tr><td><span class="doc-tag">{{country}}</span></td><td>國家/地區</td></tr>
-                        <tr><td><span class="doc-tag">{{days_count}}</span></td><td>天數</td></tr>
-                        <tr><td><span class="doc-tag">{{date_range}}</span></td><td>出發～回程日期</td></tr>
-                        <tr><td><span class="doc-tag">{{group_size}}</span></td><td>團體人數</td></tr>
-                        <tr><td><span class="doc-tag">{{status}}</span></td><td>報價狀態（草稿/已鎖定/已確認）</td></tr>
-                        <tr><td><span class="doc-tag">{{note}}</span></td><td>報價單備註</td></tr>
-                        <tr><td><span class="doc-tag">{{total.gross_cost}}</span></td><td>總成本（Net）</td></tr>
-                        <tr><td><span class="doc-tag">{{total.net_cost}}</span></td><td>總淨成本（NNet）</td></tr>
-                        <tr><td><span class="doc-tag">{{total.basic_price}}</span></td><td>基本報價</td></tr>
-                        <tr><td><span class="doc-tag">{{total.trade_price}}</span></td><td>總同業價</td></tr>
-                        <tr><td><span class="doc-tag">{{total.retail_price}}</span></td><td>總直售價</td></tr>
-                        <tr><td><span class="doc-tag">{{total.rebate_amount}}</span></td><td>總退傭</td></tr>
-                        <tr><td><span class="doc-tag">{{total.profit_trade}}</span></td><td>利潤（同業）</td></tr>
-                        <tr><td><span class="doc-tag">{{total.profit_retail}}</span></td><td>利潤（直售）</td></tr>
-                        </tbody>
-                    </table>
-                    <p>如果儲存格「整格」剛好只放一個數字類標記（例如整格只有 <span class="doc-tag">{{total.trade_price}}</span>），系統會直接寫成數字儲存格，範本裡的 SUM 公式才能正常加總；跟其他文字混在同一格則一律當文字處理。</p>
-                </div>
-            </div>
 
-            <!-- 模組二：明細列區塊 -->
-            <div id="triggerAOnce" class="accordion-trigger" onclick="toggleAgencyDocAccordion('AOnce')">
-                <div class="trigger-left">
-                    <div class="trigger-icon"><i class="fa-solid fa-table-list"></i></div>
-                    <div>
-                        <div class="trigger-text">明細列區塊</div>
-                        <div class="trigger-sub">依報價單項目數自動重複</div>
+                <!-- 模組二：明細列區塊 -->
+                <div id="triggerAOnce" class="accordion-trigger" onclick="toggleAgencyDocAccordion('AOnce')">
+                    <div class="trigger-left">
+                        <div class="trigger-icon"><i class="fa-solid fa-table-list"></i></div>
+                        <div>
+                            <div class="trigger-text">明細列區塊</div>
+                            <div class="trigger-sub">依報價單項目數自動重複</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+                </div>
+                <div id="panelAOnce" class="accordion-panel">
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-solid fa-table-list" style="color:#4f46e5;"></i> 明細列區塊</div>
+                        <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="doc-text">
+                        <p>用兩「列」（row）各自獨立當「起點」跟「終點」標記，A 欄整列只放這個標記：</p>
+                        <div class="doc-code">第1列：{{line_start}}
+                            第2列：（這一列放你想要的一筆明細版面，可以用下面的欄位）
+                            第3列：{{line_end}}</div>
+                        <p>系統會把 <span class="doc-tag">{{line_start}}</span> 和 <span class="doc-tag">{{line_end}}</span> 中間的那一列（或多列）版面，依這份報價單實際的明細筆數複製多份，並把裡面的標記換成每一筆的資料：</p>
+                        <table class="doc-table">
+                            <thead><tr><th>標記</th><th>會換成</th></tr></thead>
+                            <tbody>
+                            <tr><td><span class="doc-tag">{{line.name}}</span></td><td>項目名稱</td></tr>
+                            <tr><td><span class="doc-tag">{{line.category}}</span></td><td>類別</td></tr>
+                            <tr><td><span class="doc-tag">{{line.unit_price}}</span></td><td>單價</td></tr>
+                            <tr><td><span class="doc-tag">{{line.quantity}}</span></td><td>數量</td></tr>
+                            <tr><td><span class="doc-tag">{{line.gross_cost}}</span></td><td>Net（成本）</td></tr>
+                            <tr><td><span class="doc-tag">{{line.net_cost}}</span></td><td>NNet（淨成本）</td></tr>
+                            <tr><td><span class="doc-tag">{{line.basic_price}}</span></td><td>基本報價</td></tr>
+                            <tr><td><span class="doc-tag">{{line.trade_price}}</span></td><td>同業價</td></tr>
+                            <tr><td><span class="doc-tag">{{line.retail_price}}</span></td><td>直售價</td></tr>
+                            </tbody>
+                        </table>
+                        <p>複製出來的每一份都會套用模板列原本的儲存格樣式（字型、框線、合併儲存格），標記列本身輸出時會變成空白列。</p>
                     </div>
                 </div>
-                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
-            </div>
-            <div id="panelAOnce" class="accordion-panel">
-                <div class="panel-header">
-                    <div class="panel-title"><i class="fa-solid fa-table-list" style="color:#4f46e5;"></i> 明細列區塊</div>
-                    <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="doc-text">
-                    <p>用兩「列」（row）各自獨立當「起點」跟「終點」標記，A 欄整列只放這個標記：</p>
-                    <div class="doc-code">第1列：{{line_start}}
-第2列：（這一列放你想要的一筆明細版面，可以用下面的欄位）
-第3列：{{line_end}}</div>
-                    <p>系統會把 <span class="doc-tag">{{line_start}}</span> 和 <span class="doc-tag">{{line_end}}</span> 中間的那一列（或多列）版面，依這份報價單實際的明細筆數複製多份，並把裡面的標記換成每一筆的資料：</p>
-                    <table class="doc-table">
-                        <thead><tr><th>標記</th><th>會換成</th></tr></thead>
-                        <tbody>
-                        <tr><td><span class="doc-tag">{{line.name}}</span></td><td>項目名稱</td></tr>
-                        <tr><td><span class="doc-tag">{{line.category}}</span></td><td>類別</td></tr>
-                        <tr><td><span class="doc-tag">{{line.unit_price}}</span></td><td>單價</td></tr>
-                        <tr><td><span class="doc-tag">{{line.quantity}}</span></td><td>數量</td></tr>
-                        <tr><td><span class="doc-tag">{{line.gross_cost}}</span></td><td>Net（成本）</td></tr>
-                        <tr><td><span class="doc-tag">{{line.net_cost}}</span></td><td>NNet（淨成本）</td></tr>
-                        <tr><td><span class="doc-tag">{{line.basic_price}}</span></td><td>基本報價</td></tr>
-                        <tr><td><span class="doc-tag">{{line.trade_price}}</span></td><td>同業價</td></tr>
-                        <tr><td><span class="doc-tag">{{line.retail_price}}</span></td><td>直售價</td></tr>
-                        </tbody>
-                    </table>
-                    <p>複製出來的每一份都會套用模板列原本的儲存格樣式（字型、框線、合併儲存格），標記列本身輸出時會變成空白列。</p>
-                </div>
-            </div>
 
-            <!-- 模組三：注意事項 -->
-            <div id="triggerANote" class="accordion-trigger" onclick="toggleAgencyDocAccordion('ANote')">
-                <div class="trigger-left">
-                    <div class="trigger-icon"><i class="fa-solid fa-circle-info"></i></div>
-                    <div>
-                        <div class="trigger-text">注意事項</div>
-                        <div class="trigger-sub">製作範本前務必看一下</div>
+                <!-- 模組三：注意事項 -->
+                <div id="triggerANote" class="accordion-trigger" onclick="toggleAgencyDocAccordion('ANote')">
+                    <div class="trigger-left">
+                        <div class="trigger-icon"><i class="fa-solid fa-circle-info"></i></div>
+                        <div>
+                            <div class="trigger-text">注意事項</div>
+                            <div class="trigger-sub">製作範本前務必看一下</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
+                </div>
+                <div id="panelANote" class="accordion-panel">
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-solid fa-circle-info" style="color:#4f46e5;"></i> 注意事項</div>
+                        <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="doc-text">
+                        <ul class="doc-list">
+                            <li><span class="doc-tag">{{line_start}}</span> / <span class="doc-tag">{{line_end}}</span> 這兩個標記，每個工作表（分頁）裡<strong>只能各出現一次</strong>，而且該列裡<strong>只能有這個標記</strong>，不要跟其他文字/欄位混在同一列。</li>
+                            <li>如果範本有多個分頁，目前只有第一個放了 <span class="doc-tag">{{line_start}}</span>／<span class="doc-tag">{{line_end}}</span> 的分頁會展開明細列，其他分頁只會做一般的一次性欄位替換。</li>
+                            <li>上傳範本後建議實際下載一次匯出結果，確認欄寬、框線、SUM 公式都跟預期一致。</li>
+                            <li>把上傳的範本設為「預設範本」後，報價單列表的「匯出 Excel」就會自動套用；沒有設定預設範本的話，會維持系統內建的固定版面。</li>
+                        </ul>
                     </div>
                 </div>
-                <i class="fa-solid fa-chevron-down" style="font-size: 11px; color: var(--text-gray);"></i>
-            </div>
-            <div id="panelANote" class="accordion-panel">
-                <div class="panel-header">
-                    <div class="panel-title"><i class="fa-solid fa-circle-info" style="color:#4f46e5;"></i> 注意事項</div>
-                    <button type="button" class="btn-close-panel" onclick="toggleAgencyDocAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
-                </div>
                 <div class="doc-text">
-                    <ul class="doc-list">
-                        <li><span class="doc-tag">{{line_start}}</span> / <span class="doc-tag">{{line_end}}</span> 這兩個標記，每個工作表（分頁）裡<strong>只能各出現一次</strong>，而且該列裡<strong>只能有這個標記</strong>，不要跟其他文字/欄位混在同一列。</li>
-                        <li>如果範本有多個分頁，目前只有第一個放了 <span class="doc-tag">{{line_start}}</span>／<span class="doc-tag">{{line_end}}</span> 的分頁會展開明細列，其他分頁只會做一般的一次性欄位替換。</li>
-                        <li>上傳範本後建議實際下載一次匯出結果，確認欄寬、框線、SUM 公式都跟預期一致。</li>
-                        <li>把上傳的範本設為「預設範本」後，報價單列表的「匯出 Excel」就會自動套用；沒有設定預設範本的話，會維持系統內建的固定版面。</li>
-                    </ul>
+                    <a href="/sample-templates/agency_excel_sample.xlsx" download
+                       style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+              color:var(--primary-blue);background:#eff6ff;border:1px solid #dbeafe;
+              padding:8px 14px;border-radius:8px;margin-bottom:12px;">
+                        <i class="fa-solid fa-download"></i> 下載範例範本（.xlsx）
+                    </a>
                 </div>
-            </div>
 
-        </div>
+            </div>
         </div>
 
     </div>
@@ -626,6 +655,11 @@
         const isWord = type === 'customer' || type === 'agencyWord';
         document.getElementById('toolsCustomer').classList.toggle('active', isWord);
         document.getElementById('toolsAgency').classList.toggle('active', !isWord);
+
+        // 客戶版型/同業版型(Word) 共用同一個教學面板 (toolsCustomer), 這裡依實際選的是哪個分頁籤,
+        // 只顯示對應那一個下載連結, 不要兩個一起出現
+        document.getElementById('downloadCustomerWord').style.display = (type === 'customer') ? 'block' : 'none';
+        document.getElementById('downloadAgencyWord').style.display = (type === 'agencyWord') ? 'block' : 'none';
     }
 
     // 右側「同業版型格式教學」手風琴 (跟 toggleDocAccordion 邏輯一樣, id 前綴不同避免衝突)
