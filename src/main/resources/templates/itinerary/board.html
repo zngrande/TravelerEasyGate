@@ -204,9 +204,16 @@
             padding: 12px 16px; border-radius: 10px; font-size: 13.5px;
             display: flex; align-items: center; gap: 8px;
         }
+        /* 使用者反映「筆電螢幕比較窄 (約 1366px) 打開時，這排 Day 分頁 + 排序下拉選單會被擠成兩行，
+           整個頁面也跟著變長」——根因是這裡原本用 flex-wrap:wrap，天數一多 (或視窗一窄) 加上最後那顆
+           排序 <select> 本身文字就不短，一排放不下就直接换行，變成兩行甚至三行。跟上面 .nav-actions
+           (頂部「已儲存/編輯基本資料/報價單...」那排按鈕) 遇到一模一樣的問題、用同一套修法：
+           改成不換行 (flex-wrap:nowrap)，真的放不下就整排自己橫向捲動 (overflow-x:auto)，
+           不會讓任何一個 Day 分頁或下拉選單被擠到換行、也不會把整個工具列的高度撐高。 */
         .day-tabs-wrapper {
             display: flex;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
+            overflow-x: auto;
             align-items: center;
             gap: 10px;
             background: #fff;
@@ -226,6 +233,8 @@
             color: var(--text-gray);
             cursor: pointer;
             transition: all 0.15s;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         .day-tab:hover { background: #f1f5f9; color: var(--text-dark); border-color: #cbd5e1; }
         /* Day 分頁改用 div 而不是 button (裡面要再放一個獨立可點擊的刪除小叉叉, button 裡面巢狀 button/

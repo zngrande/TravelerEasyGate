@@ -83,10 +83,16 @@
         .stat-card:nth-child(3) .stat-icon { background: #f3e8ff; color: var(--primary-purple); }
         .stat-card:nth-child(3) .stat-number { color: var(--primary-purple); }
 
-        /* Table Styles */
-        .table-container { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+        /* Table Styles
+           使用者用筆電 (約 1366px 寬) 開啟時反映「畫面被擠壓」——這張表「操作」欄位塞了 編輯行程/編輯基本資料/
+           編輯報價 三個文字連結 + 釘選/複製/刪除三顆圖示按鈕，加上「行程名稱」「國家」欄位本身也可能很長
+           (多國行程、長標題)，欄位加總起來在較窄的螢幕上很容易超出這張表容器的寬度。但容器原本只有
+           overflow:hidden、沒有 overflow-x:auto，代表超出的部分不是「可以拉滾軸看到」，而是直接被裁掉、
+           完全看不到、也點不到 (最右邊的刪除按鈕可能因此消失)——這比「要橫向捲動才看得到」更嚴重。
+           補上 overflow-x:auto，超出時至少可以橫向捲動找到，不會整個消失。 */
+        .table-container { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; text-align: left; }
-        th { background: #f8fafc; padding: 16px 20px; font-size: 13px; color: var(--text-gray); font-weight: 500; border-bottom: 1px solid var(--border-color); }
+        th { background: #f8fafc; padding: 16px 20px; font-size: 13px; color: var(--text-gray); font-weight: 500; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
         td { padding: 16px 20px; border-bottom: 1px solid var(--border-color); vertical-align: middle; font-size: 14px; }
         tr:last-child td { border-bottom: none; }
 
@@ -98,9 +104,9 @@
         .status-pending { background: #fff7ed; color: #ea580c; }
         .status-confirmed { background: #f0fdf4; color: #16a34a; }
 
-        .actions { display: flex; align-items: center; gap: 12px; }
-        .btn-text { color: var(--primary-blue); font-weight: 500; font-size: 13px; }
-        .btn-icon { color: var(--text-gray); background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px; }
+        .actions { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
+        .btn-text { color: var(--primary-blue); font-weight: 500; font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+        .btn-icon { color: var(--text-gray); background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px; flex-shrink: 0; }
         .btn-icon:hover { color: #ef4444; }
 
         .table-footer { padding: 16px; text-align: center; border-top: 1px solid var(--border-color); }

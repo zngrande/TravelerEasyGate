@@ -97,6 +97,18 @@
         .table-container { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; overflow-x: auto; }
         th { background: #f8fafc; padding: 12px 14px; font-size: 12.5px; color: var(--text-gray); font-weight: 600; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
         td { padding: 12px 14px; border-bottom: 1px solid var(--border-color); vertical-align: middle; white-space: nowrap; }
+        /* 使用者反映「用筆電（約 1366px 寬）打開報價項目明細，欄位要一直往左拉才看得到後面的欄位」——
+           「報價項目明細」這張表本來就有 14~16 欄（級距/項目/計費方式/幣別匯率/單價/數量/FOC折抵/Net/
+           NNet/基本報價/同業價/直售價/退傭/利潤(同業)/利潤(直售)/操作），在 27 吋螢幕上塞得下不用捲動，
+           但筆電螢幕扣掉側邊欄後可用寬度小很多，這麼多欄位原本的字級/留白排下來一定會超寬，只能靠
+           .table-container 既有的 overflow-x:auto 橫向捲動才看得到後面幾欄——不是排版壞掉，是欄位真的
+           比較窄的螢幕塞不下，但這樣使用起來還是不方便。這裡在較窄的螢幕上把字級跟儲存格留白都縮小一點，
+           讓實際需要橫向捲動的欄位數變少，不用大幅度地重新設計整張表。 */
+        @media (max-width: 1440px) {
+            table { font-size: 12px; }
+            th { padding: 8px 8px; }
+            td { padding: 8px 8px; }
+        }
         tr:last-child td { border-bottom: none; }
         .num { text-align: right; font-variant-numeric: tabular-nums; }
         .item-name { font-weight: 600; white-space: normal; }
