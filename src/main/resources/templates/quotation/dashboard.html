@@ -33,10 +33,18 @@
         .filter-box i { color: var(--text-gray); font-size: 13px; }
         .filter-box input { border: none; outline: none; font-size: 13px; width: 220px; font-family: inherit; color: var(--text-dark); }
 
-        /* Table Styles (跟「我的行程」那頁同一套樣式, 讓兩個列表看起來是同一個系統) */
-        .table-container { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+        /* Table Styles (跟「我的行程」那頁同一套樣式, 讓兩個列表看起來是同一個系統)
+           使用者反映「報價單清單還是會擠起來」——這張表跟「我的行程」那頁（agency/dashboard.html）
+           用的是同一套版面設計，但先前那一輪筆電窄螢幕修正只改了「我的行程」那頁，這裡（報價單列表）
+           當時漏掉沒有一起處理，所以還是原本沒有防護的版本：.table-container 只有 overflow:hidden、
+           沒有 overflow-x:auto（欄位超寬時直接被裁掉、看不到也點不到，不是「可以拉滾軸看到」）；th
+           沒有 white-space:nowrap（「出發日期」「報價單版本數」這種標題文字會被擠成兩三行、把整排
+           高度撐高，就是使用者截圖裡「出發」「日期」斷成兩行的樣子）；.status-badge 也沒有
+           white-space:nowrap（「草稿」「已完成」中文字之間可以斷行，欄位一窄就斷成兩行）。這裡照
+           agency/dashboard.html 那一輪已經驗證過的修法整套補上，兩張列表現在採用一致的窄螢幕防護。 */
+        .table-container { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; text-align: left; }
-        th { background: #f8fafc; padding: 16px 20px; font-size: 13px; color: var(--text-gray); font-weight: 500; border-bottom: 1px solid var(--border-color); }
+        th { background: #f8fafc; padding: 16px 20px; font-size: 13px; color: var(--text-gray); font-weight: 500; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
         td { padding: 16px 20px; border-bottom: 1px solid var(--border-color); vertical-align: middle; font-size: 14px; }
         tr:last-child td { border-bottom: none; }
         tr.itinerary-row { cursor: pointer; transition: background 0.12s ease; }
@@ -44,14 +52,20 @@
 
         .itinerary-cell { display: flex; align-items: center; gap: 12px; font-weight: 500; }
 
-        .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block; }
+        /* 使用者反映「出發日期」欄位的日曆圖示跟日期文字會斷成兩行——根因是圖示 <i> 跟日期 <span>
+           這兩個行內元素之間，HTML 原始碼裡的換行/縮排會被瀏覽器當成一個可以斷行的空白字元，欄位
+           一旦被壓縮到比「圖示+日期」完整寬度還窄，就會從那個空白處斷開。加上 white-space:nowrap
+           讓這個儲存格內容維持同一行，欄位真的不夠寬時交給 .table-container 的 overflow-x:auto 處理。 */
+        .date-cell { white-space: nowrap; }
+
+        .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block; white-space: nowrap; }
         .status-draft { background: #eff6ff; color: var(--primary-blue); }
         .status-confirmed { background: #f0fdf4; color: #16a34a; }
 
-        .quote-count-badge { display: inline-flex; align-items: center; gap: 6px; background: #f3e8ff; color: var(--primary-purple); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .quote-count-badge { display: inline-flex; align-items: center; gap: 6px; background: #f3e8ff; color: var(--primary-purple); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
         .quote-count-badge.zero { background: #f1f5f9; color: var(--text-gray); }
 
-        .btn-text { color: var(--primary-blue); font-weight: 500; font-size: 13px; }
+        .btn-text { color: var(--primary-blue); font-weight: 500; font-size: 13px; white-space: nowrap; }
 
         .empty-state { padding: 60px 20px; text-align: center; color: var(--text-gray); }
         .empty-state i { font-size: 32px; color: #cbd5e1; margin-bottom: 12px; display: block; }
@@ -102,7 +116,7 @@
                 </td>
                 <td th:text="${it.country} + (${it.region} != null ? ' / ' + ${it.region} : '')"></td>
                 <td th:text="${it.daysCount} + ' 天'"></td>
-                <td>
+                <td class="date-cell">
                     <i class="fa-regular fa-calendar" style="color: #94a3b8; margin-right: 4px;"></i>
                     <span th:text="${it.startDate}"></span>
                 </td>

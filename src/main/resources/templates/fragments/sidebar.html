@@ -177,7 +177,18 @@
         .sbhelp-close:hover { background: #e2e8f0; color: var(--text-dark, #0f172a); }
         .sbhelp-body { overflow-y: auto; padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 8px; }
 
-        .sbhelp-item { border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; overflow: hidden; }
+        /* 使用者反映「使用說明」彈窗點開某一項目的說明後，內容會被截斷、疊到下一個項目的框線上
+           （用 Playwright 實際重現確認：展開後這個項目本身的高度沒有跟著說明文字撐開，說明文字被
+           overflow:hidden 從中間切斷）——根因是這裡的 overflow:hidden 讓瀏覽器 flexbox 的「自動
+           最小高度」規則失效 (CSS 規範: 只有 overflow:visible 的 flex item 才會用內容高度當最小
+           高度，overflow 不是 visible 時最小高度會變成 0)。.sbhelp-body 是 display:flex;
+           flex-direction:column，裡面每個 .sbhelp-item 都是它的 flex item；當展開的說明文字讓
+           全部項目加起來的高度超過彈窗可用空間時，因為最小高度變成 0，瀏覽器會把「剛展開、最需要
+           完整高度」的這個項目往下壓縮 (flex-shrink 預設是 1)，被壓縮的部分因為 overflow:hidden
+           直接看不到——手風琴每個項目應該要嘛完整顯示、要嘛不展開，不應該被硬壓扁。
+           修正: 加上 flex-shrink:0，讓每個項目一律維持自己內容需要的完整高度，不會被壓縮；真的超出
+           彈窗可用高度時，交給外層 .sbhelp-body 本來就有的 overflow-y:auto 整體垂直捲動處理。 */
+        .sbhelp-item { border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; overflow: hidden; flex-shrink: 0; }
         .sbhelp-item-trigger {
             width: 100%;
             display: flex;
@@ -243,6 +254,29 @@
         input[type="time"]:hover::-webkit-calendar-picker-indicator {
             opacity: 1;
             background: #eff6ff;
+        }
+
+        /* 使用者反映「使用說明在筆電會跑版」——附的截圖其實是打開說明彈窗、背景變暗之後，透過暗色遮罩
+           看到側邊欄本身冒出一條內部捲軸（卡在「行程列表/報價單」下面，看起來像是排版壞掉）。追查後
+           發現這其實跟說明彈窗本身無關，是側邊欄在「螢幕比較矮」的筆電上原本就會出現的問題，只是打開
+           彈窗、背景一變暗，使用者才第一次注意到——根因是 .sidebar 用 height:100vh 撐滿整個視窗高度，
+           但裡面塞的東西 (logo + 最多三個分類、共 8 個功能項目 + 「需要協助嗎？」+ 帳號列) 全部用比較
+           寬鬆的間距/留白排下來，在 27 吋螢幕上綽綽有餘，但一般筆電扣掉瀏覽器分頁列/網址列之後，實際
+           可用高度常常不到 700px，塞不下這些內容，中間的 .nav-menu (唯一設定 overflow-y:auto 的區塊,
+           讓「需要協助嗎？」跟帳號列固定在最下面, 不會被推走) 就會自己冒出一條捲軸——不是排版壞掉,
+           是真的放不下, 但一條捲軸卡在側邊欄中間, 看起來確實很像跑版。
+           修正: 螢幕高度比較矮 (筆電常見情況) 時, 把側邊欄各處的留白/間距整體收緊一點 (側邊欄上下
+           padding、logo 下方留白、分類標題間距、每個功能項目的上下留白、「需要協助嗎？」的留白都
+           略為縮小), 讓全部內容加起來矮個 100px 左右, 大部分筆電螢幕就不用再靠這條捲軸也能完整顯示
+           所有項目; 27 吋等高螢幕 (螢幕高度 > 800px) 不會觸發這個媒體查詢, 維持原本比較寬鬆的間距。 */
+        @media (max-height: 800px) {
+            .sidebar { padding: 16px 20px; }
+            .logo { margin-bottom: 20px; }
+            .nav-section-title { margin: 10px 10px 4px; }
+            .nav-menu > .nav-section-title:first-child { margin-top: 0; }
+            .nav-item { padding: 8px 16px; }
+            .help-box { padding: 12px; margin-top: 8px; margin-bottom: 8px; }
+            .user-profile { padding: 6px 16px; }
         }
     </style>
 

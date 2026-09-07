@@ -25,6 +25,14 @@
             --border-color: #e2e8f0;
             --sidebar-width: 200px;
 
+            /* 三欄主要工作區 (左側工具列/中間行程清單/右側地圖) 目前的欄寬——原本是寫死在
+               .board-body 的 grid-template-columns 裡的 240px / 460px, 改用 CSS 變數是為了讓
+               下面新增的「拖曳調整欄寬」功能可以直接用 JS 改這兩個變數的值, 兩欄跟著即時變寬變窄,
+               不用每次拖曳都重寫整串 grid-template-columns。使用者上次操作記住的寬度存在
+               localStorage, 換頁後會用 JS 還原（見 initBoardResizers()）。 */
+            --tools-col-width: 240px;
+            --map-col-width: 460px;
+
             --tag-attraction: #4338ca;
             --tag-attraction-bg: #eef2ff;
             --tag-meal: #d97706;
@@ -98,13 +106,31 @@
             white-space: nowrap;
             min-width: 0;
         }
+        /* 使用者反映「回行程列表這排按鈕最右邊還是會跑出去」——即使前面已經幫這一排加上 overflow-x:auto，
+           問題還是沒解決，回頭仔細檢查才發現真正的根因在這裡: 這裡原本還多寫了一個 flex-shrink:0。
+           flex-shrink:0 的意思是「這個元素永遠不縮小，一定維持它內容本身需要的完整寬度」——但這樣一來，
+           上面那行 overflow-x:auto 其實從來沒有機會派上用場: 瀏覽器只會在「這個元素被分配到的寬度小於
+           內容本身的寬度」時才會出現內部捲軸讓你左右拉，而 flex-shrink:0 保證這個元素永遠等於內容寬度，
+           兩者根本不會同時發生。實際狀況是: 這排按鈕 (已儲存/上一步/編輯基本資料/報價單/快速抓價錢/
+           鎖定行程/完成行程/匯出行程/回行程列表, 一共 9 個) 內容寬度在筆電較窄的螢幕下比可用空間寬,
+           因為 flex-shrink:0 撐開了整個 .nav-actions, 多出來的部分就從 .top-navbar 這個 flex 容器
+           「溢出」出去, 而上層 .main-content 又是 overflow:hidden (見上面 body/main-content 的說明,
+           是刻意設計成「整頁不出現捲軸, 只有中間行程清單自己捲動」), 溢出的部分就直接被裁掉、完全看不到
+           也拉不到——最右邊的「回行程列表」就是這樣消失的, 不是「換行」也不是「要往左拉才看得到」,
+           而是整個從畫面上不見了。
+           修正: 把 flex-shrink:0 拿掉、改成允許縮小 (min-width:0 讓它真的能被壓縮到比內容窄, 這是
+           overflow-x:auto 能夠實際生效、出現內部橫向捲軸的前提)。這樣當空間不夠時, 這排按鈕會先被壓縮
+           到比較窄的寬度, 這時候 overflow-x:auto 才會真正啟動, 使用者可以在這排按鈕「自己的範圍內」
+           左右捲動看到包含「回行程列表」在內的所有按鈕, 不會再整個消失不見。標題那塊 (.navbar-title)
+           本來就設定 flex:1 1 auto 會優先被壓縮讓出空間, 這裡改完後兩邊會一起正常運作。 */
         .nav-actions {
             display: flex;
             align-items: center;
             gap: 12px;
             flex-wrap: nowrap;
             overflow-x: auto;
-            flex-shrink: 0;
+            flex-shrink: 1;
+            min-width: 0;
         }
         /* 上面提到的「少數用 inline style 寫死、沒有 white-space:nowrap」的按鈕 (已儲存/上一步/鎖定行程),
            統一用選擇器補上, 不用逐個改 inline style；.nav-actions 已經 flex-shrink:0 (見上面), 真的
@@ -286,23 +312,64 @@
         .btn-add-day:hover { background: #eff6ff; border-color: var(--primary-blue); }
         .btn-add-day:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* 三欄版面：左(縮小至 240px) | 中(自適應) | 右(擴大至 460px)
+        /* 三欄版面：左(可拖曳調整) | 中(自適應) | 右(可拖曳調整)
            三欄的高度都改成「填滿 board-body 剩餘可用高度」再各自內部捲動, 不再用 calc(100vh - 固定數字) 用猜的,
-           不然頂部導覽列/AI提示列高度一變, 猜的數字就會跟實際可用空間對不起來, 導致地圖或其他欄位超出畫面。 */
+           不然頂部導覽列/AI提示列高度一變, 猜的數字就會跟實際可用空間對不起來, 導致地圖或其他欄位超出畫面。
+           使用者反映「想要像 Windows 分割視窗那樣自己拖曳調整寬度」「地圖好像是固定大小的、想要小一點,
+           重點是中間的行程」——原本用 CSS Grid 寫死 grid-template-columns: 240px 1fr 460px, 兩側欄寬完全
+           沒有辦法調整。這裡改用 Flexbox 取代 Grid (效果相同: 子元素一樣會被 align-items:stretch 撐滿這一列
+           高度), 左右兩欄寬度改吃 :root 上面新增的 --tools-col-width / --map-col-width 這兩個 CSS 變數
+           (預設值跟原本寫死的 240px/460px 一樣, 沒有動過 JS 前畫面長得完全一樣), 中間 .main-col 用 flex:1
+           auto 自動撐滿剩餘空間。左右欄跟中間欄之間各插入一個 .board-resize-handle 讓使用者拖曳
+           (見下面 initBoardResizers()), 拖曳時即時改這兩個 CSS 變數的值, 兩側欄跟著變寬變窄, 中間欄
+           自動吃掉/讓出空間, 不用整串重寫 grid-template-columns。 */
         .board-body {
-            display: grid;
-            grid-template-columns: 240px 1fr 460px;
-            gap: 20px;
+            display: flex;
             align-items: stretch;
+            gap: 0;
             flex: 1;
             min-height: 0;
         }
+        /* 拖曳調整欄寬用的把手: 寬度跟原本兩欄之間的 gap (20px) 一樣, 讓沒有拖曳過的畫面看起來
+           跟改版前一模一樣; 中間用 ::after 畫一條窄窄的直線當作視覺提示, 滑鼠移上去/拖曳中變成
+           主色, 讓使用者看得出「這裡可以拖」。實際可以按住拖曳的判定範圍是整個 20px 寬 (比那條線
+           寬很多), 比較好瞄準, 不用剛好點在那條細線上。 */
+        .board-resize-handle {
+            flex: 0 0 20px;
+            width: 20px;
+            align-self: stretch;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: col-resize;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .board-resize-handle::after {
+            content: '';
+            width: 4px;
+            height: 44px;
+            max-height: 40%;
+            border-radius: 3px;
+            background: var(--border-color);
+            transition: background 0.15s ease;
+        }
+        .board-resize-handle:hover::after,
+        .board-resize-handle.dragging::after {
+            background: var(--primary-blue);
+        }
+        /* 拖曳過程中滑鼠可能移得比手把手本身快, 短暫移出 20px 的判定範圍——這裡在拖曳期間額外
+           在整個 body 上蓋一層透明遮罩維持 col-resize 游標並吃掉其他元素的 hover/click 效果
+           (見 JS 的 dragOverlay), 不靠這個 class 本身處理, 這裡只負責手把手自己的外觀。 */
 
         /* 1. 左側：三大展開式模組 (240px)
            改成不整欄捲動 (拿掉 overflow-y:auto), 展開的那個面板改用 flex:1 撐滿剩餘高度,
            真正的捲動只交給面板「內部」該捲動的清單區塊 (時間軸 / 景點清單) 一層處理,
            避免同時出現「整欄捲軸」+「清單自己的捲軸」兩層滾輪互相干擾。 */
         .tools-col {
+            width: var(--tools-col-width);
+            flex: 0 0 auto;
             display: flex;
             flex-direction: column;
             gap: 12px;
@@ -569,7 +636,11 @@
            跟左側 .tools-col / 右側 .map-col 用同一套做法: 高度是 board-body 這一列的實際可用高度 (由 flex 精準算出,
            不是用固定 vh 數字用猜的), 超過就自己出現捲軸, 不會把整個瀏覽器頁面往下撐開。 */
         .main-col {
-            min-width: 0;
+            /* 中間欄用 flex:1 auto 自動吃掉左右兩欄拖曳後讓出的剩餘空間；min-width:320px 是
+               中間行程內容不管兩側怎麼拖都不能被壓過的底線, 拖曳的 JS (clampTools/clampMap)
+               也會照這個數字去限制左右兩欄最多可以拖多寬, 兩邊要維持一致。 */
+            flex: 1 1 auto;
+            min-width: 320px;
             height: 100%;
             min-height: 0;
             overflow-y: auto;
@@ -783,6 +854,8 @@
         /* 3. 右側：地圖欄位 (460px)
            高度改成填滿 board-body 這一列可用高度, 不再用固定 vh 數字, 避免超出畫面 */
         .map-col {
+            width: var(--map-col-width);
+            flex: 0 0 auto;
             height: 100%;
             min-height: 0;
             display: flex;
@@ -1210,6 +1283,8 @@
 
             </div>
 
+            <div class="board-resize-handle" id="resizeToolsMain" title="拖曳調整左側欄寬"></div>
+
             <!-- 2. 中間：主要行程拖曳清單 -->
             <div class="main-col">
                 <div th:each="day, iter : ${days}"
@@ -1227,7 +1302,9 @@
                 </div>
             </div>
 
-            <!-- 3. 右側：擴大獨立地圖預覽 (460px) -->
+            <div class="board-resize-handle" id="resizeMainMap" title="拖曳調整地圖欄寬"></div>
+
+            <!-- 3. 右側：擴大獨立地圖預覽 (預設 460px, 可拖曳調整) -->
             <div class="map-col">
                 <div class="map-section">
                     <div class="map-header">
@@ -3040,6 +3117,134 @@
                 markDirty();
             }
         });
+    })();
+
+    // ---------------- 三欄可調整寬度 (行程時間表 / 行程內容 / 地圖), 拖曳把手實作 ----------------
+    // 使用者反映想要像 Windows 可以左右分割視窗那樣, 自己拖曳調整「行程時間表」「行程內容」「地圖」
+    // 這三欄的寬度比例；地圖預設是固定大小，想要地圖可以縮小、把空間讓給中間的行程內容。
+    // 版面在 CSS 那邊已經從 Grid 改成 Flexbox: .tools-col / .map-col 讀 --tools-col-width /
+    // --map-col-width 這兩個 CSS 變數決定寬度, 中間 .main-col 用 flex:1 自動吃掉剩下空間並保留
+    // min-width:320px 下限。這裡拖曳時只要直接改 CSS 變數的值, 版面就會跟著即時重新排版,
+    // 不用自己手動去算/改 .main-col 的寬度。
+    (function initBoardResizers() {
+        const boardBody = document.querySelector('.board-body');
+        const handleToolsMain = document.getElementById('resizeToolsMain');
+        const handleMainMap = document.getElementById('resizeMainMap');
+        if (!boardBody || !handleToolsMain || !handleMainMap) return;
+
+        const MAIN_MIN_WIDTH = 320;    // 跟 .main-col 的 min-width 一致, 中間行程內容不能被壓過這個寬度
+        const TOOLS_MIN_WIDTH = 180;
+        const TOOLS_MAX_WIDTH = 480;
+        const MAP_MIN_WIDTH = 220;     // 使用者要求「地圖可以小一點」, 這裡放寬到比原本 460px 預設值小很多
+        const MAP_MAX_WIDTH = 900;
+        const HANDLES_WIDTH = 40;      // 兩個 .board-resize-handle 各 20px, 算可拖曳範圍時要扣掉這段固定寬度
+        const STORAGE_KEY_TOOLS = 'teg-board-tools-col-width';
+        const STORAGE_KEY_MAP = 'teg-board-map-col-width';
+
+        function getToolsWidth() {
+            return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--tools-col-width')) || 240;
+        }
+        function getMapWidth() {
+            return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--map-col-width')) || 460;
+        }
+        function setToolsWidth(px) {
+            document.documentElement.style.setProperty('--tools-col-width', px + 'px');
+        }
+        function setMapWidth(px) {
+            document.documentElement.style.setProperty('--map-col-width', px + 'px');
+        }
+
+        // 拖曳地圖那側的把手後, 地圖容器的實際尺寸變了, 但 Google Maps 不會自動重新排版鋪滿新的
+        // 容器大小, 一定要手動觸發 resize 事件、並在之後重新設回原本的中心點 (觸發 resize 時地圖
+        // 中心可能會跑掉), 不然地圖畫面會停留在舊尺寸、周圍留白變大或畫面被裁掉一角。
+        function triggerMapResize() {
+            if (typeof mapInstance === 'undefined' || !mapInstance || !mapInstance.map) return;
+            const center = mapInstance.map.getCenter();
+            google.maps.event.trigger(mapInstance.map, 'resize');
+            if (center) mapInstance.map.setCenter(center);
+        }
+
+        function clampTools(px) {
+            const boardWidth = boardBody.getBoundingClientRect().width;
+            const maxByBoard = Math.max(TOOLS_MIN_WIDTH, boardWidth - HANDLES_WIDTH - MAIN_MIN_WIDTH - getMapWidth());
+            return Math.max(TOOLS_MIN_WIDTH, Math.min(px, TOOLS_MAX_WIDTH, maxByBoard));
+        }
+        function clampMap(px) {
+            const boardWidth = boardBody.getBoundingClientRect().width;
+            const maxByBoard = Math.max(MAP_MIN_WIDTH, boardWidth - HANDLES_WIDTH - MAIN_MIN_WIDTH - getToolsWidth());
+            return Math.max(MAP_MIN_WIDTH, Math.min(px, MAP_MAX_WIDTH, maxByBoard));
+        }
+
+        // 拖曳過程中滑鼠移動速度可能比把手本身還快, 短暫移出 20px 的判定範圍 (尤其把手很窄,
+        // 快速拖曳時很容易滑出去); 這裡用一個蓋滿全螢幕的透明遮罩 (dragOverlay) 在拖曳期間接住
+        // 所有滑鼠事件, 讓游標全程維持 col-resize、也順便擋掉底下表格列/按鈕在拖曳滑過時被觸發
+        // hover/click 效果, 拖曳結束就移除, 平常完全不影響頁面。
+        let dragOverlay = null;
+        function showDragOverlay() {
+            dragOverlay = document.createElement('div');
+            dragOverlay.style.cssText = 'position:fixed; inset:0; z-index:9999; cursor:col-resize;';
+            document.body.appendChild(dragOverlay);
+        }
+        function hideDragOverlay() {
+            if (dragOverlay) {
+                dragOverlay.remove();
+                dragOverlay = null;
+            }
+        }
+
+        // sign: 拖曳把手往右移動 (clientX 變大) 時, 左側「行程時間表」欄要變寬 (+delta),
+        // 但右側「地圖」欄反而要變窄 (-delta) 才會是「拖曳把手，一邊變大一邊變小」的直覺方向。
+        function makeResizer(handle, { getWidth, setWidth, clamp, sign, isMapHandle }) {
+            let dragging = false;
+            let startX = 0;
+            let startWidth = 0;
+
+            function onDown(clientX) {
+                dragging = true;
+                startX = clientX;
+                startWidth = getWidth();
+                handle.classList.add('dragging');
+                showDragOverlay();
+            }
+            function onMove(clientX) {
+                if (!dragging) return;
+                const delta = (clientX - startX) * sign;
+                setWidth(clamp(startWidth + delta));
+            }
+            function onUp() {
+                if (!dragging) return;
+                dragging = false;
+                handle.classList.remove('dragging');
+                hideDragOverlay();
+                // 拖曳結束才存 localStorage, 下次打開這個 (或其他行程的) 看板頁會記住調整過的寬度
+                localStorage.setItem(STORAGE_KEY_TOOLS, getToolsWidth());
+                localStorage.setItem(STORAGE_KEY_MAP, getMapWidth());
+                // 拖曳過程中容器尺寸一直在變, 若每個 mousemove 都觸發一次 google.maps resize
+                // 效能會很差, 所以只在放開滑鼠/手指這一刻觸發一次就好。
+                if (isMapHandle) triggerMapResize();
+            }
+
+            handle.addEventListener('mousedown', (e) => { onDown(e.clientX); e.preventDefault(); });
+            document.addEventListener('mousemove', (e) => onMove(e.clientX));
+            document.addEventListener('mouseup', onUp);
+            // 觸控裝置 (平板) 也能拖曳, 手動接 touch 事件跟滑鼠事件統一導去同一組處理邏輯
+            handle.addEventListener('touchstart', (e) => { onDown(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
+            document.addEventListener('touchmove', (e) => { if (dragging) { onMove(e.touches[0].clientX); e.preventDefault(); } }, { passive: false });
+            document.addEventListener('touchend', onUp);
+        }
+
+        makeResizer(handleToolsMain, { getWidth: getToolsWidth, setWidth: setToolsWidth, clamp: clampTools, sign: 1, isMapHandle: false });
+        makeResizer(handleMainMap, { getWidth: getMapWidth, setWidth: setMapWidth, clamp: clampMap, sign: -1, isMapHandle: true });
+
+        // 頁面載入時還原使用者上次調整過的寬度 (跟 sidebar 收合狀態存 localStorage 是同一套做法),
+        // 要在地圖初始化 (renderMap) 之前把寬度設定好, 這樣地圖一開始建立時就是正確的容器尺寸,
+        // 不用等使用者手動再拖一次或重新整理才會抓到對的大小。
+        (function restoreSavedWidths() {
+            const savedTools = parseInt(localStorage.getItem(STORAGE_KEY_TOOLS));
+            const savedMap = parseInt(localStorage.getItem(STORAGE_KEY_MAP));
+            if (!isNaN(savedTools)) setToolsWidth(clampTools(savedTools));
+            if (!isNaN(savedMap)) setMapWidth(clampMap(savedMap));
+        })();
     })();
 
     // 「儲存編輯」按鈕: 把目前累積的所有變更 (刪除/欄位編輯/天內排序/天數順序) 依序送到後端,

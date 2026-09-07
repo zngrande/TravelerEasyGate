@@ -98,8 +98,20 @@
 
         .itinerary-cell { display: flex; align-items: center; gap: 12px; font-weight: 500; }
 
-        .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block; }
+        /* 使用者反映「筆電較窄螢幕下，草稿/已完成 都跑到第二行了」——根因是這裡本來沒有 white-space:nowrap。
+           「草稿」「已完成」雖然只有 2~3 個中文字，但中文字之間預設就是可以換行的斷點 (不像英文單字要
+           有空白才能換行)，只要這個 badge 所在的欄位被壓縮到比這幾個字加上左右 padding 還窄，瀏覽器就會
+           直接在字與字中間斷行，變成兩行的 badge，看起來很奇怪也不好點。加上 white-space:nowrap 之後，
+           這幾個字永遠維持在同一行，欄位真的不夠寬時會由外層 .table-container 的 overflow-x:auto
+           (前面已修) 整排橫向捲動去處理，不會再讓文字本身斷行。 */
+        .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block; white-space: nowrap; }
         /* 簡易狀態顏色對應 (可依照實際需求在 Thymeleaf 中調整) */
+        /* 使用者反映「出發日期」欄位在螢幕較窄時，日曆圖示跟日期文字會斷成兩行（圖示自己一行、
+           日期文字掉到下一行）——根因是圖示 <i> 跟日期 <span> 這兩個行內元素之間，HTML 原始碼裡的
+           換行/縮排會被瀏覽器當成一個可以斷行的空白字元，欄位一旦被壓縮到比「圖示+日期」的完整
+           寬度還窄，就會直接從那個空白處斷開。加上 white-space:nowrap 讓這個儲存格內的內容永遠
+           維持同一行，欄位真的不夠寬時交給外層 .table-container 的 overflow-x:auto 處理。 */
+        .date-cell { white-space: nowrap; }
         .status-draft { background: #eff6ff; color: var(--primary-blue); }
         .status-pending { background: #fff7ed; color: #ea580c; }
         .status-confirmed { background: #f0fdf4; color: #16a34a; }
@@ -216,7 +228,7 @@
                 </td>
                 <td th:text="${it.country} + (${it.region} != null ? ' / ' + ${it.region} : '')"></td>
                 <td th:text="${it.daysCount} + ' 天'"></td>
-                <td>
+                <td class="date-cell">
                     <i class="fa-regular fa-calendar" style="color: #94a3b8; margin-right: 4px;"></i>
                     <span th:text="${it.startDate}"></span>
                 </td>
