@@ -166,9 +166,23 @@ public class ItineraryService {
      *
      * @return 建好的 Itinerary。如果這個國家在資料庫裡完全找不到候選景點、或 AI 呼叫失敗,
      *         仍然會回傳建立好的行程 (退回成跟原本一樣的空白行程), 呼叫端可以用 hasAnyItem() 判斷要不要提示使用者。
+     *
+     * 使用者反映「AI 排程排不出東西, 追查後發現是因為沒填寫逐天城市指定——這應該要是選填才對」:
+     * 前端「逐天城市指定」的說明文字明明寫「全部欄位皆選填」, 但這裡原本把「這天沒填城市」一律當成
+     * 「班機/轉機日」處理 (候選清單直接給空的, 這天完全不排任何東西)——對真正的班機/轉機日 (前端會
+     * 自動停用下拉選單、隱藏欄位, 使用者根本填不了) 這樣處理是對的; 但對使用者自己選擇不填的一般
+     * 日期 (前端下拉選單還是有顯示、可以選, 使用者只是選擇不填), 就會被誤判成班機日, 整天排不出任何
+     * 東西, 卻沒有任何提示。
+     *
+     * 修正: 新增 flightDayNumbers 參數 (由呼叫端 ItineraryController 用 computeFlightDayNumbers()
+     * 算出來, 規則跟 attachFlightItems()/前端 computeDisabledFlightDays() 完全一致), 用來分辨
+     * 「這天沒填城市」到底是真正的班機/轉機日, 還是使用者自己選擇不填的一般日期——只有真正的班機/
+     * 轉機日才維持原本「完全跳過, 不排任何東西」的行為; 一般日期沒填城市則退回整個國家/地區的候選
+     * 景點 (等同 Patch 27 之前的行為), 不會再整天排不出東西。
      */
     public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
-                                               int daysCount, LocalDate startDate, List<String> dayCities) {
+                                               int daysCount, LocalDate startDate, List<String> dayCities,
+                                               Set<Integer> flightDayNumbers) {
         Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate, dayCities);
 
         List<Poi> candidates;
@@ -191,7 +205,21 @@ public class ItineraryService {
                     itinerary.getITID(), country, region, e.toString(), e);
             return itinerary;
         }
-        if (candidates.isEmpty()) return itinerary; // 這個國家在資料庫裡完全沒有景點, 保持空白行程讓使用者自己排
+        if (candidates.isEmpty()) {
+            // 使用者反映「AI 排行程」整個排不出東西、連左側手動加景點的快選面板也是空的, 但「景點管理」頁
+            // 用同樣的國家/地區搜尋卻查得到資料——追查時發現查無候選這個分支之前完全沒有留 log, 沒辦法
+            // 事後對照 Railway log 確認當下實際查詢用的 AID/country/region 是什麼、是不是真的候選數為 0
+            // (而不是候選其實查得到、問題出在後面的 AI 呼叫本身)。這裡補一行 log, 下次同樣情況再發生時,
+            // 從 log 就能直接看到這次到底查了什麼條件、查到幾筆, 不用再靠猜的。
+            LOGGER.info("AI 安排行程：查無候選景點, 建立空白行程 (ITID={}, AID={}, country={}, region={})",
+                    itinerary.getITID(), AID, country, region);
+            return itinerary; // 這個國家在資料庫裡完全沒有景點, 保持空白行程讓使用者自己排
+        }
+        // 候選景點查詢有找到東西時也留一筆 log (跟上面查無候選那筆搭配), 這樣如果之後行程還是排不出來,
+        // 從 log 就能分辨「候選本來就是 0」還是「候選有找到、但後面的 AI 呼叫沒選出東西」這兩種完全不同
+        // 的情況, 不用每次都重新來回猜測。
+        LOGGER.info("AI 安排行程：候選景點查詢完成 (ITID={}, AID={}, country={}, region={}, candidates={})",
+                itinerary.getITID(), AID, country, region, candidates.size());
 
         List<ItineraryDay> days = itineraryDayDAO.findByItinerary(itinerary.getITID());
 
@@ -204,7 +232,18 @@ public class ItineraryService {
             for (ItineraryDay day : days) {
                 List<String> tokens = splitCityTokens(day.getPlannedCities());
                 cityTokensByDay.put(day.getDayNumber(), tokens);
-                candidatesByDay.put(day.getDayNumber(), tokens.isEmpty() ? List.of() : filterByCityTokens(candidates, tokens));
+                List<Poi> dayCandidates;
+                if (!tokens.isEmpty()) {
+                    dayCandidates = filterByCityTokens(candidates, tokens);
+                } else if (flightDayNumbers != null && flightDayNumbers.contains(day.getDayNumber())) {
+                    // 真正的班機/轉機日 (前端自動停用、使用者填不了): 維持原本「完全跳過」的行為
+                    dayCandidates = List.of();
+                } else {
+                    // 一般日期沒填城市 (選填, 使用者自己選擇不填): 退回整個國家/地區的候選景點,
+                    // 不要整天排不出任何東西 (見上方 method 說明)
+                    dayCandidates = candidates;
+                }
+                candidatesByDay.put(day.getDayNumber(), dayCandidates);
             }
 
             // AI prompt 用的候選清單依類別各自再抽樣一次上限 (單一天候選數量通常已經比整個國家的候選少很多,
@@ -565,6 +604,60 @@ public class ItineraryService {
         attachFlightLegsAcrossDays(days, false, "回程班機", retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
     }
 
+    /**
+     * 給「建立行程」/「AI 安排行程」的 controller 用: 在真的呼叫 attachFlightItems() 插入班機項目
+     * 之前, 先算出哪些天屬於「班機/轉機日」——規則要跟 attachFlightLegsAcrossDays() 一模一樣 (見
+     * resolveFlightLegDayNumbers 說明), 也跟前端 itinerary/new.html 的 computeDisabledFlightDays()
+     * 完全一致: 去程/回程各自涵蓋到的天數集合, 只留「去程最後一天」「回程第一天」不算班機日 (那兩天
+     * 使用者還是可以指定城市), 其餘班機/轉機涵蓋到的天數都算。
+     *
+     * createItineraryWithAiPlan() 用這個結果分辨「這天沒填城市」到底是真正的班機/轉機日 (維持原本
+     * 完全跳過的行為), 還是使用者自己選擇不填的一般日期 (退回整個國家/地區的候選景點)——見該方法
+     * 開頭的說明。
+     */
+    public Set<Integer> computeFlightDayNumbers(int totalDays,
+            List<String> outFlightNo, List<String> outDepAirport, List<String> outDepTime,
+            List<String> outArrAirport, List<String> outArrTime, List<String> outDepDay,
+            List<String> retFlightNo, List<String> retDepAirport, List<String> retDepTime,
+            List<String> retArrAirport, List<String> retArrTime, List<String> retDepDay) {
+        Set<Integer> outboundDays = resolveFlightLegDayNumbers(totalDays, 1,
+                outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay);
+        Set<Integer> returnDays = resolveFlightLegDayNumbers(totalDays, totalDays,
+                retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+
+        Set<Integer> flightDays = new HashSet<>();
+        flightDays.addAll(outboundDays);
+        flightDays.addAll(returnDays);
+        if (!outboundDays.isEmpty()) flightDays.remove(java.util.Collections.max(outboundDays));
+        if (!returnDays.isEmpty()) flightDays.remove(java.util.Collections.min(returnDays));
+        return flightDays;
+    }
+
+    // 算出「這個方向 (去程/回程) 的班機/轉機涵蓋到哪些天」: 規則要跟 attachFlightLegsAcrossDays() 完全
+    // 一致 (只要出發機場/出發時間/抵達機場/抵達時間/航班編號其中一個有填就算「這個航段有填」;「第幾天」
+    // 沒填/不是數字/超出範圍就退回 defaultDayIndex), 這樣才能在真的插入班機項目之前, 就先知道哪幾天
+    // 屬於班機/轉機日。
+    private Set<Integer> resolveFlightLegDayNumbers(int totalDays, int defaultDayIndex,
+            List<String> flightNumbers,
+            List<String> depAirports, List<String> depTimes,
+            List<String> arrAirports, List<String> arrTimes,
+            List<String> dayIndexes) {
+        Set<Integer> result = new HashSet<>();
+        int legCount = Math.max(Math.max(listSize(depAirports), listSize(depTimes)),
+                                Math.max(listSize(arrAirports), listSize(arrTimes)));
+        for (int i = 0; i < legCount; i++) {
+            String fromAirport = listGet(depAirports, i);
+            String depTime = listGet(depTimes, i);
+            String toAirport = listGet(arrAirports, i);
+            String arrTime = listGet(arrTimes, i);
+            String flightNo = listGet(flightNumbers, i);
+            if (isBlank(fromAirport) && isBlank(toAirport) && isBlank(depTime) && isBlank(arrTime) && isBlank(flightNo)) continue;
+            int dayIndex = parseDayIndexOrDefault(listGet(dayIndexes, i), defaultDayIndex, totalDays);
+            result.add(dayIndex);
+        }
+        return result;
+    }
+
     // isOutbound=true (去程): 每個航段所在那一天, 這批同一天的航段固定插在「那一天」的最前面 (依填寫順序、維持先後關係,
     // 其餘項目全部往後推); false (回程): 依填寫順序 append 在「那一天」的最後面。
     // 四個內容 List 用同一個 index 對齊組成一個航段, 缺的欄位留空; dayIndexes 是每個航段對應的天數 (見上方欄位說明)。
@@ -871,11 +964,18 @@ public class ItineraryService {
             List<String> cities = cityTokensByDay.get(dayNumber);
             List<Poi> dayCandidates = candidatesByDay.get(dayNumber);
             userContent.append("Day ").append(dayNumber).append(": ");
-            if (cities == null || cities.isEmpty()) {
+            // 使用者反映「沒填逐天城市指定, AI 排不出東西」修正: 這裡改成看這天實際有沒有候選清單
+            // (dayCandidates), 不是單看有沒有填城市 (cities) ——一般日期沒填城市時, candidatesByDay
+            // 已經退回整個國家/地區的候選景點 (見 createItineraryWithAiPlan 說明), 這裡也要照樣把
+            // 候選清單列給 AI, 只有真正的班機/轉機日 (candidates 真的是空的) 才輸出「未指定城市」。
+            if (dayCandidates == null || dayCandidates.isEmpty()) {
                 userContent.append("(未指定城市, 交通/轉機日, candidates=[])\n");
                 continue;
             }
-            userContent.append("城市=").append(String.join("、", cities)).append(", candidates=[");
+            String cityLabel = (cities != null && !cities.isEmpty())
+                    ? String.join("、", cities)
+                    : "未指定 (可從整個目的地國家/地區的候選中挑選)";
+            userContent.append("城市=").append(cityLabel).append(", candidates=[");
             for (int i = 0; i < dayCandidates.size(); i++) {
                 Poi poi = dayCandidates.get(i);
                 if (i > 0) userContent.append(",");

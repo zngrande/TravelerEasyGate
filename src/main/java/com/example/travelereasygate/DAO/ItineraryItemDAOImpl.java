@@ -69,4 +69,17 @@ public class ItineraryItemDAOImpl implements ItineraryItemDAO {
                 .setParameter("pid", PID)
                 .executeUpdate();
     }
+
+    // PoiService.delete() 呼叫: 刪除的如果是「編輯共用庫景點」產生出來的複本, 把原本指到這個複本 PID
+    // 的行程項目改回指到共用庫原始 PID (revert), 而不是像 clearPidReferences() 一樣直接解除連結——
+    // 使用者刪除複本的意圖是「放棄我自己這份修改, 改回共用庫原本的版本」, 不是「這個項目跟這個景點
+    // 再也沒關係了」, 見 PoiService.delete() 的說明。
+    @Override
+    @Transactional
+    public void reassignPidReferences(int oldPid, int newPid) {
+        em.createQuery("UPDATE ItineraryItem i SET i.PID = :newPid WHERE i.PID = :oldPid")
+                .setParameter("newPid", newPid)
+                .setParameter("oldPid", oldPid)
+                .executeUpdate();
+    }
 }

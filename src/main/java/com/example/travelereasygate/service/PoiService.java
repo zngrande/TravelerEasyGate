@@ -105,14 +105,37 @@ public class PoiService {
     }
 
     /**
-     * 刪除 POI 前, 先解除所有指向它的外鍵參照 (行程項目、AI 解析暫存項目),
-     * 不然 itinerary_item.PID / ai_parsed_item.matched_pid 這兩個外鍵沒設 CASCADE 會直接擋住刪除。
-     * 已經排進行程的項目不會消失, 只是變回「未連結資料庫」的自訂項目 (名稱/座標都還在)。
+     * 刪除 POI 前, 先解除所有指向它的外鍵參照 (行程項目、AI 解析暫存項目、圖片綁定),
+     * 不然 itinerary_item.PID / ai_parsed_item.matched_pid / image_asset.matched_pid 這幾個
+     * 外鍵沒設 CASCADE 會直接擋住刪除。
+     *
+     * 使用者反映「新增完圖片、修改景點 (產生「修改後景點」複本)、再刪除修改後景點, 圖片就不會顯示
+     * 也變成未綁定」——追查後發現: 這裡刪除的其實是 overrideSharedPoi() 產生出來的專屬複本, 使用者
+     * 刪除的意圖比較接近「放棄我自己這份修改, 改回用共用庫原本的版本」, 不是「這個景點 (連同共用庫
+     * 原始那筆) 整個都不要了」。舊的做法不分青紅皂白地把所有參照都清空/解除綁定, 對複本來說等於把
+     * 使用者原本已經好好綁定在共用庫景點上的圖片/行程項目憑空弄丟, 而且共用庫原始那筆也會因為
+     * PoiOverride 紀錄還留著而永遠對這間旅行社隱藏, 使用者從此再也找不回這筆共用庫景點。
+     *
+     * 修正: 刪除前先檢查這個 PID 是不是這間旅行社某筆 PoiOverride 紀錄的複本 (overridePid)。如果是,
+     * 把所有參照 (image_asset.matched_pid / itinerary_item.PID / ai_parsed_item.matched_pid) 從
+     * 複本 PID 改回共用庫原始 PID, 並移除這筆 override 紀錄本身 (讓共用庫原始那筆重新對這間旅行社
+     * 可見), 而不是清空/解除綁定——這樣圖片、已排進行程的項目都會自動「回到」共用庫原始版本, 使用者
+     * 不會發現東西不見了。只有真正「這間旅行社自己新增、不是任何共用庫景點複本」的景點, 才會走原本
+     * 的清空/解除綁定流程 (這種情況沒有共用庫原始版本可以回退, 刪除就是真的刪除)。
      */
-    public void delete(int PID) {
-        itineraryItemDAO.clearPidReferences(PID);
-        aiParsedItemDAO.clearMatchedPid(PID);
-        imageAssetDAO.clearMatchedPid(PID);
+    public void delete(int AID, int PID) {
+        PoiOverride override = poiOverrideDAO.findByAgencyAndOverridePid(AID, PID);
+        if (override != null) {
+            int originalPid = override.getOriginalPid();
+            itineraryItemDAO.reassignPidReferences(PID, originalPid);
+            aiParsedItemDAO.reassignMatchedPid(PID, originalPid);
+            imageAssetDAO.reassignMatchedPid(PID, originalPid, AID);
+            poiOverrideDAO.delete(override);
+        } else {
+            itineraryItemDAO.clearPidReferences(PID);
+            aiParsedItemDAO.clearMatchedPid(PID);
+            imageAssetDAO.clearMatchedPid(PID);
+        }
         poiDAO.deleteById(PID);
     }
 
@@ -148,7 +171,42 @@ public class PoiService {
             override.setOverridePid(edited.getPID());
             poiOverrideDAO.save(override);
         }
+
+        // 使用者反映「景點編輯頁的綁定圖片顯示尚未綁定, 但圖片資源庫明明顯示已綁定」——根因跟圖片
+        // 資源庫那個「已綁定景點顯示空白」是同一個問題的另一種表現: 這間旅行社原本已經綁在「共用庫
+        // 舊 PID」上的圖片 (image_asset.matched_pid), 在上面複製出專屬複本 (新 PID) 的當下並沒有
+        // 跟著搬過去, 圖片還是指著舊 PID; 而景點編輯頁 (PoiController) 是直接拿「目前正在編輯的
+        // PID」(這裡是新複本) 去查自己的綁定圖片 (ImageAssetDAO.findByPoi), 舊 PID 上的圖片當然
+        // 完全查不到, 顯示就變成「尚未綁定」——即使圖片本身的綁定其實是成功的。
+        // 這裡把這間旅行社自己的圖片一併搬到新複本 PID, 之後不管是圖片資源庫還是景點編輯頁都能正確
+        // 找到同一批圖片。已經在這次修正部署「之前」就發生過的 override, 資料庫裡的舊資料需要另外
+        // 補跑一次性的資料修正 (見 db/migration V3), 這裡的程式碼修正只保證「以後」不會再發生。
+        imageAssetDAO.reassignMatchedPid(original.getPID(), edited.getPID(), AID);
+
         return edited;
+    }
+
+    /**
+     * 給 ImageAssetService 用: 把一個「可能已經過期」的 PID 轉換成這間旅行社「目前實際對應」的 PID。
+     *
+     * 背景: 行程項目 (itinerary_item.PID) 綁定景點的當下, 這個景點可能還沒被這間旅行社 override
+     * 過; 之後這間旅行社在別的地方 (例如「景點管理」頁, 或透過另一個行程項目編輯介紹說明)
+     * override 了同一筆共用庫景點, 但這個行程項目自己的 PID 欄位不會跟著自動更新 (只有
+     * updateDescription() 那個特定入口才會順便更新「觸發那次操作的那一個」項目, 不會處理
+     * 所有指到同一個原始 PID 的其他項目)。如果從行程看板對這個項目上傳/查詢圖片, 用的就會是
+     * 這個「舊的、現在已經被隱藏的」PID, 跟圖片資源庫/景點編輯頁看到的 (新複本 PID) 對不起來。
+     *
+     * 這裡在每次上傳/查詢圖片綁定前都先轉換一次: 如果傳進來的 PID 剛好是「這間旅行社已經
+     * override 過的某筆共用庫原始 PID」, 就回傳對應的複本 PID; 否則原樣傳回 (代表這個 PID
+     * 目前對這間旅行社來說本來就是正確、可見的版本, 不需要轉換, 包含私有景點、共用庫裡還沒被
+     * 任何人 override 過的景點, 或本來就已經是複本 PID 的情況)。
+     */
+    public int resolveCurrentPid(int AID, int PID) {
+        PoiOverride override = poiOverrideDAO.findByAgencyAndOriginal(AID, PID);
+        if (override != null && override.getOverridePid() != null) {
+            return override.getOverridePid();
+        }
+        return PID;
     }
 
     /**

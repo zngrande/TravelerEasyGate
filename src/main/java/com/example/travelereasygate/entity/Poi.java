@@ -1,5 +1,6 @@
 package com.example.travelereasygate.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
@@ -154,6 +155,19 @@ public class Poi {
     public String getSupplierNotes() { return supplierNotes; }
     public void setSupplierNotes(String supplierNotes) { this.supplierNotes = supplierNotes; }
 
+    // 使用者反映「AI解析/AI安排行程完成後,行程看板整頁空白」、「上傳圖片頁面打不開」——追查 Railway 部署
+    // log 找到真正根因: board.html 的景點資料庫快選面板 (poiList)、images/list.html 的景點下拉選單
+    // (allPois) 都用 Thymeleaf th:inline="javascript" 把整包 Poi 物件清單內嵌成 JS 資料, 這段序列化是
+    // 由 Thymeleaf 內部自己建立的 Jackson ObjectMapper 處理, 專案沒有另外加 jackson-datatype-jsr310
+    // 這個模組, 這個 ObjectMapper 完全不認得 Java 8 的 LocalDateTime 型別——只要清單裡有任何一筆 POI
+    // 帶著 createdAt (幾乎每一筆真實資料都有), Jackson 序列化就會直接丟出
+    // InvalidDefinitionException, 導致 Thymeleaf 樣板渲染整個中斷、整頁變成系統錯誤/空白, 不是只有
+    // 「地圖上那個景點資料庫面板」壞掉, 是連同一頁其他所有內容 (行程項目清單本身、圖片列表) 全部渲染
+    //不出來——這正好解釋了「行程都已經排好、資料庫也查得到, 但看板打開卻整頁空白」這個症狀。
+    // createdAt 純粹是後端稽核用的時間戳記, 前端從來沒有讀取或顯示這個欄位 (搜尋過所有樣板都沒有用到),
+    // 加 @JsonIgnore 讓它完全不會被序列化進這個 JS 資料裡, 從根本避開這個 Jackson 相容性問題, 不影響
+    // 任何既有功能。
+    @JsonIgnore
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

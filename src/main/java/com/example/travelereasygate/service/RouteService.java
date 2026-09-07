@@ -6,6 +6,8 @@ import com.example.travelereasygate.DAO.RouteSegmentDAO;
 import com.example.travelereasygate.entity.ItineraryItem;
 import com.example.travelereasygate.entity.Poi;
 import com.example.travelereasygate.entity.RouteSegment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -27,9 +29,20 @@ import java.util.List;
 @Service
 public class RouteService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(RouteService.class);
+
     private static final double SAFETY_MULTIPLIER = 1.5;
     private static final int ROUND_TO_MINUTES = 10;
     private static final double BACKTRACK_ANGLE_THRESHOLD = 120.0; // 度數, 轉向角度超過這個就當迴頭路
+    // route_segment.distance_km 資料庫欄位是 DECIMAL(6,2), 存得下的最大值是 9999.99——使用者反映
+    // 「AI 解析行程草稿, 轉成正式就系統發生錯誤」, 追查 Railway log 發現 /ai-import/{id}/confirm
+    // 丟出 DataIntegrityViolationException: Data truncation: Out of range value for column
+    // 'distance_km', 根因是這裡 (以及去程/回程機場銜接距離計算) 算出來的兩點距離超過這個欄位存得下的
+    // 範圍 (例如比對錯地點導致座標落在完全不同國家, 或去程/回程機場座標剛好離同一天其他項目很遠)。
+    // 這種距離本來就已經失真到沒有實質意義 (沒有人會需要看「這段路線要開車 8000 公里」這種資訊), 與其讓
+    // 一筆異常距離造成整個 SQL INSERT 失敗、拖垮整個轉正式行程/重算路線的流程, 不如直接跳過存這一段
+    // (等同於座標查不到時原本就有的行為), 只留一筆 log 方便之後回頭查是哪裡的座標算錯。
+    private static final double MAX_STORABLE_DISTANCE_KM = 9999.99;
 
     private final RouteSegmentDAO routeSegmentDAO;
     private final PoiDAO poiDAO;
@@ -104,6 +117,15 @@ public class RouteService {
                 rawMinutes = (distanceKm / avgSpeedKmh) * 60;
             }
 
+            // 距離超過資料庫欄位存得下的範圍 (見上面 MAX_STORABLE_DISTANCE_KM 說明): 這種距離已經失真,
+            // 直接跳過這一段, 不要讓一筆異常資料讓整個 INSERT 失敗、拖垮整個流程。
+            if (distanceKm > MAX_STORABLE_DISTANCE_KM) {
+                LOGGER.warn("兩個行程項目間的距離超過可儲存範圍, 已略過這段路線計算 (IDID={}, fromIIID={}, toIIID={}, distanceKm={})",
+                        IDID, from.getIIID(), to.getIIID(), distanceKm);
+                prevBearing = null;
+                continue;
+            }
+
             // 通勤安全緩衝: 1.5倍後四捨五入到最近的10分鐘
             int bufferedMin = roundToNearest10(rawMinutes * SAFETY_MULTIPLIER);
 
@@ -155,6 +177,13 @@ public class RouteService {
             double avgSpeedKmh = "walking".equalsIgnoreCase(mode) ? 4.5 : 30.0;
             rawMinutes = (distanceKm / avgSpeedKmh) * 60;
         }
+        // 同上: 單一段重算 (使用者在看板手動切換某一段通勤方式) 也要有同樣的保護, 距離異常就不更新,
+        // 保留原本的段落資料, 不要讓這次重算把 INSERT/UPDATE 直接搞失敗。
+        if (distanceKm > MAX_STORABLE_DISTANCE_KM) {
+            LOGGER.warn("重算單一路線段時距離超過可儲存範圍, 已略過 (RSID={}, distanceKm={})", RSID, distanceKm);
+            return;
+        }
+
         int bufferedMin = roundToNearest10(rawMinutes * SAFETY_MULTIPLIER);
 
         old.setDistanceKm(BigDecimal.valueOf(distanceKm).setScale(2, java.math.RoundingMode.HALF_UP));

@@ -1,6 +1,7 @@
 package com.example.travelereasygate.controller;
 
 import com.example.travelereasygate.entity.ImageAsset;
+import com.example.travelereasygate.entity.Poi;
 import com.example.travelereasygate.service.ImageAssetService;
 import com.example.travelereasygate.service.PermissionService;
 import com.example.travelereasygate.service.PoiService;
@@ -64,6 +65,29 @@ public class ImageAssetController {
         model.addAttribute("images", images);
         model.addAttribute("unlinkedOnly", unlinkedOnly != null && unlinkedOnly);
         model.addAttribute("allPois", poiService.listForAgency(AID));
+
+        // 使用者反映「從行程看板新增的圖片不會顯示綁定的景點」——追查後發現根因: 這個頁面原本用
+        // th:each 在 allPois (poiService.listForAgency(AID), 即 findByAgencyOrShared) 裡逐一比對
+        // img.matchedPid 來找出景點名稱顯示; 但 allPois 只包含「目前對這間旅行社可見」的景點——如果
+        // 這間旅行社後來在「景點管理」頁編輯過某筆共用庫景點 (PoiService.overrideSharedPoi()), 系統會
+        // 幫這間旅行社複製一份專屬版本, 同時把原始共用庫那筆從 findByAgencyOrShared() 的結果裡隱藏起來
+        // (避免同一筆資料同時看到共用庫原版跟自己改過的版本), 但既有指到「原始共用庫 PID」的行程項目
+        // /圖片綁定 (image_asset.matched_pid) 不會被自動改指到新複本——從行程看板直接對這種項目上傳圖片
+        // 時, 綁定的還是這個「現在已經被隱藏」的原始 PID, matchedPid 有值、綁定其實是成功的, 但這個頁面
+        // 在 allPois 裡怎麼找都找不到這筆景點, th:each 比對不到任何東西, 顯示欄位就整個空白 (看起來像
+        // 「沒有顯示綁定的景點」)。
+        // 修正: 額外準備一份不受 AID 可見性限制的「matchedPid → Poi」對照表, 針對這個頁面實際會用到的
+        // 每一個 matchedPid, 直接用原始的 PoiService.findById() 查 (不套用 SHARED_OR_OWN_CLAUSE 這層
+        // 可見性篩選), 這樣就算景點已經被隱藏也還是查得到資料本身, 畫面上能正確顯示已綁定的景點名稱。
+        java.util.Map<Integer, Poi> matchedPoiMap = new java.util.HashMap<>();
+        for (ImageAsset img : images) {
+            Integer pid = img.getMatchedPid();
+            if (pid != null && !matchedPoiMap.containsKey(pid)) {
+                Poi poi = poiService.findById(pid);
+                if (poi != null) matchedPoiMap.put(pid, poi);
+            }
+        }
+        model.addAttribute("matchedPoiMap", matchedPoiMap);
         return "images/list";
     }
 

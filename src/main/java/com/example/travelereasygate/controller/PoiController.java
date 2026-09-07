@@ -325,7 +325,7 @@ public class PoiController {
         }
 
         try {
-            poiService.delete(PID);
+            poiService.delete(AID, PID);
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("deleteError",
                     "刪除失敗：" + (e.getMessage() != null ? e.getMessage() : e.toString()));

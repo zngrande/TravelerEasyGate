@@ -501,10 +501,16 @@
                 <div>
                     <!-- 景點綁定搜尋選擇器: 點擊開啟彈窗選擇 -->
                     <div class="poi-picker-trigger" th:onclick="|openPoiPickerModal(${img.IAID})|">
+                        <!-- 這裡改用 matchedPoiMap (見 ImageAssetController.list() 說明) 而不是在 allPois
+                             裡用 th:each 逐一比對: allPois 只包含目前對這間旅行社「可見」的景點, 如果這張
+                             圖片綁定的景點後來因為「編輯共用庫景點」被隱藏掉 (見 controller 端註解), 舊寫法
+                             會整個比對不到、顯示空白, 即使 matchedPid 其實有值、綁定本身是成功的。 -->
                         <span th:id="'poiPickerLabel-' + ${img.IAID}">
                             <span th:if="${img.matchedPid == null}">尚未綁定景點，點擊選擇</span>
-                            <span th:each="p : ${allPois}" th:if="${img.matchedPid != null and p.PID == img.matchedPid}"
-                                  th:text="${p.name} + (${p.city} != null ? ' (' + ${p.city} + ')' : '')"></span>
+                            <span th:if="${img.matchedPid != null and matchedPoiMap.get(img.matchedPid) != null}"
+                                  th:text="${matchedPoiMap.get(img.matchedPid).name} + (${matchedPoiMap.get(img.matchedPid).city} != null ? ' (' + ${matchedPoiMap.get(img.matchedPid).city} + ')' : '')"></span>
+                            <span th:if="${img.matchedPid != null and matchedPoiMap.get(img.matchedPid) == null}"
+                                  style="color:#ef4444;">已綁定景點 (PID 已不存在，請重新選擇)</span>
                         </span>
                         <i class="fa-solid fa-chevron-down"></i>
                     </div>

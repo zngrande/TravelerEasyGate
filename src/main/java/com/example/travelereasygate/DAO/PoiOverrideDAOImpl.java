@@ -45,4 +45,25 @@ public class PoiOverrideDAOImpl implements PoiOverrideDAO {
             return null;
         }
     }
+
+    @Override
+    public PoiOverride findByAgencyAndOverridePid(int AID, int overridePid) {
+        try {
+            return em.createQuery(
+                    "SELECT po FROM PoiOverride po WHERE po.AID = :aid AND po.overridePid = :overridePid",
+                    PoiOverride.class)
+                    .setParameter("aid", AID)
+                    .setParameter("overridePid", overridePid)
+                    .getSingleResult();
+        } catch (NoResultException e) {
+            return null;
+        }
+    }
+
+    @Override
+    @Transactional
+    public void delete(PoiOverride override) {
+        PoiOverride managed = em.contains(override) ? override : em.merge(override);
+        em.remove(managed);
+    }
 }

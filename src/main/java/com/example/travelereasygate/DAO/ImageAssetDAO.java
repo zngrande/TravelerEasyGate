@@ -12,4 +12,5 @@ public interface ImageAssetDAO {
     List<ImageAsset> findUnlinked(int AID);
     void deleteById(int IAID);
     void clearMatchedPid(int PID);
+    void reassignMatchedPid(int oldPid, int newPid, int AID);
 }

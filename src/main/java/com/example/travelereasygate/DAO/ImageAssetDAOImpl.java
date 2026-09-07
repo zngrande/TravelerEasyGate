@@ -82,4 +82,20 @@ public class ImageAssetDAOImpl implements ImageAssetDAO {
                 .setParameter("pid", PID)
                 .executeUpdate();
     }
+
+    // PoiService.overrideSharedPoi() 呼叫: 這間旅行社改寫共用庫景點、產生專屬複本時, 把這間旅行社
+    // 「自己」原本綁在共用庫舊 PID 上的圖片一併搬到新複本 PID 上 (用 AID 篩選, 只搬這間旅行社自己
+    // 的圖片, 不會動到別間旅行社剛好也對同一筆共用庫景點上傳過、綁在同一個舊 PID 上的照片)。
+    // 沒有這一步的話, 圖片本身還是「綁定成功」(matched_pid 有值), 但因為指到的是一筆現在已經被
+    // 隱藏起來的共用庫景點, 「景點編輯頁」改用新複本 PID 去查自己的綁定圖片時會完全找不到, 使用者
+    // 看到的就是「圖片資源庫顯示已綁定, 但景點編輯頁顯示尚未綁定」這種矛盾狀態。
+    @Override
+    @Transactional
+    public void reassignMatchedPid(int oldPid, int newPid, int AID) {
+        em.createQuery("UPDATE ImageAsset i SET i.matchedPid = :newPid WHERE i.matchedPid = :oldPid AND i.AID = :aid")
+                .setParameter("newPid", newPid)
+                .setParameter("oldPid", oldPid)
+                .setParameter("aid", AID)
+                .executeUpdate();
+    }
 }

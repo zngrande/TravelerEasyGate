@@ -9,4 +9,5 @@ public interface AiParsedItemDAO {
     AiParsedItem findById(int APIID);
     List<AiParsedItem> findByDay(int APDID);
     void clearMatchedPid(int PID);
+    void reassignMatchedPid(int oldPid, int newPid);
 }

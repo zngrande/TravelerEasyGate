@@ -11,4 +11,5 @@ public interface ItineraryItemDAO {
     void deleteById(int IIID);
     void updateSortOrder(int IIID, int sortOrder);
     void clearPidReferences(int PID);
+    void reassignPidReferences(int oldPid, int newPid);
 }

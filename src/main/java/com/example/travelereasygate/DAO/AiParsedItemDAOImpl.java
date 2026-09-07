@@ -49,4 +49,16 @@ public class AiParsedItemDAOImpl implements AiParsedItemDAO {
                 .setParameter("pid", PID)
                 .executeUpdate();
     }
+
+    // PoiService.delete() 呼叫: 刪除的如果是「編輯共用庫景點」產生出來的複本, 把原本比對到這個複本
+    // PID 的 AI 解析暫存項目改回指到共用庫原始 PID, 而不是直接解除連結——理由跟
+    // ItineraryItemDAO.reassignPidReferences() 一樣, 見 PoiService.delete() 的說明。
+    @Override
+    @jakarta.transaction.Transactional
+    public void reassignMatchedPid(int oldPid, int newPid) {
+        em.createQuery("UPDATE AiParsedItem i SET i.matchedPid = :newPid WHERE i.matchedPid = :oldPid")
+                .setParameter("newPid", newPid)
+                .setParameter("oldPid", oldPid)
+                .executeUpdate();
+    }
 }

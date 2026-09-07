@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Controller
 @RequestMapping("/itinerary")
@@ -227,7 +228,15 @@ public class ItineraryController {
         // dayCities 逐天指定城市 (見上面 create() 的說明) 取代了原本的「行程說明」自由文字, 沒有指定城市的天
         // (前端只會讓去程班機最後一天/回程班機第一天可以選, 其餘班機/轉機日完全不會送出城市) 在 Service 裡
         // 會被當成交通/轉機日, AI 排程完全跳過那一天, 不會再被誤排進一整天觀光行程。
-        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate, dayCities);
+        //
+        // 使用者反映「沒填逐天城市指定, AI 排不出東西, 這應該要是選填才對」: 這裡先用跟 attachFlightItems()
+        // 完全一樣的班機/轉機日期資訊算出真正的班機/轉機日 (flightDayNumbers), 傳給 createItineraryWithAiPlan()
+        // 分辨「沒填城市」到底是真正的班機日、還是使用者自己選擇不填的一般日期——一般日期沒填城市會退回整個
+        // 國家/地區的候選景點, 不再整天排不出任何東西 (見 ItineraryService 的說明)。
+        Set<Integer> flightDayNumbers = itineraryService.computeFlightDayNumbers(daysCount,
+                outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
+                retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
+        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate, dayCities, flightDayNumbers);
 
         // 這個提示是「AI 有沒有真的排到景點資料庫裡的東西」, 一定要在插入去程/回程班機之前判斷 ——
         // 不然只要有填班機資訊, hasAnyItem() 就會一直是 true (班機本身也算一筆項目), 提示永遠不會跳出來,
