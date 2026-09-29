@@ -213,6 +213,64 @@
         .export-dropdown-item.b2b { color: #be123c; }
         .export-dropdown-item.b2b:hover { background: #fff1f2; }
 
+        /* 「九個點」按鈕: 標題列縮成只留儲存/上一步/這顆/回行程列表, 其餘功能收進點開的九宮格選單,
+           樣式模仿 Google 首頁右上角的 App 啟動器 (單純用 3x3 圓點排出圖示, 不用另外找圖示字型)。
+           選單一樣是 position:fixed + JS 用按鈕座標算 top/right (原因跟上面 export-dropdown-menu
+           的說明一致: .nav-actions 有 overflow-x:auto 會裁掉 absolute 定位的選單), 直接沿用同一套寫法。 */
+        .apps-grid-wrap { position: relative; flex-shrink: 0; }
+        .apps-grid-btn {
+            width: 36px;
+            height: 36px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 3px;
+            place-items: center;
+            padding: 9px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: #fff;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .apps-grid-btn:hover, .apps-grid-btn.open { background: #f8fafc; border-color: #cbd5e1; }
+        .apps-grid-btn .dot { width: 4px; height: 4px; border-radius: 50%; background: #64748b; }
+        .apps-grid-btn.open .dot { background: var(--primary-blue); }
+        .apps-grid-menu {
+            display: none;
+            position: fixed;
+            grid-template-columns: repeat(3, 84px);
+            gap: 2px;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+            padding: 10px;
+            z-index: 1300;
+        }
+        .apps-grid-menu.open { display: grid; }
+        .apps-grid-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 12px 4px;
+            border-radius: 8px;
+            border: none;
+            background: none;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.3;
+            color: #334155;
+            cursor: pointer;
+            white-space: normal;
+        }
+        .apps-grid-item i { font-size: 18px; color: var(--primary-blue); }
+        .apps-grid-item:hover { background: #f1f5f9; }
+        .apps-grid-item-wrap { position: relative; }
+
         /* 看板核心工作區 */
         .board-wrapper {
             padding: 20px 36px;
@@ -522,12 +580,19 @@
 
         .timeline-container {
             position: relative;
-            padding-left: 42px;
             flex: 1;
             min-height: 0;
             overflow-y: auto;
         }
-        .timeline-container::before {
+        /* 使用者反映「灰色直線不夠長」——這條連接線原本掛在 .timeline-container 這個捲動容器本身上,
+           top/bottom 只會算到容器的可視高度, 不會跟著捲動內容變長 (見上面 HTML 裡的說明)。改成掛在
+           .timeline-track 這個純粹跟著內容自然撐高的內層區塊上, padding-left 也一併搬過來 (維持跟
+           原本一樣的座標系統, 下面 .timeline-node-time/.timeline-node-dot 的 left 數值都不用改)。 */
+        .timeline-track {
+            position: relative;
+            padding-left: 42px;
+        }
+        .timeline-track::before {
             content: '';
             position: absolute;
             left: 46px;
@@ -706,6 +771,43 @@
             border: 1px solid #fef3c7;
             padding: 1px 6px;
             border-radius: 4px;
+        }
+
+        /* Patch 87: 機場欄位自動完成建議清單樣式——跟 itinerary/new.html 完全同一套 .cc-autocomplete-wrap /
+           .cc-suggest-list 樣式直接搬過來, 讓看板編輯班機起始點/目的地時的建議清單長得跟新增行程頁面一致。 */
+        .cc-autocomplete-wrap { position: relative; }
+        .cc-suggest-list {
+            display: none;
+            position: absolute;
+            top: 100%; left: 0; right: 0;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .cc-suggest-list.open { display: block; }
+        .cc-suggest-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .cc-suggest-item:hover { background: #eff6ff; }
+        .cc-suggest-item .cc-suggest-code {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--primary-blue);
+            background: #eff6ff;
+            padding: 1px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
         }
 
         /* 使用者要求「日期和時間幫我做成好看一點的樣式」: 這個是行程項目上「出發/抵達時間」徽章
@@ -1071,11 +1173,18 @@
         <div class="navbar-title">
             <i class="fa-solid fa-chalkboard" style="color: var(--primary-blue); flex-shrink:0;"></i>
             <span style="flex-shrink:0;">行程排版看板</span>
-            <span th:if="${itinerary != null and itinerary.title != null and !itinerary.title.isBlank()}"
-                  th:text="'－ ' + ${itinerary.title}"
-                  th:title="${itinerary.title}"
+            <!-- Patch 89: 使用者要求「標題可以點兩下直接編輯」——原本 th:if 只有真的有標題時才會渲染這個
+                 <span>, 沒有標題時整個元素不存在, 沒有地方可以雙擊——改成一律渲染, 沒有標題時顯示一段
+                 淡色提示文字取代, 一樣可以雙擊進入編輯; data-current-title 存目前真正的標題文字 (跟畫面
+                 上顯示的「－ 標題」/提示文字分開存, 進入編輯模式時直接讀這個屬性當輸入框初始值, 不用從
+                 畫面文字反推)。 -->
+            <span id="itineraryTitleDisplay"
                   class="navbar-title-suffix"
-                  style="font-weight:500;color:var(--text-gray);font-size:15px;margin-left:6px;"></span>
+                  th:text="${itinerary != null and itinerary.title != null and !itinerary.title.isBlank()} ? ('－ ' + ${itinerary.title}) : '（點兩下輸入行程名稱）'"
+                  th:attr="data-current-title=${itinerary != null and itinerary.title != null} ? ${itinerary.title} : ''"
+                  title="點兩下可編輯行程名稱"
+                  ondblclick="startEditTitle(this)"
+                  style="font-weight:500;color:var(--text-gray);font-size:15px;margin-left:6px;cursor:pointer;"></span>
         </div>
         <div class="nav-actions">
             <button type="button" id="saveEditsBtn" onclick="saveAllChanges()" disabled
@@ -1086,41 +1195,55 @@
                     style="font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid var(--border-color);background:#fff;color:#334155;cursor:default;margin-right:6px;opacity:0.5;">
                 <i class="fa-solid fa-arrow-rotate-left"></i> 上一步
             </button>
-            <a th:href="@{'/itinerary/' + ${itineraryId} + '/edit-basic'}" class="btn-nav">
-                <i class="fa-solid fa-pen-to-square"></i> 編輯基本資料
-            </a>
-            <a th:href="@{'/itinerary/' + ${itineraryId} + '/quotations'}" class="btn-nav comp">
-                <i class="fa-solid fa-file-invoice-dollar"></i> 報價單
-            </a>
-            <a th:href="@{'/itinerary/' + ${itineraryId} + '/quick-quote'}" class="btn-nav comp">
-                <i class="fa-solid fa-tags"></i> 快速抓價錢
-            </a>
-            <button type="button" id="lockToggleBtn" onclick="toggleItineraryLock()"
-                    th:attr="data-locked=${itinerary != null and itinerary.locked}"
-                    style="font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer;">
-                <i class="fa-solid" th:classappend="${itinerary != null and itinerary.locked} ? 'fa-lock' : 'fa-lock-open'"></i>
-                <span th:text="${itinerary != null and itinerary.locked} ? '解鎖行程' : '鎖定行程'"></span>
-            </button>
-            <!-- 使用者要求: 這顆按鈕在行程「已完成」狀態時要變成「退回草稿」, 按下去才能繼續編輯內容,
-                 而且退回草稿後要停留在這個看板頁面 (不能跟完成行程一樣被導去首頁列表) ——跟上方
-                 lockToggleBtn (鎖定/解鎖行程) 用同一套「一顆按鈕依 th:attr 存的目前狀態, 用 JS 切換文字/
-                 圖示/呼叫的 API」寫法, 見下面 toggleItineraryComplete()。 -->
-            <a href="#" id="completeToggleBtn" onclick="toggleItineraryComplete(); return false;"
-               th:attr="data-completed=${itinerary != null and itinerary.status == 'completed'}"
-               th:class="${itinerary != null and itinerary.status == 'completed'} ? 'btn-nav draft-toggle' : 'btn-nav done'">
-                <i class="fa-solid" th:classappend="${itinerary != null and itinerary.status == 'completed'} ? 'fa-rotate-left' : 'fa-circle-check'"></i>
-                <span th:text="${itinerary != null and itinerary.status == 'completed'} ? '退回草稿' : '完成行程'"></span>
-            </a>
-            <div class="export-dropdown-wrap">
-                <a href="#" onclick="toggleExportDropdown(event); return false;" class="btn-nav b2c" id="exportDropdownBtn">
-                    <i class="fa-regular fa-file-lines"></i> 匯出行程 (Word)
-                </a>
-                <div class="export-dropdown-menu" id="exportDropdownMenu">
-                    <div class="export-dropdown-item b2c" onclick="closeExportDropdown(); openExportModal('b2c');">
-                        <i class="fa-regular fa-file-lines"></i> 客戶版
-                    </div>
-                    <div class="export-dropdown-item b2b" onclick="closeExportDropdown(); openExportModal('b2b');">
-                        <i class="fa-solid fa-file-word"></i> 同業版
+            <!-- 使用者要求標題列只留「儲存/上一步/九個點/回行程列表」四樣, 其餘功能 (編輯基本資料/報價單/
+                 快速抓價錢/鎖定行程/完成行程/匯出行程) 全部收進這顆「九個點」按鈕點開的九宮格選單裡,
+                 樣式模仿 Google 首頁右上角那顆 App 啟動器——選單本身沿用匯出行程選單原本那套
+                 position:fixed + 用按鈕實際座標算 top/right 的做法 (見下面 toggleAppsGrid()), 原因跟
+                 export-dropdown-menu 一樣: .nav-actions 有 overflow-x:auto, absolute 定位會被裁掉。 -->
+            <div class="apps-grid-wrap">
+                <button type="button" id="appsGridBtn" onclick="toggleAppsGrid(event)" class="apps-grid-btn" title="更多功能">
+                    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+                    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+                    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+                </button>
+                <div class="apps-grid-menu" id="appsGridMenu">
+                    <a th:href="@{'/itinerary/' + ${itineraryId} + '/edit-basic'}" class="apps-grid-item">
+                        <i class="fa-solid fa-pen-to-square"></i><span>編輯基本資料</span>
+                    </a>
+                    <a th:href="@{'/itinerary/' + ${itineraryId} + '/quotations'}" class="apps-grid-item">
+                        <i class="fa-solid fa-file-invoice-dollar"></i><span>報價單</span>
+                    </a>
+                    <a th:href="@{'/itinerary/' + ${itineraryId} + '/quick-quote'}" class="apps-grid-item">
+                        <i class="fa-solid fa-tags"></i><span>快速抓價錢</span>
+                    </a>
+                    <button type="button" id="lockToggleBtn" th:if="${isCreator}" onclick="closeAppsGrid(); toggleItineraryLock();"
+                            th:attr="data-locked=${itinerary != null and itinerary.locked}" class="apps-grid-item">
+                        <i class="fa-solid" th:classappend="${itinerary != null and itinerary.locked} ? 'fa-lock' : 'fa-lock-open'"></i>
+                        <span th:text="${itinerary != null and itinerary.locked} ? '解鎖行程' : '鎖定行程'"></span>
+                    </button>
+                    <!-- 使用者要求: 這顆按鈕在行程「已完成」狀態時要變成「退回草稿」, 按下去才能繼續編輯內容,
+                         而且退回草稿後要停留在這個看板頁面 (不能跟完成行程一樣被導去首頁列表) ——跟上方
+                         lockToggleBtn (鎖定/解鎖行程) 用同一套「一顆按鈕依 th:attr 存的目前狀態, 用 JS 切換文字/
+                         圖示/呼叫的 API」寫法, 見下面 toggleItineraryComplete()。 -->
+                    <a href="#" id="completeToggleBtn" onclick="closeAppsGrid(); toggleItineraryComplete(); return false;"
+                       th:attr="data-completed=${itinerary != null and itinerary.status == 'completed'}" class="apps-grid-item">
+                        <i class="fa-solid" th:classappend="${itinerary != null and itinerary.status == 'completed'} ? 'fa-rotate-left' : 'fa-circle-check'"></i>
+                        <span th:text="${itinerary != null and itinerary.status == 'completed'} ? '退回草稿' : '完成行程'"></span>
+                    </a>
+                    <div class="export-dropdown-wrap apps-grid-item-wrap">
+                        <a href="#" onclick="toggleExportDropdown(event); return false;" class="apps-grid-item" id="exportDropdownBtn">
+                            <i class="fa-regular fa-file-lines"></i><span>匯出行程 (Word)</span>
+                        </a>
+                        <div class="export-dropdown-menu" id="exportDropdownMenu">
+                            <!-- 使用者要求匯出 Word 的名稱跟著 export-templates 頁面的版型改名同步更新:
+                                 客戶版 (CUSTOMER/b2c) → 說明手冊版, 同業版 (AGENCY_WORD/b2b) → 行程版 -->
+                            <div class="export-dropdown-item b2c" onclick="closeExportDropdown(); closeAppsGrid(); openExportModal('b2c');">
+                                <i class="fa-regular fa-file-lines"></i> 說明手冊版
+                            </div>
+                            <div class="export-dropdown-item b2b" onclick="closeExportDropdown(); closeAppsGrid(); openExportModal('b2b');">
+                                <i class="fa-solid fa-file-word"></i> 行程版
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1130,9 +1253,10 @@
         </div>
     </header>
 
-    <div th:if="${lockedByOther}" style="background:#fef3c7;border-bottom:1px solid #fde68a;color:#92400e;padding:10px 40px;font-size:13.5px;display:flex;align-items:center;gap:8px;">
+    <div th:if="${itineraryLocked}" style="background:#fef3c7;border-bottom:1px solid #fde68a;color:#92400e;padding:10px 40px;font-size:13.5px;display:flex;align-items:center;gap:8px;">
         <i class="fa-solid fa-lock"></i>
-        這個行程目前被其他人鎖定中，你可以檢視但無法編輯內容，請確認對方完成編輯後再操作，或聯絡管理者強制解鎖。
+        <span th:if="${isCreator}">這個行程目前已鎖定，你可以檢視但無法編輯內容，請先解鎖才能繼續編輯。</span>
+        <span th:unless="${isCreator}">這個行程目前已鎖定，你可以檢視但無法編輯內容，只有建立這個行程的使用者可以解鎖。</span>
     </div>
 
     <div class="board-wrapper">
@@ -1160,7 +1284,7 @@
             </button>
             <select class="btn-nav" style="margin-left:auto;background:#ecfdf5;border-color:#a7f3d0;color:#047857;cursor:pointer;"
                     onchange="autoArrangeItinerary(this.value)">
-                <option value="all_last" th:selected="${itinerary == null or itinerary.arrangeMode == null or itinerary.arrangeMode == 'all_last'}">餐廳與住宿都排到最後面</option>
+                <option value="all_last" th:selected="${itinerary == null or itinerary.arrangeMode == null or itinerary.arrangeMode == 'all_last'}">餐廳排到最後面</option>
                 <option value="meal_time" th:selected="${itinerary != null and itinerary.arrangeMode == 'meal_time'}">依早/中/晚餐時段排序（住宿排最後）</option>
             </select>
         </div>
@@ -1188,26 +1312,40 @@
                         <button type="button" class="btn-close-panel" onclick="toggleAccordion(null)"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                     <div class="timeline-controls">
-                        <div class="control-row">
+                        <div class="control-row" style="flex-direction:column; align-items:flex-start; gap:4px;">
                             <span><i class="fa-regular fa-clock"></i> 出發時間</span>
-                            <!-- 使用者反映這裡「跑版」(自製日期時間選擇器 datetime-picker.js 全站自動接管所有
-                                 input[type=time]/date], 按鈕圖示疊到旁邊的「出發時間」文字上)——追查後發現:
-                                 這裡是跟一段純文字 <span> 標籤共用同一個 justify-content:space-between 的
-                                 flex 列 (.control-row), 跟 datetime-picker.js 原本設計預期的版面 (獨立
-                                 一格的表單欄位, 例如 itinerary/new.html 的 CSS Grid 欄位、quotation/edit.html
-                                 的表單列) 不一樣, 沒有在那份共用腳本已知的版面情境測試過, 會量出跟這個窄版面
-                                 對不起來的按鈕寬度。這個欄位本身操作很單純 (單純選時間, 不像新增航班那種需要
-                                 好看排版的表單), 用 data-dtp-skip 讓這支全站共用腳本跳過這個欄位, 恢復成原本
-                                 瀏覽器原生的時間選擇器, 不用冒風險去改動另外兩個頁面已經很多次修過、現在正常
-                                 運作的共用元件邏輯。 -->
-                            <input type="time" data-dtp-skip
+                            <!-- Patch 86: 使用者要求「時間表的時間要做的跟 itinerary/new 一樣」——這個欄位
+                                 之前用 data-dtp-skip 跳過共用的 datetime-picker.js, 退回瀏覽器原生時間選擇器
+                                 (見上面舊的說明: 原因是這裡跟純文字 <span> 共用同一個 justify-content:
+                                 space-between 的橫向 flex 列, 版面跟 datetime-picker.js 預期的「獨立一格
+                                 欄位」(itinerary/new.html 的 .leg-field: label 在上、input 在下, 直向堆疊)
+                                 對不起來, 量出來的按鈕寬度才會跑版)。這次不是拿掉共用元件, 而是把版面改成
+                                 跟 itinerary/new.html 一樣的直向堆疊 (上面這個 style 屬性: flex-direction
+                                 改成 column, 文字跟輸入框各自佔一行), 讓它符合 datetime-picker.js 原本預期
+                                 的版面情境, 才能安全套用 data-dtp-step="5" (見 itinerary/new.html 同款
+                                 input 的用法), 呈現跟 itinerary/new 一樣可以直接打字、上下鍵/滾輪都以
+                                 5 分鐘為單位跳的時間輸入框。 -->
+                            <input type="time" data-dtp-step="5" step="300" style="width:100%"
                                    th:id="'starttime-' + ${!days.isEmpty() ? days[0].IDID : ''}"
                                    th:value="${!days.isEmpty() ? days[0].startTime : null}"
                                    th:attr="onchange=|updateStartTime(currentDayId, this.value)|" />
                         </div>
                     </div>
                     <div class="timeline-container" id="timelineContainer">
-                        <div class="timeline-empty">尚未安排行程</div>
+                        <!-- 使用者反映「灰色直線不夠長, 沒有跟著行程長度延伸」——追查後發現這條連接線
+                             (原本是 .timeline-container::before) 的 top/bottom 是相對於 #timelineContainer
+                             這個「捲動容器本身」的版面高度算的, 而不是相對於「裡面實際內容的高度」: 這個
+                             容器有 overflow-y:auto, 版面高度是 flex 版面配置決定的固定可視高度, 完全不會
+                             因為裡面塞了很多天/很多項目而跟著變高——內容變多只會在裡面產生捲軸, 但這條線
+                             的 top:8px/bottom:8px 從一開始就只算到「可視高度 - 16px」, 不會跟著捲動內容
+                             一起變長, 行程項目一多 (這次連續幾個 patch 討論的班機時間錯亂又會讓單日項目
+                             暴增), 後面的項目就會看起來「掉出」這條線的範圍。改成另外包一層
+                             .timeline-track (純粹跟著內容自然撐高的普通區塊, 不是捲動容器本身), 把這條
+                             線改成相對這一層算, 讓它的高度真的等於目前這天所有項目疊起來的實際高度, 不管
+                             多長都會跟著延伸到最後一項。 -->
+                        <div class="timeline-track" id="timelineTrack">
+                            <div class="timeline-empty">尚未安排行程</div>
+                        </div>
                     </div>
                 </div>
 
@@ -1334,8 +1472,71 @@
 <script th:inline="javascript">
     let currentDayId = /*[[${!days.isEmpty() ? days[0].IDID : null}]]*/ null;
     const itineraryId = /*[[${itineraryId}]]*/ 0;
+    // Patch 89: 使用者要求「選餐廳與住宿排最後時, 時間表就不用顯示餐廳, 且餐廳前後不用顯示路程距離
+    // 時間; 選依早中晚餐時段排序時, 時間表會出現餐廳」——這個整趟行程共用的模式選單 (見上面的
+    // <select onchange="autoArrangeItinerary(...)">) 選了之後會整頁重新整理, 所以這裡直接在頁面
+    // 載入當下就能拿到最新的模式, 不需要另外打 API 查——renderTimeline()/renderDay() 依這個模式決定
+    // 要不要把餐廳從時間軸濾掉、要不要壓制餐廳前後的路程資訊。
+    const itineraryArrangeMode = /*[[${itinerary != null and itinerary.arrangeMode == 'meal_time' ? 'meal_time' : 'all_last'}]]*/ 'all_last';
 
-    // 頂部「鎖定/解鎖行程」按鈕: 上鎖後其他人只能檢視, 避免多人同時編輯互相覆蓋
+    // 使用者要求「鎖定完不能更改」——canEditItinerary 是「這個角色有編輯行程的權限」+「這個行程目前
+    // 沒有被鎖定」的綜合結果 (見 ItineraryController.board()), 鎖定後不管是不是建立者本人都是 false。
+    // 後端每一支寫入用的 API 都已經各自擋下來了 (見 ItineraryController 各端點的 checkEditPermission*
+    // 檢查), 這裡是前端配合停用主要的編輯入口 (新增項目面板/拖曳排序), 避免使用者點了才發現被擋下來、
+    // 體驗不好；不是安全機制本身, 拿掉這段前端檢查也不會讓鎖定失效。
+    const boardEditable = /*[[${canEditItinerary}]]*/ true;
+
+    // Patch 89: 使用者要求「在行程排班看板旁邊的標題可以點兩下直接編輯」——雙擊 #itineraryTitleDisplay
+    // 這個 <span> 就地換成一個文字輸入框, 按 Enter 或失焦存檔, 按 Escape 取消; 存檔呼叫新增的
+    // POST /itinerary/{id}/title, 成功後只更新這個 <span> 的文字, 不會整頁重新整理。
+    function startEditTitle(displayEl) {
+        if (!boardEditable) return; // 鎖定/沒有編輯權限時不給編輯, 呼應其他編輯入口的既有防呆
+        if (!displayEl || displayEl.dataset.editing === '1') return;
+        displayEl.dataset.editing = '1';
+
+        const currentTitle = displayEl.dataset.currentTitle || '';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentTitle;
+        input.maxLength = 100;
+        input.style.cssText = 'font-size:15px;font-weight:500;color:var(--text-dark);border:1px solid var(--primary-blue);' +
+            'border-radius:6px;padding:2px 8px;margin-left:6px;width:240px;outline:none;';
+        displayEl.style.display = 'none';
+        displayEl.insertAdjacentElement('afterend', input);
+        input.focus();
+        input.select();
+
+        let settled = false;
+        function finish(shouldSave) {
+            if (settled) return;
+            settled = true;
+            input.remove();
+            displayEl.style.display = '';
+            displayEl.dataset.editing = '0';
+
+            const newTitle = input.value.trim();
+            if (!shouldSave || !newTitle || newTitle === currentTitle) return;
+
+            fetch(`/itinerary/${itineraryId}/title?title=` + encodeURIComponent(newTitle), { method: 'POST' })
+                .then(res => {
+                    if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
+                    displayEl.textContent = '－ ' + newTitle;
+                    displayEl.dataset.currentTitle = newTitle;
+                })
+                .catch(err => alert('更新行程名稱失敗：' + err.message));
+        }
+
+        input.addEventListener('blur', () => finish(true));
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+            else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        });
+    }
+
+    // 頂部「鎖定/解鎖行程」按鈕: 使用者要求只有建立這個行程的人 (isCreator) 才看得到這顆按鈕
+    // (見 board.html 樣板 th:if="${isCreator}")。上鎖後任何人 (含建立者自己) 都不能再編輯行程內容,
+    // 要先解鎖才能繼續——不是舊版那種「上鎖的人自己還可以繼續編輯」的協作防呆邏輯。
     function toggleItineraryLock() {
         const btn = document.getElementById('lockToggleBtn');
         const currentlyLocked = btn.dataset.locked === 'true';
@@ -1452,7 +1653,13 @@
     }
 
     // 左側三大展開式模組切換 (Timeline / Custom / Poi / null)
+    // 使用者要求「行程鎖定後不能再編輯」——這三個模組都是「新增項目」的入口, 鎖定時直接擋在這裡
+    // (但允許 type === null, 也就是「關閉面板」這個動作本身不受影響, 避免鎖定當下剛好面板還開著關不掉)。
     function toggleAccordion(type) {
+        if (type !== null && !boardEditable) {
+            alert('這個行程目前已鎖定，無法新增項目');
+            return;
+        }
         const types = ['Timeline', 'Custom', 'Poi'];
         types.forEach(t => {
             const trigger = document.getElementById('trigger' + t);
@@ -1766,9 +1973,17 @@
     // 這裡刻意不額外加欄位判斷, 直接沿用這個既有欄位當標記。編輯表單的類別下拉選單/欄位完全不受影響,
     // 一律還是顯示/當作「交通」處理 (見 renderDay 裡 typeOptions 那段, 沒有改動)。
     const isFlightItem = (it) => !!it && it.itemType === 'transport' && it.transportMethod === '飛機';
+    // 後端 LocalTime 序列化成 JSON 字串時, 整點/整分也會帶出秒數 (例如 "09:00:00"), 畫面上顯示時間的地方
+    // 一律只要「時:分」就好, 不需要秒——這裡統一做一個小工具, 把可能帶秒數的時間字串裁成 HH:mm 再顯示,
+    // 沒有值就傳回原值 (null/undefined/空字串), 讓呼叫端自己決定要顯示什麼預設文字。
+    const hhmm = (t) => (typeof t === 'string' && t.length >= 5) ? t.slice(0, 5) : t;
     // 「一般交通」(不是班機) 判斷: 兩個點中間如果卡著這種項目, 這一段的距離/時間/走路開車選單要拿掉
     // (見 renderDay 裡 route-info 的渲染邏輯), 但還是要保留「推薦順路景點」。
     const isPlainTransportItem = (it) => !!it && it.itemType === 'transport' && it.transportMethod !== '飛機';
+    // Patch 85: 判斷一筆餐食是不是後端 hideMealsOverlappingFlights() 轉換出來的「機上套餐」——固定的
+    // customName 標記, 跟後端 ItineraryService.isInFlightMeal() 用同一個判斷依據 (itemType=meal +
+    // customName 固定字串), 讓 renderTimeline() 可以認得它、不放進「當日行程時間表」裡面 (見那裡的說明)。
+    const isInFlightMeal = (it) => !!it && it.itemType === 'meal' && it.customName === '機上套餐';
     // 有沒有座標可以拿來算距離/推薦順路景點: 跟後端 RouteService.resolveCoordinates()/
     // ItineraryService.resolveItemCoordinates() 同一套判斷, 交通/班機項目沒有連結 POI 但有自己的經緯度,
     // 一般景點/餐廳/住宿則靠 PID 連結 POI 資料庫。
@@ -1778,6 +1993,81 @@
     const getDisplayType = (it) => isFlightItem(it) ? 'flight' : it.itemType;
     const getDisplayLabel = (it) => isFlightItem(it) ? '航班' : (typeLabel[it.itemType] || it.itemType);
     const getDisplayIcon = (it) => isFlightItem(it) ? '✈️' : (typeIcon[it.itemType] || '📍');
+
+    // Patch 87: 機場欄位自動完成——直接從 itinerary/new.html 搬過來的同一套邏輯 (打字即時打
+    // /poi/autocomplete?category=機場 篩選, 選了建議項目把「常用名稱（原文代碼）」填回輸入框), 這樣
+    // 看板上編輯班機的起始點/目的地才會跟新增行程頁面同一種打中文或英文代碼都能查到建議的體驗。
+    // 建議清單一樣用 closest() 從輸入框本身往上找同一個 .cc-autocomplete-wrap 底下的 .cc-suggest-list,
+    // 不靠固定 id (看板上同一頁可能同時有多個班機項目在編輯)。
+    function setupAirportAutocomplete(input) {
+        if (!input || input.dataset.autocompleteBound === '1') return;
+        input.dataset.autocompleteBound = '1';
+
+        const list = input.closest('.cc-autocomplete-wrap').querySelector('.cc-suggest-list');
+        let debounceTimer = null;
+
+        input.addEventListener('input', function () {
+            const keyword = input.value.trim();
+            clearTimeout(debounceTimer);
+            if (!keyword) { closeList(); return; }
+            debounceTimer = setTimeout(() => fetchSuggestions(keyword), 200);
+        });
+
+        input.addEventListener('blur', function () {
+            setTimeout(closeList, 150); // 延遲關閉, 讓 mousedown 選取事件能先觸發
+        });
+
+        input.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            clearTimeout(debounceTimer);
+            const keyword = input.value.trim();
+            if (!keyword) return;
+            fetchSuggestions(keyword).then(function (items) {
+                if (items && items.length > 0) applyItem(items[0]);
+            });
+        });
+
+        function fetchSuggestions(keyword) {
+            return fetch('/poi/autocomplete?keyword=' + encodeURIComponent(keyword) + '&category=' + encodeURIComponent('機場'))
+                .then(res => res.ok ? res.json() : [])
+                .then(items => { renderList(items); return items; })
+                .catch(() => { closeList(); return []; });
+        }
+
+        function applyItem(item) {
+            input.value = item.originalName ? (item.name + '（' + item.originalName + '）') : item.name;
+            closeList();
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        function renderList(items) {
+            if (!items || items.length === 0) { closeList(); return; }
+            list.innerHTML = '';
+            items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'cc-suggest-item';
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = item.name;
+                const codeSpan = document.createElement('span');
+                codeSpan.className = 'cc-suggest-code';
+                codeSpan.textContent = item.originalName || '';
+                row.appendChild(nameSpan);
+                if (item.originalName) row.appendChild(codeSpan);
+                row.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    applyItem(item);
+                });
+                list.appendChild(row);
+            });
+            list.classList.add('open');
+        }
+
+        function closeList() {
+            list.classList.remove('open');
+            list.innerHTML = '';
+        }
+    }
 
     function renderDay(idid) {
         const items = buildDisplayItems(idid);
@@ -1867,7 +2157,14 @@
             const label = item.customName || ('#' + item.PID);
 
             const isLinked = item.PID !== null && item.PID !== undefined;
-            const canAddToPoi = !isLinked && poiEligibleTypes.includes(item.itemType);
+            // 使用者要求「機上套餐和飯店內早餐不想要出現加入資料庫的按鈕和未連結資料庫」——這兩個都是
+            // 系統自己產生的固定預留項目 (見 ItineraryService.addBreakfastPlaceholder()/
+            // hideMealsOverlappingFlights() 的 INFLIGHT_MEAL_NAME), 不是真的地點, 加入景點資料庫
+            // 對它們沒有意義。用 customName 精準比對這兩個固定字串, 不會影響真正查無資料庫、AI 自己
+            // 排出來的一般餐廳/景點 (那些還是要能加入資料庫)。
+            const isPlaceholderMeal = item.itemType === 'meal'
+                && (item.customName === '機上套餐' || item.customName === '飯店內早餐');
+            const canAddToPoi = !isLinked && poiEligibleTypes.includes(item.itemType) && !isPlaceholderMeal;
             const options = optionsMap[item.IIID] || [];
             const hasMultipleOptions = options.length > 1;
             const showOnMapChecked = item.showOnMap !== false; // 沒特別設過就當作預設顯示
@@ -1878,16 +2175,28 @@
                     `<option value="${o.IIOID}" ${o.selected ? 'selected' : ''}>${o.name}</option>`).join('');
                 nameHtml = `<select onchange="selectItemOption(${idid}, ${item.IIID}, this)" style="font-size:13px;padding:3px;border-radius:4px;border:1px solid #cbd5e1;">${optionTags}</select>
                             <span style="font-size:11px;color:#a855f7;margin-left:4px;font-weight:600;">${options.length} 個候選</span>`;
+            } else if (isFlightItem(item) && typeof label === 'string' && label.indexOf(' → ') !== -1) {
+                // Patch 85: 使用者要求航班名稱改成「出發機場」「→ 抵達機場」上下兩行, 比擠在同一行好讀。
+                // customName 本身的組成格式沒有變 (ItineraryService.buildTransportName 還是「出發地 → 目的地」
+                // 這個既有格式, Word 匯出/報價單等其他地方讀到的還是原本的單行字串, 不受影響), 這裡純粹是
+                // 看板卡片這個顯示位置, 用第一個 " → " 分隔字串, 拆成兩行呈現。
+                const sep = ' → ';
+                const sepIdx = label.indexOf(sep);
+                const flightFrom = label.substring(0, sepIdx);
+                const flightTo = label.substring(sepIdx + sep.length);
+                nameHtml = `<span class="item-name" style="display:inline-block;line-height:1.6;vertical-align:middle;">${flightFrom}<br>→ ${flightTo}</span>`;
             } else {
                 nameHtml = `<span class="item-name">${label}</span>`;
             }
 
             const subText = (!isLinked && canAddToPoi) ? '<span class="unlinked-tag">未連結資料庫</span>' : '';
-            // 有填出發/抵達時間的項目 (目前只有交通/班機項目會有, 見 attachFlightLegsAcrossDays) 額外顯示一個時間徽章——
-            // 這兩個欄位建立行程時就存進資料庫了, 但一直以來畫面完全沒有地方顯示, 使用者填的去程/回程班機時間
-            // 看起來就像「沒有帶進行程表」, 其實只是沒有呈現出來。
-            const timeBadge = (item.startTime || item.endTime)
-                ? `<span class="time-badge"><i class="fa-regular fa-clock"></i>${item.startTime || '--:--'}<span class="arrow">→</span>${item.endTime || '--:--'}</span>`
+            // 有填出發/抵達時間的項目 (交通/班機項目, 見 attachFlightLegsAcrossDays; 餐食項目也會有,
+            // 見 autoArrangeDay() 的三餐固定時間錨點) 額外顯示一個時間徽章。
+            // Patch 89: 使用者要求「餐廳的行程下方可以不用顯示時間」——餐食項目的開始/結束時間本來就只是
+            // 系統內部拿來排序/判斷有沒有跟班機衝突用的估算值, 顯示在畫面上容易讓人誤以為是「一定要幾點
+            // 到這間餐廳」的硬性安排, 這裡排除 itemType === 'meal', 交通/班機項目不受影響, 維持顯示。
+            const timeBadge = (item.itemType !== 'meal' && (item.startTime || item.endTime))
+                ? `<span class="time-badge"><i class="fa-regular fa-clock"></i>${hhmm(item.startTime) || '--:--'}<span class="arrow">→</span>${hhmm(item.endTime) || '--:--'}</span>`
                 : '';
             const mapLabel = mapLabels[item.IIID];
             const isHotelLabel = mapLabel === '🛏️';
@@ -1930,9 +2239,19 @@
             editForm.id = 'item-edit-' + item.IIID;
             editForm.style.display = 'none';
             const isTransportType = item.itemType === 'transport';
+            // Patch 87: 使用者要求「航班在編輯時顯示的出發點跟目的地要像 itinerary/new 一樣, 打中文或是
+            // 英文代碼會顯示 (建議清單)」——只有真的是班機 (isFlightItem) 才套用機場自動完成, 一般地面
+            // 交通 (高鐵/遊覽車/計程車等) 的起始點/目的地維持原本純文字輸入, 不強加機場專用的建議清單。
+            const isFlightEditType = isFlightItem(item);
             const typeOptions = ['attraction', 'meal', 'hotel', 'transport', 'optional', 'free_time']
                 .map(t => `<option value="${t}" ${item.itemType === t ? 'selected' : ''}>${typeLabel[t]}</option>`).join('');
             const esc = (v) => (v || '').toString().replace(/"/g, '&quot;');
+            // 沒有連結景點資料庫、但有暫存 AI 介紹說明的項目, 這裡的介紹說明欄位不是走
+            // loadItemDescription() 非同步載入 (那個只有 item.PID != null 才會呼叫), 是直接內嵌在
+            // editForm 的 HTML 裡——重畫畫面時要優先顯示還沒儲存的暫存編輯 (item.description, 由
+            // buildDisplayItems 合併 pendingEdits 進來), 沒有的話才顯示原本的 item.aiDescription,
+            // 不然使用者剛打的內容還沒按「儲存編輯」就會在下一次重畫時被蓋掉。
+            const unlinkedDescriptionValue = (item.description != null ? item.description : item.aiDescription) || '';
 
             // 交通項目的起始點/目的地如果本來就空白 (例如剛新增、還沒拖到定位的交通項目), 用「這個項目
             // 目前前後兩個項目」的名稱當預設建議值帶進輸入框——只是預先帶入畫面顯示, 不會自動存檔,
@@ -1966,7 +2285,10 @@
                         ${item.PID != null
                             ? `<label>景點介紹說明 (加入資料庫時 AI 自動生成; 修改後儲存會同步更新回景點資料庫, 其他引用同一個景點的行程也會看到)</label>
                                <textarea id="edit-description-${item.IIID}" rows="3" style="width:100%;padding:6px 10px;font-size:13px;margin-top:3px;border:1px solid var(--border-color);border-radius:6px;box-sizing:border-box;" placeholder="載入中...">載入中...</textarea>`
-                            : `<div style="font-size:11px;color:#94a3b8;">這個項目還沒連結公司資料庫景點, 沒有介紹說明 (先用上面的「＋ 加入景點資料庫」按鈕連結)</div>`}
+                            : ((item.aiDescription || item.description)
+                                ? `<label>行程說明 (AI 解析上傳文件時抓到的簡介，尚未連結景點資料庫，只會存在這個行程項目本身，不會分享給其他行程)</label>
+                                   <textarea id="edit-description-${item.IIID}" rows="3" style="width:100%;padding:6px 10px;font-size:13px;margin-top:3px;border:1px solid var(--border-color);border-radius:6px;box-sizing:border-box;">${unlinkedDescriptionValue.replace(/</g, '&lt;')}</textarea>`
+                                : `<div style="font-size:11px;color:#94a3b8;">這個項目還沒連結公司資料庫景點, 沒有介紹說明 (先用上面的「＋ 加入景點資料庫」按鈕連結)</div>`)}
                     </div>
                 </div>
 
@@ -1976,11 +2298,21 @@
                     <label>航班/車次編號 (選填)</label>
                     <input type="text" id="edit-transportnumber-${item.IIID}" value="${esc(item.transportNumber)}" placeholder="例如: CI100" />
                     <label>起始點</label>
-                    <input type="text" id="edit-fromloc-${item.IIID}" value="${esc(suggestedFromLocation)}" placeholder="例如: 桃園機場" />
+                    ${isFlightEditType
+                        ? `<div class="cc-autocomplete-wrap">
+                               <input type="text" id="edit-fromloc-${item.IIID}" value="${esc(suggestedFromLocation)}" placeholder="例如: 桃園機場" autocomplete="off" />
+                               <div class="cc-suggest-list"></div>
+                           </div>`
+                        : `<input type="text" id="edit-fromloc-${item.IIID}" value="${esc(suggestedFromLocation)}" placeholder="例如: 桃園機場" />`}
                     <label>起始地址 (選填, 沒填會依起始點自動帶入)</label>
                     <input type="text" id="edit-fromaddr-${item.IIID}" value="${esc(item.fromAddress)}" placeholder="沒填會自動帶入..." />
                     <label>目的地</label>
-                    <input type="text" id="edit-toloc-${item.IIID}" value="${esc(suggestedToLocation)}" placeholder="例如: 高雄車站" />
+                    ${isFlightEditType
+                        ? `<div class="cc-autocomplete-wrap">
+                               <input type="text" id="edit-toloc-${item.IIID}" value="${esc(suggestedToLocation)}" placeholder="例如: 高雄車站" autocomplete="off" />
+                               <div class="cc-suggest-list"></div>
+                           </div>`
+                        : `<input type="text" id="edit-toloc-${item.IIID}" value="${esc(suggestedToLocation)}" placeholder="例如: 高雄車站" />`}
                     <label>目的地地址 (選填, 沒填會依目的地自動帶入)</label>
                     <input type="text" id="edit-toaddr-${item.IIID}" value="${esc(item.toAddress)}" placeholder="沒填會自動帶入..." />
                     <label>交通工具</label>
@@ -2009,11 +2341,18 @@
                          width:100% 是交給瀏覽器 CSS 引擎依「父層當下的實際寬度」隨時計算, 不是 JS 算好釘死的
                          固定 px 數字, 就算量測當下父層還是 display:none, 之後 toggleItemEdit() 切成
                          display:block 讓表單真的顯示出來時, 瀏覽器一樣會照 100% 重新算出正確寬度, 不會卡住,
-                         徹底解掉這個「隱藏時測量」的根本問題, 不用再靠 data-dtp-skip 迴避。 -->
+                         徹底解掉這個「隱藏時測量」的根本問題, 不用再靠 data-dtp-skip 迴避。
+
+                         使用者要求「所有時間都改成5分鐘一個級距, 而且要可以打字也可以選」——這兩個
+                         input 額外加上 data-dtp-step="5" (5分鐘級距, datetime-picker.js 看到這個屬性
+                         才會把分鐘面板換成只列出5的倍數、觸發器換成可以打字的文字框, 見那支腳本開頭的
+                         說明) 跟 step="300" (原生 time input 的秒數級距, 300秒=5分鐘, 給沒有 JS 時的
+                         原生 fallback 用)。只有這兩個 input 有加這個屬性, 不會影響其他頁面 (AI匯入預覽、
+                         側邊欄) 的時間欄位。 -->
                     <label>出發時間 (選填, 例如班機起飛時間)</label>
-                    <input type="time" style="width:100%" id="edit-starttime-${item.IIID}" value="${esc(item.startTime)}" />
+                    <input type="time" style="width:100%" id="edit-starttime-${item.IIID}" value="${esc(hhmm(item.startTime))}" data-dtp-step="5" step="300" />
                     <label>抵達時間 (選填, 例如班機降落時間)</label>
-                    <input type="time" style="width:100%" id="edit-endtime-${item.IIID}" value="${esc(item.endTime)}" />
+                    <input type="time" style="width:100%" id="edit-endtime-${item.IIID}" value="${esc(hhmm(item.endTime))}" data-dtp-step="5" step="300" />
                 </div>
 
                 <label>備註 (只跟著這個行程項目, 不會存進景點資料庫, 匯出企劃書時會一併輸出)</label>
@@ -2028,7 +2367,13 @@
             if (item.PID != null) {
                 // 要在 appendChild 之後才能抓到表單裡的元素, 不然 getElementById 找不到 (元素還沒真的接上網頁)
                 loadItemImages(item.PID, item.IIID, idid, item.excludedImageIds);
-                loadItemDescription(item.PID, item.IIID);
+                loadItemDescription(item.PID, item.IIID, item.aiDescription);
+            }
+            if (isFlightEditType) {
+                // Patch 87: 同樣要在 appendChild 之後才能抓到元素——setupAirportAutocomplete()
+                // 定義見下方 (跟 itinerary/new.html 完全同一套邏輯, 直接搬過來共用)。
+                setupAirportAutocomplete(document.getElementById('edit-fromloc-' + item.IIID));
+                setupAirportAutocomplete(document.getElementById('edit-toloc-' + item.IIID));
             }
 
             // 通勤拉車資訊 + 交通方式選單——如果這一段的頭尾任一邊是「交通」項目 (不管是一般交通還是班機),
@@ -2041,8 +2386,13 @@
             // 交通項目一致——這裡補上 isFlightItem 的判斷。
             const nextItem = items[index + 1];
             const route = routes.find(r => r.fromItemId === item.IIID);
+            // Patch 89: 使用者要求「選餐廳與住宿排最後時, 餐廳前後不用顯示路程距離時間; 選依早中晚餐
+            // 時段排序時維持原樣」——「all_last」模式下餐廳只是排到最後面, 不代表真的要去程排它跟前後
+            // 項目之間有意義的拉車距離, 這裡跟班機/一般交通項目一樣一併壓制。
+            const isSuppressedMeal = (it) => itineraryArrangeMode === 'all_last' && it && it.itemType === 'meal';
             const suppressRouteDetails = isPlainTransportItem(item) || isPlainTransportItem(nextItem)
-                || isFlightItem(item) || isFlightItem(nextItem);
+                || isFlightItem(item) || isFlightItem(nextItem)
+                || isSuppressedMeal(item) || isSuppressedMeal(nextItem);
             let routeInfoEl = null;
             if (route) {
                 routeInfoEl = document.createElement('div');
@@ -2102,6 +2452,9 @@
         list._sortable = new Sortable(list, {
             animation: 150,
             draggable: '.item-row',
+            // 使用者要求「行程鎖定後不能再編輯」——鎖定時停用拖曳排序 (SortableJS 內建的 disabled 選項,
+            // 停用後元素還是看得到但沒辦法拖動), 後端 /day/{IDID}/reorder 這邊也已經另外擋掉了。
+            disabled: !boardEditable,
             onEnd: (evt) => {
                 if (evt.oldIndex === evt.newIndex) return;
                 const newOrder = Array.from(list.querySelectorAll('.item-row')).map(el => parseInt(el.dataset.iiid));
@@ -2191,13 +2544,28 @@
     }
 
     // 套用到「整個行程」(所有天), 不是只有目前這一天; 完成後重新載入目前正在看的這天畫面
+    // 使用者反映「右上角『餐廳住宿排最後』/『依早中晚安排』要按下去就會動作, 現在是要按儲存才會動作」——
+    // 追查後發現這支 API 本身其實一直都是「後端立即生效」(直接改資料庫的 sort_order, 不是像其他編輯那樣
+    // 先暫存等按『儲存編輯』才送出), 但前端原本只用 loadDay(currentDayId) 重抓「目前這一天」的最新資料,
+    // 有兩個地方會讓畫面看起來像是「點了沒反應」:
+    //   1) 這支 API 一次重新整理「整個行程」所有天 (ItineraryService.autoArrangeItinerary() 內部逐天呼叫
+    //      autoArrangeDay()), 不是只有目前這一天; 其餘天的 dayCache 完全沒有更新, 使用者切到其他天還是
+    //      看到舊順序, 只有整頁重整(或存檔觸發的部分重抓)才會反映出來。
+    //   2) 如果目前這天剛好還有暫存中、還沒存檔的拖曳排序 (pendingItemOrder), buildDisplayItems() 會拿
+    //      那份暫存排序蓋掉這裡剛抓回來、後端已經排好的新順序, 畫面上完全看不出任何變化——這正是「好像
+    //      要按儲存才會動作」的根因 (而且就算按了儲存, 送出的還是那份蓋過去的舊暫存排序, 一樣不會是真正
+    //      想要的自動整理結果)。
+    // 修正: 直接整頁重新整理, 讓所有天都拿到伺服器剛整理好的最新結果, 效果比照這個檔案裡其他「後端已經是
+    // 立即生效的整頁動作」(新增/刪除一天、標記完成、鎖定行程) 的既有寫法。如果這時候使用者手上還有其他
+    // 還沒存檔的編輯, 既有的 beforeunload 保護 (見 hasUnsavedChanges) 會先跳出瀏覽器原生的「確定要離開
+    // 嗎」提示, 不會沒有預警就把還沒存檔的東西整頁蓋掉。
     function autoArrangeItinerary(mode) {
         fetch(`/itinerary/${itineraryId}/auto-arrange?mode=${encodeURIComponent(mode || 'all_last')}`, { method: 'POST' })
             .then(res => {
                 if (!res.ok) {
                     return res.text().then(msg => { throw new Error(`HTTP ${res.status}: ${msg}`); });
                 }
-                return loadDay(currentDayId);
+                window.location.reload();
             })
             .catch(err => alert('自動整理失敗：' + err.message));
     }
@@ -2217,11 +2585,25 @@
     // 純顯示用的視覺化時間軸: 只呈現每個項目的時間區間跟通勤時間, 不再放交通方式選單
     // (交通方式改成在中間清單每一段各自選, 不要放這裡, 避免使用者搞混哪個才是真正生效的設定)
     function renderTimeline(idid, items, routes, typeLabel, typeIcon) {
-        const wrap = document.getElementById('timelineContainer');
+        // 使用者反映「灰色直線不夠長, 沒有跟著行程長度延伸」——這條線現在掛在 #timelineTrack (見上面
+        // CSS/HTML 的說明), 不是外層真正在捲動的 #timelineContainer, 這裡改成畫進內層這個會跟著內容
+        // 自然撐高的區塊, 線才會跟著目前這天實際排了多少項目一起變長。
+        const wrap = document.getElementById('timelineTrack');
         const startInput = document.querySelector('.timeline-controls input[type="time"]');
         wrap.innerHTML = '';
 
-        if (items.length === 0) {
+        // Patch 85: 使用者要求「機上套餐不需要顯示在當日行程時間表」——機上套餐保留了原本跟班機重疊
+        // 時段的開始/結束時間 (用意是清楚標示「這段時間人在飛機上」, 見主清單卡片, renderDay 那邊還是
+        // 會照常顯示), 但這個時間軸是以「地面行程依序累加」為前提在畫, 直接把它畫進來時間會跟它在主清單
+        // 卡片裡的實際排序位置對不上, 顯得突兀。這裡先把機上套餐從時間軸要畫的清單裡濾掉, 不影響主清單
+        // (renderDay 用的是原始未過濾的 items, 各自獨立)。
+        // Patch 89: 使用者要求「選餐廳與住宿排最後時, 時間表就不用顯示餐廳; 選依早中晚餐時段排序時,
+        // 時間表會出現餐廳」——「all_last」模式下餐廳的位置/時間本來就只是「排到最後面」這個相對順序,
+        // 沒有實際的用餐時段意義, 畫進以「依序累加時間」為前提的時間軸只會製造混淆, 這裡一併濾掉。
+        const timelineItems = items.filter(it => !isInFlightMeal(it)
+            && !(itineraryArrangeMode === 'all_last' && it.itemType === 'meal'));
+
+        if (timelineItems.length === 0) {
             wrap.innerHTML = '<div class="timeline-empty">尚未安排行程</div>';
             return;
         }
@@ -2229,7 +2611,7 @@
         const dayStartMin = timeToMinutes(startInput?.value || '09:00');
         let current = dayStartMin;
 
-        items.forEach((item, i) => {
+        timelineItems.forEach((item, i) => {
             // 交通項目的「停留時間」永遠是 null (交通不是一個會停留的點), 這裡改用通勤時間 (分鐘, 數字)
             // 當作這個項目佔用的時長估算——跟停留時間一樣是數字, 才能真的推進時間表的時鐘。如果這個
             // 項目本身有填出發/抵達時間 (下面 if (item.startTime) 那段), 這個估算值會被直接蓋掉、完全不使用,
@@ -2255,6 +2637,21 @@
                 if (start < 0) start += 24 * 60; // 抵達時間很早 (例如 00:10) 往前推算停留時間變成負值, 視為前一天出發
             }
             if (end < start) end += 24 * 60; // 抵達時間字面上比出發時間早 → 隔夜/跨日班機, 視為隔天抵達
+
+            // Patch 76: 使用者反映「時間軸出現時間倒退」(截圖: 18:40 迴頭路之後接一個 13:05 開始的餐廳)——
+            // 追查後發現這裡完全信任 item.startTime/endTime, 沒有跟前面項目累加下來的 current 比較。一旦
+            // 某個項目自己寫死的時間是舊資料 (在還不知道班機真正時間之前就先算好、後來才被排到班機後面,
+            // 見後端 ItineraryService.trimItemsAroundFlights()/advancePast() 同一次修正的說明), 時間軸
+            // 就會照原始資料原封不動畫出倒退的時間, 後面接的項目估算基準也會跟著錯亂。後端已經會在建立
+            // 行程/自動整理/開啟看板時盡量清掉這種資料, 這裡額外補一層純顯示層的保護, 避免任何漏網之魚
+            // 讓畫面出現倒退: 非班機項目 (班機本身合理的隔夜/跨日情境已經在上面單獨處理, 不應該被這裡的
+            // 保護誤擋) 的開始時間不能早於前面所有項目累加下來的時間, 早的話一律以目前累加時間為準, 維持
+            // 時間軸單調遞增, 停留時長維持不變 (只是整段往後移)。
+            if (!isFlightItem(item) && start < current) {
+                const dur = Math.max(end - start, Math.max(duration, 15));
+                start = current;
+                end = start + dur;
+            }
 
             if (i === 0 && startInput) {
                 // 同步「出發時間」輸入框, 顯示成第一個項目實際算出來的開始時間, 不要繼續顯示 day.startTime
@@ -2293,11 +2690,17 @@
             // 修正: 頭尾任一邊是交通/班機項目時, 完全不建立這個「拉車」節點, 時間軸也不要疊加這段拉車時間
             // (current 維持在交通/班機項目自己算出來的真實結束時間 end, 不要再往後多加一段虛構的通勤時間;
             // 下一個項目如果自己有真實的出發/抵達時間會直接採用, 沒有的話才會用這個 current 當起算點)。
-            const nextTimelineItem = items[i + 1];
-            const suppressTimelineRoute = isPlainTransportItem(item) || isPlainTransportItem(nextTimelineItem)
-                || isFlightItem(item) || isFlightItem(nextTimelineItem);
+            const nextTimelineItem = timelineItems[i + 1];
             const route = routes.find(r => r.fromItemId === item.IIID);
-            if (route && i < items.length - 1 && !suppressTimelineRoute) {
+            // Patch 89: 同上面 suppressRouteDetails 的說明——「all_last」模式下, 如果這段路線的終點
+            // 剛好是被時間軸濾掉的餐廳 (見上面 timelineItems 的過濾), 顯示出來的「拉車時間」會變成
+            // 「這個項目 → 畫面上下一個看得到的項目」這種對不起來的錯誤配對, 這裡额外用完整的 items
+            // (未過濾) 查出路線終點的類別, 是餐廳就一併壓制。
+            const routeTargetItem = route ? items.find(it => it.IIID === route.toItemId) : null;
+            const suppressTimelineRoute = isPlainTransportItem(item) || isPlainTransportItem(nextTimelineItem)
+                || isFlightItem(item) || isFlightItem(nextTimelineItem)
+                || (itineraryArrangeMode === 'all_last' && routeTargetItem && routeTargetItem.itemType === 'meal');
+            if (route && i < timelineItems.length - 1 && !suppressTimelineRoute) {
                 const travelStart = current;
                 const travelEnd = current + route.durationMin;
                 const travelNode = document.createElement('div');
@@ -2319,11 +2722,16 @@
     }
 
     function updateStartTime(idid, value) {
+        // 使用者要求「行程鎖定後不能再編輯」——這支 API 之前完全沒檢查回應就直接重新整理畫面,
+        // 行程被鎖定時後端會擋下來, 但畫面上完全看不出剛剛改的出發時間其實沒有存到, 補上失敗提示。
         fetch(`/itinerary/day/${idid}/start-time`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: 'startTime=' + encodeURIComponent(value)
-        }).then(() => loadDay(idid));
+        }).then(res => {
+            if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
+            return loadDay(idid);
+        }).catch(err => alert('更新出發時間失敗：' + err.message));
     }
 
     // 手動覆寫「單一段」的通勤方式 (走路/開車), 只重算這一段, 不影響同一天其他段落。
@@ -2420,12 +2828,12 @@
     function openExportModal(format) {
         exportFormatPending = format;
         const titleEl = document.getElementById('exportModalTitle');
-        if (titleEl) titleEl.textContent = '選擇要匯出的內容（' + (format === 'b2b' ? '同業版' : '客戶版') + '）';
+        if (titleEl) titleEl.textContent = '選擇要匯出的內容（' + (format === 'b2b' ? '行程版' : '說明手冊版') + '）';
         document.getElementById('exportModalOverlay').style.display = 'flex';
         loadExportTemplates();
     }
 
-    // 「匯出行程」小選單: 點按鈕本身開合選單 (客戶版/同業版), 選了其中一項才真正呼叫 openExportModal();
+    // 「匯出行程」小選單: 點按鈕本身開合選單 (說明手冊版/行程版, 舊稱客戶版/同業版), 選了其中一項才真正呼叫 openExportModal();
     // 點選單以外的地方要自動關掉, 用 document 層級的 click 監聽判斷點擊的地方是不是在選單容器裡面。
     // 2026-09-03 修正: 選單改成 position:fixed (見上面 CSS 註解說明原因), 所以每次打開都要用按鈕
     // 目前實際的畫面座標 (getBoundingClientRect) 重新算一次 top/left, 不能再靠 CSS 的
@@ -2457,8 +2865,39 @@
     window.addEventListener('scroll', function () { closeExportDropdown(); }, true);
     window.addEventListener('resize', function () { closeExportDropdown(); });
 
+    // 「九個點」九宮格選單: 跟上面 export-dropdown 同一套邏輯 (position:fixed + 用按鈕座標算 top/right,
+    // 點選單以外的地方/捲動/縮放視窗都要自動關閉)。裡面還嵌了一個匯出行程的次選單 (export-dropdown-wrap),
+    // 關閉九宮格時要順便把這個次選單也關掉, 不然會出現「九宮格關了, 裡面的匯出次選單卻還浮在畫面上」。
+    function toggleAppsGrid(evt) {
+        if (evt) evt.stopPropagation();
+        const menu = document.getElementById('appsGridMenu');
+        const btn = document.getElementById('appsGridBtn');
+        const willOpen = !menu.classList.contains('open');
+        if (willOpen) {
+            const rect = btn.getBoundingClientRect();
+            menu.style.top = (rect.bottom + 6) + 'px';
+            menu.style.right = (window.innerWidth - rect.right) + 'px';
+            menu.style.left = 'auto';
+        } else {
+            closeExportDropdown();
+        }
+        menu.classList.toggle('open', willOpen);
+        btn.classList.toggle('open', willOpen);
+    }
+    function closeAppsGrid() {
+        document.getElementById('appsGridMenu').classList.remove('open');
+        document.getElementById('appsGridBtn').classList.remove('open');
+        closeExportDropdown();
+    }
+    document.addEventListener('click', function (e) {
+        const wrap = document.querySelector('.apps-grid-wrap');
+        if (wrap && !wrap.contains(e.target)) closeAppsGrid();
+    });
+    window.addEventListener('scroll', function () { closeAppsGrid(); }, true);
+    window.addEventListener('resize', function () { closeAppsGrid(); });
+
     // 帶入這家旅行社上傳的範本清單, 讓使用者選要用哪一份 (或維持內建版面)
-    // 依目前要匯出的 format 決定要抓哪一種類型的範本: b2c → CUSTOMER (客戶版型), b2b → AGENCY_WORD (同業版型)
+    // 依目前要匯出的 format 決定要抓哪一種類型的範本: b2c → CUSTOMER (說明手冊版型), b2b → AGENCY_WORD (行程版型)
     function loadExportTemplates() {
         const select = document.getElementById('exportTemplateId');
         select.innerHTML = '';
@@ -2744,7 +3183,14 @@
         if (!currentDayId) { alert('請先選擇一天'); return; }
         const params = new URLSearchParams({ PID: pid, itemType, customName: name });
         fetch(`/itinerary/day/${currentDayId}/items?` + params.toString(), { method: 'POST' })
-            .then(res => res.json())
+            .then(res => {
+                // 使用者要求「行程鎖定後不能再編輯」——後端這支新增項目 API 之前完全沒檢查鎖定狀態,
+                // 這裡補上 res.ok 檢查 (之前直接假設一定成功、跳過檢查直接當 JSON 解析, 行程被鎖定時
+                // 後端回傳的是純文字錯誤訊息, 不是合法 JSON, 會被 res.json() 拋出一個看不懂的
+                // "Unexpected token" 錯誤, 使用者搞不清楚到底發生什麼事)。
+                if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
+                return res.json();
+            })
             .then(newItem => {
                 pendingAdds.add(newItem.IIID);
                 markDirty();
@@ -2762,7 +3208,12 @@
     function addSuggestedBetween(idid, fromIIID, toIIID, pid, name, itemType) {
         const params = new URLSearchParams({ PID: pid, itemType, customName: name });
         fetch(`/itinerary/day/${idid}/items?` + params.toString(), { method: 'POST' })
-            .then(res => res.json())
+            .then(res => {
+                // 見 addToCurrentDay() 同樣的補強說明: 行程鎖定時後端回的是純文字, 要先檢查 res.ok
+                // 才能決定要不要當 JSON 解析, 不然會拋出看不懂的 JSON 解析錯誤。
+                if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
+                return res.json();
+            })
             .then(newItem => {
                 pendingAdds.add(newItem.IIID);
                 markDirty();
@@ -2799,7 +3250,11 @@
         if (hintInput.value.trim()) params.set('locationHint', hintInput.value.trim());
 
         fetch(`/itinerary/day/${currentDayId}/items/custom?` + params.toString(), { method: 'POST' })
-            .then(res => res.json())
+            .then(res => {
+                // 同上: 行程鎖定時要先檢查 res.ok 才能決定要不要當 JSON 解析
+                if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
+                return res.json();
+            })
             .then(newItem => {
                 pendingAdds.add(newItem.IIID);
                 markDirty();
@@ -2813,7 +3268,14 @@
 
     async function selectItemOption(idid, iiid, selectEl) {
         const optionId = selectEl.value;
-        await fetch(`/itinerary/day/${idid}/items/${iiid}/select-option?optionId=${optionId}`, { method: 'POST' });
+        // 使用者要求「行程鎖定後不能再編輯」——這支 API 之前完全沒檢查回應就直接重新整理畫面,
+        // 行程被鎖定時後端會擋下來, 但畫面上完全看不出剛剛那次點擊其實沒有生效, 補上失敗提示。
+        const res = await fetch(`/itinerary/day/${idid}/items/${iiid}/select-option?optionId=${optionId}`, { method: 'POST' });
+        if (!res.ok) {
+            const msg = await res.text();
+            alert('切換候選點失敗：' + msg);
+            return;
+        }
         loadDay(idid);
     }
 
@@ -2896,23 +3358,14 @@
             const endTime = document.getElementById('edit-endtime-' + iiid).value.trim();
             if (!fromLocation || !toLocation) { alert('請至少輸入起始點與目的地'); return; }
 
-            // 名稱留空時自動帶入——如果這本來是去程/回程班機項目 (customName 開頭是「去程班機」/「回程班機」,
-            // 見 ItineraryService.attachFlightLegsAcrossDays() 的命名規則), 要保留原本的方向字首,
-            // 不能直接套用一般交通的命名規則, 不然機場銜接功能 (calculateAirportTransferSegments()/
-            // updateItemDetails() 判斷回程班機的地方) 會認不出這個項目。有填「航班/車次編號」的話插在
-            // 字首後面、路線前面 (跟 ItineraryService.buildFlightLabel() 同一套格式)。
-            const flightPrefixMatch = (currentItem && currentItem.transportMethod === '飛機' && currentItem.customName)
-                ? currentItem.customName.match(/^(去程班機\d*|回程班機\d*)/)
-                : null;
+            // 名稱留空時自動帶入：直接是「航班/車次編號 起始點→目的地」，不加任何前綴文字（跟
+            // ItineraryService.buildTransportName() 同一套格式）。這個項目是不是去程/回程班機存在後端
+            // 的 flightDirection 欄位（結構化欄位，這次編輯表單完全沒有動它），不是靠這裡的顯示名稱
+            // 文字判斷——不管使用者把名稱編輯成什麼樣子，都不會影響機場銜接功能
+            // (calculateAirportTransferSegments()/updateItemDetails() 判斷回程班機的地方) 或匯出範本的
+            // 「參考航班」判斷。
             const route = fromLocation + ' → ' + toLocation;
-            const routeWithNumber = transportNumber ? (transportNumber + ' ' + route) : route;
-            let autoName;
-            if (flightPrefixMatch) {
-                autoName = flightPrefixMatch[0] + '：' + routeWithNumber;
-            } else {
-                const namePrefix = transportMethod ? (transportMethod + '：') : '';
-                autoName = namePrefix + routeWithNumber;
-            }
+            const autoName = transportNumber ? (transportNumber + ' ' + route) : route;
             overrides.customName = customNameInput || autoName;
             overrides.transportNumber = transportNumber || null;
             overrides.fromLocation = fromLocation;
@@ -2978,13 +3431,22 @@
     }
 
     // 抓這個景點目前的介紹說明, 顯示在編輯表單最下方 (加入 POI 資料庫時 AI 自動生成的那份)
-    async function loadItemDescription(pid, iiid) {
+    // aiDescription: 這個項目自己暫存的 AI 解析介紹說明 (見 ItineraryItem.aiDescription)。
+    // 使用者要求「若跟資料庫重疊，優先使用 AI 解析出來的版本」——有這個暫存值就直接顯示它, 不去查資料庫
+    // 裡的舊版本 (連 API 都不用打); 使用者之後在這裡編輯存檔才會真的覆蓋回資料庫 (見 saveItemEdit/
+    // saveAllChanges 呼叫 /poi/{pid}/description, 存檔當下也會把這個暫存欄位清空, 之後才改吃資料庫版本)。
+    async function loadItemDescription(pid, iiid, aiDescription) {
         const textarea = document.getElementById('edit-description-' + iiid);
         if (!textarea) return;
 
         // 如果這個項目已經有暫存中、還沒儲存的介紹說明修改, 畫面重畫時要保留使用者剛打的內容, 不要被伺服器版本蓋掉
         if (pendingEdits[iiid] && pendingEdits[iiid].description != null) {
             textarea.value = pendingEdits[iiid].description;
+            return;
+        }
+
+        if (aiDescription) {
+            textarea.value = aiDescription;
             return;
         }
 
@@ -3103,6 +3565,7 @@
         new Sortable(wrapper, {
             animation: 150,
             draggable: '.day-tab',
+            disabled: !boardEditable,
             onEnd: (evt) => {
                 if (evt.oldIndex === evt.newIndex) return;
                 pendingDayOrder = Array.from(wrapper.querySelectorAll('.day-tab')).map(el => parseInt(el.dataset.idid));
@@ -3308,6 +3771,16 @@
                         body: new URLSearchParams({ description: edit.description, iiid: iiid }).toString()
                     });
                     if (!descRes.ok) throw new Error(`儲存景點介紹說明失敗 (HTTP ${descRes.status})`);
+                } else if (edit.descriptionPid == null && edit.description != null) {
+                    // 沒有連結景點資料庫、但這個項目自己有暫存的 AI 介紹說明可以編輯 (見 renderDay 裡
+                    // unlinkedDescriptionValue 那個 textarea) —— 沒有 POI 可以寫回, 直接存回這個
+                    // 行程項目自己的 ai_description 欄位就好, 不用走 /poi/{id}/description。
+                    const aiDescRes = await fetch(`/itinerary/day/${idid}/items/${iiid}/ai-description`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ description: edit.description }).toString()
+                    });
+                    if (!aiDescRes.ok) throw new Error(`儲存行程說明失敗 (HTTP ${aiDescRes.status})`);
                 }
             }
 
@@ -3386,8 +3859,8 @@
             <a href="/export-templates" target="_blank" style="margin-left:8px; font-size:12px;">管理我的範本</a>
         </label>
         <label class="export-check"><input type="checkbox" id="exportIncludeItinerary" checked /> 行程內容（每日景點/餐廳/住宿/交通）</label>
-        <label class="export-check"><input type="checkbox" id="exportIncludeRoutes" checked /> 路程（拉車距離/時間/迴頭路警示）</label>
-        <label class="export-check"><input type="checkbox" id="exportIncludeMap" checked /> 地圖（每日景點連線圖）</label>
+        <label class="export-check"><input type="checkbox" id="exportIncludeRoutes" /> 路程（拉車距離/時間/迴頭路警示）</label>
+        <label class="export-check"><input type="checkbox" id="exportIncludeMap" /> 地圖（每日景點連線圖）</label>
         <label class="export-check"><input type="checkbox" id="exportIncludeImages" /> 圖片（景點對應的圖庫照片）</label>
         <div class="export-modal-actions">
             <button onclick="confirmExport()">匯出</button>

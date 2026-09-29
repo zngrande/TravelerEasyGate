@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -22,10 +24,23 @@ import java.util.regex.Pattern;
  *
  * 範本製作規格（要給旅行社的說明文件另附，見 template-placeholder-spec.md）：
  *   單次替換: {{title}} {{country}} {{days_count}} {{date_range}}
+ *   參考航班摘要 (單次替換, 沒有填去程/回程班機就是空字串):
+ *             {{outbound_departure_airport}} {{outbound_arrival_airport}}
+ *             {{outbound_departure_time}} {{outbound_arrival_time}}
+ *             {{return_departure_airport}} {{return_arrival_airport}}
+ *             {{return_departure_time}} {{return_arrival_time}}
+ *             (這組欄位是給範本開頭「一眼看整趟行程」用的精簡摘要, 只取整趟去程/回程的頭尾;
+ *             如果去程/回程有轉機, 中間每一段轉機航班會完整列在該天的 {{day.title}} 裡,
+ *             不會漏掉, 見下面逐日區塊的說明)
  *   圖片區塊: 一個段落, 內容只放 {{images_block}}
  *   逐日區塊: {{day_start}} ... {{day_end}} 各自獨立一個段落當標記,
  *             中間可以放任意段落/表格, 內容裡可以用 {{day.number}} {{day.title}}
  *             {{day.content}} {{day.meals}} {{day.hotel}} {{day.map}}
+ *             (day.content/day.meals 不會出現交通/班機項目; 交通/班機 (含所有轉機航段,
+ *             不只頭尾) 改顯示在 {{day.title}} 最前面, 後面接這天的景點名稱;
+ *             day.hotel 除了住宿名稱, 有填備註的話也會一併帶上;
+ *             day.meals 每筆餐食前面會自動加上「早餐／午餐／晚餐」——第一筆早餐、
+ *             第二筆午餐、第三筆(以後)晚餐, 不到三筆就只會出現對應的那幾筆)
  *   逐項目區塊 (放在逐日區塊裡的表格儲存格裡): {{item_start}} ... {{item_end}},
  *             裡面可以用 {{item.name}} {{item.note}} {{item.description}} {{item.route}}
  *
@@ -100,6 +115,11 @@ public class TemplateMergeService {
         }
     }
 
+    // 「參考航班」摘要用的單一航段資料 (見下方蒐集邏輯的說明)。flightNo: 這段航班在看板上填的航班編號
+    // (item.getTransportNumber()), 使用者要求要顯示在機場名稱前面 (例如「CX459 高雄小港機場」), 沒填就
+    // 只顯示機場名稱。
+    private record FlightLeg(LocalDate date, String flightNo, String fromAirport, String toAirport, LocalTime depTime, LocalTime arrTime) {}
+
     /**
      * 從資料庫組出合併用的 TemplateData（複用 ItineraryService 既有的查詢邏輯）
      * ExportController 呼叫這個, 再丟給 merge()
@@ -121,6 +141,13 @@ public class TemplateMergeService {
         List<DayData> days = new ArrayList<>();
         List<ImageData> images = new ArrayList<>();
 
+        // 「參考航班」摘要: 去程/回程如果有轉機, 會拆成好幾段 (去程班機1/去程班機2...), 範本這裡只留
+        // 4 個欄位放去程、4 個放回程 (出發機場/抵達機場/出發時間/抵達時間), 不會逐段列出——採用「整趟
+        // 去程」的頭尾: 第一段的出發機場/時間當這趟的出發資訊, 最後一段的抵達機場/時間當這趟的抵達資訊,
+        // 轉機當中經過哪些機場不會顯示。依 day/sort_order 掃過去, 同方向遇到後面的段落只更新「迄點」,
+        // 第一次遇到才記「起點」。
+        FlightLeg outboundFirst = null, outboundLast = null, returnFirst = null, returnLast = null;
+
         for (ItineraryDay day : itineraryService.getDays(itinerary.getITID())) {
             List<ItineraryItem> items = itineraryService.getItems(day.getIDID());
             List<RouteSegment> routes = includeRoutes ? itineraryService.getRoutes(day.getIDID()) : List.of();
@@ -129,12 +156,26 @@ public class TemplateMergeService {
             StringBuilder meals = new StringBuilder();
             String hotel = "";
             List<ItemData> itemList = new ArrayList<>();
+            // Patch 90: 使用者要求「交通要顯示在輸出檔案的當天行程標題, 不用顯示在行程內容」——原本
+            // case "transport" 只有「飛機」而且有 flightDirection (outbound/return) 標記的項目會被
+            // 記錄下來 (放進最上面的「參考航班」摘要, 見下面), 沒有標記方向的交通項目 (例如市區接駁車、
+            // 中途轉乘、或沒被判斷成整趟行程去程/回程的班機) 完全被跳過、不會出現在文件的任何地方。
+            // 這裡新增一個清單, 把「這一天出現過的每一筆交通/班機項目」名稱通通收集起來 (不分方向、
+            // 不分是不是飛機), 之後併進 day.title, 確保「所有航班都要顯示」——連轉機的中間航段也不例外
+            // (因為這裡是逐項目收集, 不像下面 outboundFirst/outboundLast 那樣只取頭尾)。
+            List<String> transportTitleParts = new ArrayList<>();
+            int mealIndex = 0; // 這天第幾個餐食項目 (從1開始), 用來套用「第一餐早餐/第二餐午餐/第三餐(以後)晚餐」的預設規則
 
             for (ItineraryItem item : items) {
                 String name = item.getCustomName() == null ? "" : item.getCustomName();
-                // 景點資料庫裡的介紹說明, 有綁定 POI 才會有 (自訂項目沒有對應的資料庫紀錄, 就沒有介紹文字可帶)
+                // 景點資料庫裡的介紹說明, 有綁定 POI 才會有 (自訂項目沒有對應的資料庫紀錄, 就沒有介紹文字可帶)。
+                // 使用者要求: AI 解析上傳文件時如果抓到這個地點的簡介, 暫存在 item.aiDescription 的版本要
+                // 優先顯示, 資料庫裡的舊版本次之——只有使用者事後在行程編輯畫面手動存檔改過, 才會真的變成
+                // 資料庫版本 (屆時 ai_description 會被清空, 見 PoiService.updateDescription)。
                 Poi poi = item.getPID() != null ? poiDAO.findById(item.getPID()) : null;
-                String description = (poi != null) ? poi.getDescription() : null;
+                String description = (item.getAiDescription() != null && !item.getAiDescription().isBlank())
+                        ? item.getAiDescription()
+                        : (poi != null ? poi.getDescription() : null);
 
                 // 拉車距離/時間 (對應這個項目「離開後前往下一站」的路程), 沒勾「路程」選項就不算
                 String routeText = null;
@@ -149,10 +190,55 @@ public class TemplateMergeService {
 
                 switch (item.getItemType() == null ? "" : item.getItemType()) {
                     case "meal" -> {
+                        // 使用者要求「預設第一餐早餐、第二餐午餐、第三餐晚餐, 不到三餐就排到該餐就好」——
+                        // 有明確標記時段 (autoArrangeDay() 標的早/中/晚餐) 就優先採用, 沒有標記才退回
+                        // 「這天第幾個出現的餐食」預設規則。
+                        mealIndex++;
+                        String mealLabel = switch (item.getTimeSlot() == null ? "" : item.getTimeSlot()) {
+                            case "breakfast" -> "早餐";
+                            case "lunch" -> "午餐";
+                            case "dinner" -> "晚餐";
+                            default -> mealIndex == 1 ? "早餐" : (mealIndex == 2 ? "午餐" : "晚餐");
+                        };
                         if (!meals.isEmpty()) meals.append("\n"); // 項目之間空一行
-                        meals.append(name);
+                        meals.append(mealLabel).append("：").append(name);
                     }
-                    case "hotel" -> hotel = name;
+                    case "hotel" -> {
+                        // Patch 90: 使用者要求「輸出時住宿的備注也要一起輸出」——原本這裡只存住宿名稱,
+                        // item.getNote() 完全沒被用到; 跟下面 default 分支 (景點等一般項目) 同樣的做法,
+                        // 有備註就接在名稱後面一起輸出。
+                        hotel = name;
+                        if (item.getNote() != null && !item.getNote().isBlank()) {
+                            hotel = hotel + "　" + item.getNote();
+                        }
+                    }
+                    case "transport" -> {
+                        // 使用者要求「交通/班機不要顯示在行程內容裡」——去程/回程班機已經改成用上面
+                        // outbound_*/return_* 這組「參考航班」摘要欄位單獨呈現 (見下方蒐集邏輯), 一般
+                        // 交通項目也一併不重複顯示。這裡先把去程/回程班機資訊記下來, 再直接跳過, 不加進
+                        // content/itemList/dayTitle。方向判斷改讀 item.getFlightDirection() 這個結構化
+                        // 欄位 ("outbound"/"return"/null)，不再靠 customName 字首文字——使用者可以自由
+                        // 編輯顯示名稱 (例如拿掉編號、改用自己習慣的寫法) 也不會讓這裡的判斷失效。
+                        if ("飛機".equals(item.getTransportMethod())) {
+                            FlightLeg leg = new FlightLeg(day.getDayDate(), item.getTransportNumber(),
+                                    item.getFromLocation(), item.getToLocation(),
+                                    item.getStartTime(), item.getEndTime());
+                            if ("outbound".equals(item.getFlightDirection())) {
+                                if (outboundFirst == null) outboundFirst = leg;
+                                outboundLast = leg;
+                            } else if ("return".equals(item.getFlightDirection())) {
+                                if (returnFirst == null) returnFirst = leg;
+                                returnLast = leg;
+                            }
+                        }
+                        // Patch 90: 不管是不是去程/回程班機、不管是不是飛機 (火車/巴士/接駁車一樣算), 這一天
+                        // 只要出現過交通項目, 名稱都收進這裡——併入 day.title 顯示 (見下面 dayTitle 組法),
+                        // 不會再整個消失不見; 也不會受限於上面 outboundFirst/outboundLast 只取頭尾的簡化,
+                        // 轉機中間的每一段都會各自出現在這裡。
+                        if (!name.isBlank()) {
+                            transportTitleParts.add(name);
+                        }
+                    }
                     default -> {
                         if (!content.isEmpty()) content.append("\n"); // 項目之間空一行, 讀起來不會擠成一團
                         content.append("【").append(typeLabel(item.getItemType())).append("】").append(name);
@@ -202,8 +288,11 @@ public class TemplateMergeService {
             ImageData mapImage = includeMap ? buildDayMapImage(items, routes) : null;
 
             // day.title 改成把當天所有景點項目的名稱串起來, 不用原本常常沒填的 theme 欄位
-            String dayTitle = itemList.stream()
-                    .map(ItemData::name)
+            // Patch 90: 交通/班機項目 (transportTitleParts, 見上面收集邏輯) 排在最前面——這一天如果有
+            // 移動 (含轉機的每一段), 通常代表這天的行程主軸就是「從哪裡到哪裡」, 排在標題最前面比較符合
+            // 使用者「交通要顯示在當天行程標題」的需求, 後面再接景點名稱。
+            String dayTitle = java.util.stream.Stream.concat(transportTitleParts.stream(),
+                            itemList.stream().map(ItemData::name))
                     .filter(n -> n != null && !n.isBlank())
                     .collect(java.util.stream.Collectors.joining("、"));
 
@@ -211,7 +300,39 @@ public class TemplateMergeService {
                     itemList, mapImage));
         }
 
+        // 使用者要求新增的「參考航班」摘要欄位: 去程/回程各 4 個 (出發機場/抵達機場/出發時間/抵達時間),
+        // 沒有填去程或回程班機的行程就給空字串 (範本裡的欄位會直接顯示空白, 不會顯示 null 字樣)。
+        // 使用者後續要求: 機場名稱前面要帶出這段航班在看板上填的航班編號 (例如「CX459 高雄小港機場」)——
+        // 出發機場用「第一段」的編號 (那段從這個機場起飛), 抵達機場用「最後一段」的編號 (那段降落在這個
+        // 機場), 轉機時中間各段的編號不會出現在摘要裡 (摘要本來就只取整趟去程/回程的頭尾, 跟這裡蒐集
+        // outboundFirst/outboundLast 的邏輯一致)。
+        simple.put("outbound_departure_airport", outboundFirst != null ? withFlightNo(outboundFirst.flightNo(), outboundFirst.fromAirport()) : "");
+        simple.put("outbound_arrival_airport", outboundLast != null ? withFlightNo(outboundLast.flightNo(), outboundLast.toAirport()) : "");
+        simple.put("outbound_departure_time", outboundFirst != null ? formatFlightTime(outboundFirst.depTime()) : "");
+        simple.put("outbound_arrival_time", outboundLast != null ? formatFlightTime(outboundLast.arrTime()) : "");
+        simple.put("return_departure_airport", returnFirst != null ? withFlightNo(returnFirst.flightNo(), returnFirst.fromAirport()) : "");
+        simple.put("return_arrival_airport", returnLast != null ? withFlightNo(returnLast.flightNo(), returnLast.toAirport()) : "");
+        simple.put("return_departure_time", returnFirst != null ? formatFlightTime(returnFirst.depTime()) : "");
+        simple.put("return_arrival_time", returnLast != null ? formatFlightTime(returnLast.arrTime()) : "");
+
         return new TemplateData(simple, days, images);
+    }
+
+    private static String emptyIfNull(String s) { return s == null ? "" : s; }
+
+    // 機場名稱前面帶出航班編號, 例如「CX459 高雄小港機場」; 沒有編號就只顯示機場名稱本身;
+    // 機場名稱也沒填 (理論上不太會發生) 就回傳空字串, 不會出現只有編號沒有機場名稱的怪畫面。
+    private static String withFlightNo(String flightNo, String airport) {
+        String airportText = emptyIfNull(airport);
+        if (flightNo == null || flightNo.isBlank()) return airportText;
+        return airportText.isBlank() ? "" : flightNo.trim() + " " + airportText;
+    }
+
+    // 使用者要求: 參考航班摘要的時間只要顯示時分 (HH:mm), 不需要年月日——日期已經在標題頁「{{date_range}}」
+    // 顯示過一次, 這裡不用重複; 時間本身沒填就回傳空字串。
+    private static String formatFlightTime(LocalTime time) {
+        if (time == null) return "";
+        return time.format(DateTimeFormatter.ofPattern("HH:mm"));
     }
 
     /**
@@ -605,6 +726,24 @@ public class TemplateMergeService {
         if (startIdx < 0 || endIdx < 0 || endIdx <= startIdx) return;
 
         List<IBodyElement> blockTemplate = new ArrayList<>(all.subList(startIdx + 1, endIdx));
+
+        // 使用者反映: 用自訂範本匯出的 docx, Word 打開會跳出「找到無法讀取的內容, 您要復原本文件的
+        // 內容嗎」。根因: {{item_start}}...{{item_end}} 這個逐項目區塊通常整個放在表格儲存格裡,
+        // 如果這個區塊剛好是那個儲存格「唯一」的內容 (範本作者沒有在區塊外面多留其他段落), 而這一天
+        // 又沒有任何會落進 rows 的一般項目 (例如整天只排了餐食/住宿/交通, 沒有景點/自費/自由活動),
+        // 或範本區塊本身是空的 ({{item_start}} 後面直接接 {{item_end}}, 沒有樣板段落可複製), 下面
+        // 就會一段都不會插入, 接著把 start/end 標記跟範本段落全部移除——儲存格因此變成完全沒有任何
+        // <w:p>/<w:tbl> 子元素。這違反 OOXML 規範 (儲存格一定要有至少一段內容), Word 開啟時就判定
+        // 檔案損毀。修正: 先判斷「這個區塊是不是這個 body (儲存格) 的唯一內容」, 是的話、且等一下
+        // 不會有任何東西可以替補進去, 就在移除標記之前先補一個空白段落佔位, 確保移除完之後這個
+        // body 一定還留著至少一段內容, 不會產生結構不合法的空儲存格。
+        boolean blockIsOnlyContent = all.size() == blockTemplate.size() + 2; // 只有 start + 範本內容 + end
+        boolean willInsertNothing = blockTemplate.isEmpty() || rows.isEmpty();
+        if (blockIsOnlyContent && willInsertNothing) {
+            XmlCursor placeholderCursor = startMarker.getCTP().newCursor();
+            body.insertNewParagraph(placeholderCursor);
+            placeholderCursor.dispose();
+        }
 
         if (!blockTemplate.isEmpty()) {
             for (Map<String, String> rowValues : rows) {

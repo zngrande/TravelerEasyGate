@@ -160,22 +160,37 @@ public class ExportService {
         List<ItineraryDay> days = itineraryService.getDays(ITID);
 
         for (ItineraryDay day : days) {
+            List<ItineraryItem> items = itineraryService.getItems(day.getIDID());
+            List<RouteSegment> routes = itineraryService.getRoutes(day.getIDID());
+
+            // Patch 90: 使用者要求「交通要顯示在輸出檔案的當天行程標題, 不用顯示在行程內容」——把這一天
+            // 所有交通/班機項目的名稱 (逐項目收集, 含轉機的每一段, 不只出發到目的地的頭尾) 接在 Day
+            // 標題後面, 下面的內容清單完全跳過這些項目, 不會再用「【交通】」標籤混在景點/餐廳裡面。
+            String transportTitles = items.stream()
+                    .filter(item -> "transport".equals(item.getItemType()))
+                    .map(ItineraryItem::getCustomName)
+                    .filter(n -> n != null && !n.isBlank())
+                    .collect(java.util.stream.Collectors.joining("、"));
+            String headingSuffix = java.util.stream.Stream.of(transportTitles, day.getTheme())
+                    .filter(s -> s != null && !s.isBlank())
+                    .collect(java.util.stream.Collectors.joining("　"));
+
             XWPFParagraph dayHeading = doc.createParagraph();
             XWPFRun dayRun = dayHeading.createRun();
-            dayRun.setText("Day " + day.getDayNumber() + (day.getTheme() != null ? "　" + day.getTheme() : ""));
+            dayRun.setText("Day " + day.getDayNumber() + (headingSuffix.isBlank() ? "" : "　" + headingSuffix));
             dayRun.setBold(true);
             dayRun.setFontSize(16);
             dayRun.setColor(palette.dayHeadingColor());
 
-            List<ItineraryItem> items = itineraryService.getItems(day.getIDID());
-            List<RouteSegment> routes = itineraryService.getRoutes(day.getIDID());
-
-            if (items.isEmpty()) {
+            boolean hasContentItems = items.stream().anyMatch(item -> !"transport".equals(item.getItemType()));
+            if (!hasContentItems) {
                 XWPFParagraph empty = doc.createParagraph();
                 empty.createRun().setText("（尚未安排行程內容）");
             }
 
             for (ItineraryItem item : items) {
+                if ("transport".equals(item.getItemType())) continue; // 已經顯示在上面的 Day 標題裡了
+
                 XWPFParagraph p = doc.createParagraph();
                 p.setIndentationLeft(300);
 

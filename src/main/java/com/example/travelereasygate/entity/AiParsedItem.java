@@ -29,6 +29,11 @@ public class AiParsedItem {
     @Column(name = "note")
     private String note;
 
+    // 原文裡針對這個地點寫的完整介紹文字 (跟上面 note 的一句話補充備註分開), 確認轉成正式行程時
+    // 會存進 itinerary_item.ai_description, 見 AiParseService.confirmImport()。
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
     // ---- 以下為 item_type = 'transport' (航班/高鐵/包車等) 專用欄位, 其餘類型一律是 null ----
     @Column(name = "from_location")
     private String fromLocation;
@@ -94,6 +99,9 @@ public class AiParsedItem {
 
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 
     public String getFromLocation() { return fromLocation; }
     public void setFromLocation(String fromLocation) { this.fromLocation = fromLocation; }

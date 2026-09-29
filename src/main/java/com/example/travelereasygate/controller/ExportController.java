@@ -111,7 +111,15 @@ public class ExportController {
             fileBytes = exportService.generateWordDocument(ITID, format, UID, options);
         }
 
-        String filename = "itinerary_" + ITID + "_" + format + ".docx";
+        // Patch 90: 使用者要求匯出檔名改成「行程名稱_XX版」——原本是「itinerary_{ITID}_{b2b/b2c}」這種
+        // 給系統看的代碼, 對實際使用的人 (旅行社同事/客戶) 沒有意義, 存到自己電腦上一堆檔案都分不出哪個
+        // 是哪個行程。這裡改抓行程實際的標題, 版本類型改成中文「客戶版」/「同業版」。
+        Itinerary itineraryForFilename = itineraryDAO.findById(ITID);
+        String titlePart = (itineraryForFilename != null && itineraryForFilename.getTitle() != null
+                && !itineraryForFilename.getTitle().isBlank())
+                ? itineraryForFilename.getTitle() : ("行程" + ITID);
+        String typeLabel = "b2b".equals(format) ? "同業版" : "客戶版";
+        String filename = sanitizeFilename(titlePart) + "_" + typeLabel + ".docx";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentDisposition(
@@ -121,6 +129,16 @@ public class ExportController {
                 .headers(headers)
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
                 .body(fileBytes);
+    }
+
+    // Patch 90: 匯出檔名改用真正的行程名稱/報價單資訊組成, 檔案系統對某些字元 (路徑分隔號、冒號等) 有
+    // 限制, 這裡統一過濾掉, 避免瀏覽器存檔時出現奇怪的檔名或存檔失敗；順便限制長度, 避免行程名稱本身
+    // 打太長組出誇張長的檔名。
+    private String sanitizeFilename(String name) {
+        if (name == null) return "行程";
+        String cleaned = name.trim().replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (cleaned.isBlank()) return "行程";
+        return cleaned.length() > 60 ? cleaned.substring(0, 60) : cleaned;
     }
 
     // templateId 沒傳 → null (用內建版面); templateId = 0 → 用該旅行社「這個 format 對應類型」的預設範本; 其他 → 用指定的那份範本
@@ -182,7 +200,12 @@ public class ExportController {
             fileBytes = quotationExportService.generateExcel(QID);
         }
 
-        String filename = "quotation_" + QID + "_v" + quotation.getVersion() + ".xlsx";
+        // Patch 90: 使用者要求報價單檔名也改成「行程名稱_報價單」, 不再用 QID/版本號這種系統代碼命名。
+        Itinerary itineraryForFilename = itineraryDAO.findById(quotation.getITID());
+        String titlePart = (itineraryForFilename != null && itineraryForFilename.getTitle() != null
+                && !itineraryForFilename.getTitle().isBlank())
+                ? itineraryForFilename.getTitle() : ("報價單" + QID);
+        String filename = sanitizeFilename(titlePart) + "_報價單.xlsx";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentDisposition(

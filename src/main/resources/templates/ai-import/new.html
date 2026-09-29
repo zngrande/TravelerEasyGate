@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 行程打碎解析 - TRAVELER EASY GATE</title>
+    <!-- 使用者要求標題跟首頁進來的「行程檔案拆解」按鈕文字/圖示一致, 原本這裡跟頁面下方的標題各自
+         叫「AI 行程打碎解析」「AI 智能行程拆解分析」, 用詞不一致又跟按鈕本身的字不一樣, 統一改成
+         跟按鈕一樣的「行程檔案拆解」。 -->
+    <title>行程檔案拆解 - TRAVELER EASY GATE</title>
     <!-- Google Fonts & FontAwesome -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -238,7 +241,9 @@
 <main class="main-content">
     <div class="page-header">
         <div class="page-title">
-            <i class="fa-solid fa-wand-magic-sparkles" style="color: var(--primary-purple);"></i> AI 智能行程拆解分析
+            <!-- 圖示/文字改成跟首頁「行程檔案拆解」按鈕一致 (fa-file-import), 原本用的 fa-wand-magic-sparkles
+                 跟「行程自動編排」按鈕撞圖示, 容易讓人誤以為是同一個功能。 -->
+            <i class="fa-solid fa-file-import" style="color: var(--primary-purple);"></i> 行程檔案拆解
         </div>
         <a th:href="@{/agency/dashboard}" class="back-link"><i class="fa-solid fa-arrow-left"></i> 返回行程列表</a>
     </div>

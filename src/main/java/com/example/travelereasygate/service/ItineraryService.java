@@ -180,6 +180,40 @@ public class ItineraryService {
      * 轉機日才維持原本「完全跳過, 不排任何東西」的行為; 一般日期沒填城市則退回整個國家/地區的候選
      * 景點 (等同 Patch 27 之前的行為), 不會再整天排不出東西。
      */
+    /**
+     * Patch 82: 使用者反映「AI 沒有找到景點資料」這個提示訊息太籠統, 每次都要另外拜託使用者去挖伺服器 log
+     * 才能分辨「資料庫真的沒有這個國家的景點 (資料問題)」還是「候選景點有找到、但 AI 沒排出結果 (AI 呼叫
+     * 本身失敗)」——這兩種情況處理方式完全不同 (前者要去補景點資料/確認帳號, 後者是系統暫時性問題)。
+     * 這裡把 createItineraryWithAiPlan() 一開始查候選景點的邏輯獨立抽成這個方法, 讓 Controller 在
+     * aiFoundNothing 時可以直接呼叫、把明確的原因直接顯示在畫面上的提示訊息裡, 使用者自己就能判斷,
+     * 不用每次都要來回要求對方去撈 log。
+     *
+     * @return 明確的原因說明 (資料庫查無資料 / 候選有找到但 AI 沒排出結果 / 查詢本身出例外), 給畫面提示用。
+     */
+    public String diagnoseAiPlanEmptyReason(int AID, String country, String region) {
+        List<Poi> candidates;
+        try {
+            candidates = poiDAO.findByAgencyAndCountry(AID, country, region);
+            if (candidates.isEmpty() && region != null && !region.isBlank()) {
+                candidates = poiDAO.findByAgencyAndCountry(AID, country, null);
+            }
+        } catch (Exception e) {
+            return "查詢景點資料庫時發生錯誤 (" + e.getClass().getSimpleName() + ": " + e.getMessage()
+                    + ")——這是資料庫查詢本身出問題, 不是 AI 排程失敗, 請聯絡系統管理員確認資料庫狀態。";
+        }
+        if (candidates.isEmpty()) {
+            return "資料庫裡完全查不到「" + country + (region != null && !region.isBlank() ? " / " + region : "")
+                    + "」相關的景點資料 (貴帳號自建 + 平台共用庫合計候選數 = 0)。"
+                    + "這是資料庫裡真的沒有資料, 不是 AI 排程邏輯的問題——請確認「景點管理」頁用同樣的國家"
+                    + "篩選是否也查不到任何東西 (如果查得到, 麻煩回報這個不一致給我們), 或聯絡管理員確認"
+                    + "這個帳號有沒有建立/複製過這個國家的景點。";
+        }
+        return "資料庫裡有找到 " + candidates.size() + " 筆「" + country + "」候選景點, 但 AI 沒有從裡面排出任何"
+                + "結果——這比較像是 AI 呼叫失敗或回應格式跑掉這類暫性問題, 不是景點資料不足, 可以先試著重新"
+                + "按一次「AI 安排行程」; 如果重試後還是一樣, 麻煩把伺服器 log 裡「AI 安排行程」開頭的那幾行"
+                + "WARN/ERROR 訊息提供給我們, 才能確定 AI 呼叫實際失敗的原因。";
+    }
+
     public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
                                                int daysCount, LocalDate startDate, List<String> dayCities,
                                                Set<Integer> flightDayNumbers) {
@@ -227,22 +261,53 @@ public class ItineraryService {
             // 逐天依「這天指定的城市」把候選清單再篩一次: 沒有指定城市的天 (通常是班機/轉機日) 拿到空清單,
             // AI 跟後面的餐食/住宿補位都會完全跳過這天; 有指定城市的天, 候選只會是「這個城市底下」的景點/
             // 餐廳/飯店, 不會混進別的城市的地點, 徹底解決 Patch 26 之前「餐廳/飯店在天數之間跨城市亂跳」的問題。
+            //
+            // 使用者反映「有選地區, 但完全沒有填『逐天城市指定』時, AI 排出來的每一天會把所有城市的景點/
+            // 餐廳混在一起, 感覺像隨便排」——根因就是上面這段: 完全沒指定城市的天原本一律退回「整個國家/
+            // 地區」的候選景點 (見下面 else 分支), 等於每一天都可以選到任何城市, 完全沒有「先在城市 A 玩
+            // 幾天、再移動到城市 B」的概念。
+            // 修正: 先算出「完全沒指定城市、也不是真正班機/轉機日」的天 (autoDayNumbers), 依「使用者選地區
+            // 時的先後順序」(itinerary.region 這個「、」串接欄位, 前端 multi-select 是照選取順序 push 進去
+            // 的) 把這些天自動分配給不同城市——天數 >= 城市數就依天數比例分段, 每個城市連續住差不多天數;
+            // 城市數 > 天數就必須有幾天塞 2 個城市才裝得下 (使用者要求上限 2 個、盡量 1 個), 詳見
+            // distributeCitiesAcrossDays() 說明。只影響「完全沒有指定城市」的天, 只要使用者自己在「逐天
+            // 城市指定」填了任何一天、或這天本來就是真正的班機/轉機日, 都完全不受這個自動分配影響。
+            Set<Integer> autoDayNumbers = new java.util.TreeSet<>();
+            for (ItineraryDay day : days) {
+                boolean isFlightDay = flightDayNumbers != null && flightDayNumbers.contains(day.getDayNumber());
+                if (splitCityTokens(day.getPlannedCities()).isEmpty() && !isFlightDay) {
+                    autoDayNumbers.add(day.getDayNumber());
+                }
+            }
+            Map<Integer, List<String>> autoAssignedCities =
+                    distributeCitiesAcrossDays(splitCityTokens(region), new ArrayList<>(autoDayNumbers));
+
             Map<Integer, List<String>> cityTokensByDay = new HashMap<>();
             Map<Integer, List<Poi>> candidatesByDay = new HashMap<>();
             for (ItineraryDay day : days) {
                 List<String> tokens = splitCityTokens(day.getPlannedCities());
-                cityTokensByDay.put(day.getDayNumber(), tokens);
                 List<Poi> dayCandidates;
                 if (!tokens.isEmpty()) {
                     dayCandidates = filterByCityTokens(candidates, tokens);
                 } else if (flightDayNumbers != null && flightDayNumbers.contains(day.getDayNumber())) {
                     // 真正的班機/轉機日 (前端自動停用、使用者填不了): 維持原本「完全跳過」的行為
                     dayCandidates = List.of();
+                } else if (autoAssignedCities.containsKey(day.getDayNumber())) {
+                    // 自動分配到的城市: 直接當成這天指定的城市使用 (連同下面 cityTokensByDay 一起換掉),
+                    // 才能真的做到「這幾天只排這個城市」, 而不是所有城市混在一起。
+                    tokens = autoAssignedCities.get(day.getDayNumber());
+                    dayCandidates = filterByCityTokens(candidates, tokens);
+                    if (dayCandidates.isEmpty()) {
+                        // 自動分配到的城市名稱在資料庫裡比對不到任何景點 (例如地名寫法跟 poi.city 對不上),
+                        // 保底退回整個國家/地區候選, 不要讓這天完全排不出東西。
+                        dayCandidates = candidates;
+                    }
                 } else {
-                    // 一般日期沒填城市 (選填, 使用者自己選擇不填): 退回整個國家/地區的候選景點,
-                    // 不要整天排不出任何東西 (見上方 method 說明)
+                    // 沒有選任何地區 (region 是空的) 時退回整個國家/地區的候選景點, 不要整天排不出任何
+                    // 東西 (見上方 method 說明)
                     dayCandidates = candidates;
                 }
+                cityTokensByDay.put(day.getDayNumber(), tokens);
                 candidatesByDay.put(day.getDayNumber(), dayCandidates);
             }
 
@@ -311,7 +376,13 @@ public class ItineraryService {
                 List<Poi> dayCandidates = candidatesByDay.get(day.getDayNumber());
                 if (dayCandidates.isEmpty()) continue; // 沒有指定城市 (班機/轉機日) → 完全不強制補餐食
 
-                addBreakfastPlaceholder(day.getIDID());
+                // Patch 85: 使用者要求「第一天不需要安排早餐」——行程第一天是從國內出發搭去程班機的日子,
+                // 人根本還沒入住任何飯店, 「飯店內早餐」這個預留項目對這天沒有意義 (使用者出發前吃什麼跟
+                // 這份行程無關)。只跳過 day_number == 1 這一天, 其餘天數 (包含最後一天/回程班機那天) 維持
+                // 原本邏輯不變, 一樣會有早餐——使用者這次沒有要求連回程那天也拿掉早餐。
+                if (day.getDayNumber() != 1) {
+                    addBreakfastPlaceholder(day.getIDID());
+                }
 
                 String cityKey = cityKey(cityTokensByDay.get(day.getDayNumber()));
                 List<Poi> restaurantCandidates = dayCandidates.stream()
@@ -324,6 +395,13 @@ public class ItineraryService {
                         .filter(item -> "meal".equals(item.getItemType()) && item.getPID() != null)
                         .collect(java.util.stream.Collectors.toList());
                 if (realMeals.size() > 2) {
+                    // Patch 84: 這裡要刪的這幾筆餐廳是透過上面 addItem() 加進來的 (line 354-357)——
+                    // addItem() 自己內部每加一筆就會呼叫一次 recalculateRoutes(), 等於這個時候
+                    // route_segment 表已經有連到這些項目的路段快取列, 直接刪除會被外鍵擋下來 (跟
+                    // removeItem()/trimDaysExceedingCutoff() 踩過的是同一個地雷, 見那兩個地方的說明)。
+                    // 刪除前先清掉這天的路段快取——後面 autoArrangeItinerary() 跑完會重新算出正確的一份,
+                    // 不會少算。
+                    routeSegmentDAO.deleteByDay(day.getIDID());
                     for (int i = 2; i < realMeals.size(); i++) {
                         itineraryItemDAO.deleteById(realMeals.get(i).getIIID());
                     }
@@ -362,6 +440,12 @@ public class ItineraryService {
 
                 if (day.getDayNumber() == daysCount) {
                     // 行程最後一天: 不管候選/AI 有沒有排, 一律不留住宿項目。
+                    // Patch 84: 這幾筆住宿是透過上面 addItem() 加進來的, 同樣會被 recalculateRoutes()
+                    // 已經算好的 route_segment 外鍵擋住刪除 (見上面「真的餐廳超過 2 個」那段的說明), 刪除
+                    // 前先清掉這天的路段快取。
+                    if (!hotelItems.isEmpty()) {
+                        routeSegmentDAO.deleteByDay(day.getIDID());
+                    }
                     for (ItineraryItem hotelItem : hotelItems) {
                         itineraryItemDAO.deleteById(hotelItem.getIIID());
                     }
@@ -391,6 +475,8 @@ public class ItineraryService {
                     }
                 } else {
                     if (hotelItems.size() > 1) {
+                        // Patch 84: 同樣是 route_segment 外鍵擋刪除的地雷, 見上面兩處說明。
+                        routeSegmentDAO.deleteByDay(day.getIDID());
                         for (int i = 1; i < hotelItems.size(); i++) {
                             itineraryItemDAO.deleteById(hotelItems.get(i).getIIID());
                         }
@@ -563,6 +649,67 @@ public class ItineraryService {
         return String.join("、", sorted);
     }
 
+    /**
+     * 見 createItineraryWithAiPlan() 呼叫端的說明: 把 cityTokens (使用者選地區時的先後順序) 依序分配給
+     * autoDayNumbers (完全沒有自己指定城市、也不是班機/轉機日的那些天, 已經照第幾天由小到大排序)。
+     * 回傳 dayNumber -> 分配到的城市關鍵字清單 (通常只有 1 個, 城市數多於天數時某幾天會有 2 個)。
+     *
+     * 規則:
+     *   - 城市數 <= 天數: 依天數比例分段, 每個城市各自佔連續的幾天 (跟一般排行程「先在 A 城市玩幾天、
+     *     再移動到 B 城市」的直覺一致)。天數不整除城市數時, 用標準的 floor 除法分段, 每個城市分到的
+     *     天數最多只會相差 1 天, 不保證一定是前面或後面的城市多分到那 1 天。
+     *   - 城市數 > 天數: 一定有幾天要塞 2 個城市才裝得下, 用「剩下幾個城市 / 剩下幾天」動態判斷, 只有
+     *     真的裝不下才讓某一天塞 2 個, 使用者要求的「最多 2 個、盡量 1 個」都會滿足 (需要塞 2 個的天數
+     *     一定是最少的 max(0, 城市數-天數) 天)。如果城市數超過天數的 2 倍 (裝不下, 理論上很少見, 例如
+     *     10 天的行程一次選了 25 個城市), 裝不下的城市會被塞進最後一天湊在一起 (不會漏排, 但那一天會
+     *     超過「盡量 1 個」的理想, 這是天數真的不夠時沒辦法避免的取捨)。
+     *   - 城市數為 0 或天數為 0: 回傳空 map, 呼叫端會退回原本「不篩城市, 用整個國家/地區候選」的行為。
+     */
+    private Map<Integer, List<String>> distributeCitiesAcrossDays(List<String> cityTokens, List<Integer> autoDayNumbers) {
+        Map<Integer, List<String>> result = new LinkedHashMap<>();
+        int n = cityTokens.size();
+        int d = autoDayNumbers.size();
+        if (n == 0 || d == 0) return result;
+
+        if (n <= d) {
+            for (int i = 0; i < n; i++) {
+                int startIdx = (int) ((long) d * i / n);
+                int endIdx = (int) ((long) d * (i + 1) / n);
+                for (int idx = startIdx; idx < endIdx && idx < d; idx++) {
+                    result.put(autoDayNumbers.get(idx), List.of(cityTokens.get(i)));
+                }
+            }
+        } else {
+            int cityIdx = 0;
+            int remainingCities = n;
+            int remainingDays = d;
+            for (int dayIdx = 0; dayIdx < d; dayIdx++) {
+                boolean need2 = remainingCities > remainingDays;
+                int take = Math.min(need2 ? 2 : 1, remainingCities);
+                List<String> assigned = new ArrayList<>();
+                for (int k = 0; k < take && cityIdx < n; k++) {
+                    assigned.add(cityTokens.get(cityIdx));
+                    cityIdx++;
+                }
+                result.put(autoDayNumbers.get(dayIdx), assigned);
+                remainingCities -= take;
+                remainingDays--;
+            }
+            // 保險: 理論上跑完上面迴圈 cityIdx 應該剛好等於 n, 極端邊界 (城市數遠超過天數的 2 倍) 才會有
+            // 城市還沒分配到, 全部塞進最後一天 (寧可最後一天塞很多, 也不要漏排任何一個使用者選的城市)。
+            if (cityIdx < n && !autoDayNumbers.isEmpty()) {
+                int lastDay = autoDayNumbers.get(autoDayNumbers.size() - 1);
+                List<String> lastAssigned = new ArrayList<>(result.getOrDefault(lastDay, new ArrayList<>()));
+                while (cityIdx < n) {
+                    lastAssigned.add(cityTokens.get(cityIdx));
+                    cityIdx++;
+                }
+                result.put(lastDay, lastAssigned);
+            }
+        }
+        return result;
+    }
+
     // ------------------------------------------------------------
     // 建立行程時「行程重點資訊」填的去程/回程班機 → 自動轉成行程項目
     // ------------------------------------------------------------
@@ -616,10 +763,10 @@ public class ItineraryService {
      * 開頭的說明。
      */
     public Set<Integer> computeFlightDayNumbers(int totalDays,
-            List<String> outFlightNo, List<String> outDepAirport, List<String> outDepTime,
-            List<String> outArrAirport, List<String> outArrTime, List<String> outDepDay,
-            List<String> retFlightNo, List<String> retDepAirport, List<String> retDepTime,
-            List<String> retArrAirport, List<String> retArrTime, List<String> retDepDay) {
+                                                List<String> outFlightNo, List<String> outDepAirport, List<String> outDepTime,
+                                                List<String> outArrAirport, List<String> outArrTime, List<String> outDepDay,
+                                                List<String> retFlightNo, List<String> retDepAirport, List<String> retDepTime,
+                                                List<String> retArrAirport, List<String> retArrTime, List<String> retDepDay) {
         Set<Integer> outboundDays = resolveFlightLegDayNumbers(totalDays, 1,
                 outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay);
         Set<Integer> returnDays = resolveFlightLegDayNumbers(totalDays, totalDays,
@@ -638,13 +785,13 @@ public class ItineraryService {
     // 沒填/不是數字/超出範圍就退回 defaultDayIndex), 這樣才能在真的插入班機項目之前, 就先知道哪幾天
     // 屬於班機/轉機日。
     private Set<Integer> resolveFlightLegDayNumbers(int totalDays, int defaultDayIndex,
-            List<String> flightNumbers,
-            List<String> depAirports, List<String> depTimes,
-            List<String> arrAirports, List<String> arrTimes,
-            List<String> dayIndexes) {
+                                                    List<String> flightNumbers,
+                                                    List<String> depAirports, List<String> depTimes,
+                                                    List<String> arrAirports, List<String> arrTimes,
+                                                    List<String> dayIndexes) {
         Set<Integer> result = new HashSet<>();
         int legCount = Math.max(Math.max(listSize(depAirports), listSize(depTimes)),
-                                Math.max(listSize(arrAirports), listSize(arrTimes)));
+                Math.max(listSize(arrAirports), listSize(arrTimes)));
         for (int i = 0; i < legCount; i++) {
             String fromAirport = listGet(depAirports, i);
             String depTime = listGet(depTimes, i);
@@ -686,14 +833,17 @@ public class ItineraryService {
             int dayIndex = parseDayIndexOrDefault(listGet(dayIndexes, i), defaultDayIndex, days.size());
             ItineraryDay targetDay = days.get(dayIndex - 1);
 
-            // 只有一段就直接用「去程班機」；有多段 (轉機/跨日) 才加編號「去程班機1」「去程班機2」方便分辨先後順序
-            String segmentLabel = legCount > 1 ? (label + (i + 1)) : label;
-            String customName = buildFlightLabel(segmentLabel, flightNo, fromAirport, toAirport);
+            // 顯示名稱只是「編號 出發地→目的地」，不再加方向前綴文字——方向改存到下面的 flightDirection
+            // 欄位。只有起始點/目的地/編號全部沒填這個理論上不會發生的邊界情況，才會用到 fallbackLabel
+            // (同一批多段時加編號方便萬一真的發生時看得出先後順序)。
+            String fallbackLabel = legCount > 1 ? (label + (i + 1)) : label;
+            String customName = buildTransportName(flightNo, fromAirport, toAirport, fallbackLabel);
             ItineraryItem item = new ItineraryItem(targetDay.getIDID(), null, "transport", customName, 0); // sort_order 最後統一算
             item.setFromLocation(isBlank(fromAirport) ? null : fromAirport.trim());
             item.setToLocation(isBlank(toAirport) ? null : toAirport.trim());
             item.setTransportMethod("飛機");
             item.setTransportNumber(isBlank(flightNo) ? null : flightNo.trim());
+            item.setFlightDirection(isOutbound ? "outbound" : "return");
             item.setStartTime(depTime);
             item.setEndTime(arrTime);
             // 機場欄位是自由文字 (沒有連結 POI/經緯度), 沒有座標可以畫在地圖上, 關掉顯示在地圖上避免出現錯誤定位點
@@ -708,12 +858,46 @@ public class ItineraryService {
             List<ItineraryItem> legItems = entry.getValue();
             List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
             if (isOutbound) {
-                for (ItineraryItem it : existing) {
+                // Patch 73: 使用者反映「AI排行程還是會將飛機時間無視」——追查後發現這裡是真正的根因之一:
+                // 原本不管三七二十一, 一律把去程班機塞在這一天「最前面」, 把這天所有既有項目 (包含
+                // autoArrangeItinerary() 早就排好、寫死 08:00 開始時間的「飯店內早餐」項目) 全部往後推。
+                // 但早餐這種「出發前, 人根本還在家裡/國內, 跟班機/目的地完全無關」的項目, 排序上其實應該
+                // 留在班機『前面』才符合真正的時間先後——被無條件推到班機後面之後, 會造成兩個連鎖問題:
+                //   (1) board.html 的時間軸是照 sort_order 逐項畫出來的, 早餐自己寫死的 08:00 顯示時間
+                //       卻出現在班機 (例如 12:00 起飛) 後面, 畫面上時間看起來「倒退」;
+                //   (2) trimItemsAroundFlights() 判斷「這個項目排在班機前面/後面」完全是看 sort_order
+                //       位置, 不是看實際時間——早餐一旦被推到班機後面, 就會被誤判成「已經下飛機」,
+                //       連帶讓它後面接的景點 (完全沒有寫死時間, 只能靠往前累加估算) 從早餐的結束時間
+                //       (09:00 左右) 開始估算, 而不是從班機真正抵達的時間開始估算——這正是使用者截圖裡
+                //       「班機 15:00 才降落, 但清水寺卻排在 09:00」的成因。
+                // 修正: 只把「這批航段裡最早出發時間之前, 已經有寫死開始時間、且沒有晚於這個出發時間」的
+                // 既有餐食 (目前只有早餐符合) 留在班機前面, 其餘 (景點/自費/沒有時間資訊的項目, 本來就
+                // 該算在班機之後) 才照舊往後推、插進班機後面。找不到任何一段航班有填出發時間時 (使用者
+                // 沒填), 沒有依據可以判斷, 維持原本「全部塞最前面」的行為, 不冒然重排。
+                java.time.LocalTime earliestDeparture = legItems.stream()
+                        .map(ItineraryItem::getStartTime)
+                        .filter(java.util.Objects::nonNull)
+                        .min(java.time.LocalTime::compareTo)
+                        .orElse(null);
+                int insertOffset = 0;
+                if (earliestDeparture != null) {
+                    while (insertOffset < existing.size()) {
+                        ItineraryItem candidate = existing.get(insertOffset);
+                        if ("meal".equals(candidate.getItemType()) && candidate.getStartTime() != null
+                                && !candidate.getStartTime().isAfter(earliestDeparture)) {
+                            insertOffset++;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                for (int i = insertOffset; i < existing.size(); i++) {
+                    ItineraryItem it = existing.get(i);
                     it.setSortOrder(it.getSortOrder() + legItems.size());
                     itineraryItemDAO.save(it);
                 }
                 for (int i = 0; i < legItems.size(); i++) {
-                    legItems.get(i).setSortOrder(i);
+                    legItems.get(i).setSortOrder(insertOffset + i);
                     itineraryItemDAO.save(legItems.get(i));
                 }
             } else {
@@ -750,17 +934,16 @@ public class ItineraryService {
         if (itinerary != null) tripCountry = firstToken(itinerary.getCountry());
 
         // 依「第幾天 → 這天內的 sort_order」順序整趟掃過去, 找出「去程班機最後一筆」「回程班機第一筆」
-        // (attachFlightLegsAcrossDays 一律用「去程班機」「回程班機」開頭命名, 見 buildFlightLabel)。
+        // (attachFlightLegsAcrossDays()/AiParseService.confirmImport() 都會設定 flightDirection 欄位,
+        // 不再靠 customName 字首文字判斷方向——顯示名稱不管使用者怎麼編輯都不影響這裡的判斷)。
         ItineraryItem lastOutboundLeg = null;
         ItineraryItem firstReturnLeg = null;
         for (ItineraryDay day : days) {
             for (ItineraryItem item : itineraryItemDAO.findByDay(day.getIDID())) {
                 if (!"transport".equals(item.getItemType()) || !"飛機".equals(item.getTransportMethod())) continue;
-                String name = item.getCustomName();
-                if (name == null) continue;
-                if (name.startsWith("去程班機")) {
+                if ("outbound".equals(item.getFlightDirection())) {
                     lastOutboundLeg = item; // 一路覆蓋下去, 掃到最後留下來的就是整趟行程最後一筆去程航段
-                } else if (name.startsWith("回程班機") && firstReturnLeg == null) {
+                } else if ("return".equals(item.getFlightDirection()) && firstReturnLeg == null) {
                     firstReturnLeg = item; // 只在第一次遇到時記錄, 之後不再覆蓋, 就是整趟行程第一筆回程航段
                 }
             }
@@ -835,14 +1018,19 @@ public class ItineraryService {
         }
     }
 
-    // 組出項目清單上顯示的名稱, 一律維持「label：...」的格式 (例如「去程班機：...」)——這個前綴字串本身
-    // 是其他邏輯拿來辨識「這是哪一段去程/回程班機」的依據 (見 calculateAirportTransferSegments() 用
-    // customName.startsWith("去程班機"/"回程班機") 找去程最後一段/回程第一段來算機場銜接路線, 還有
-    // updateItemDetails() 對回程班機座標的特殊處理也是同一套判斷方式), 不能為了塞進航班編號就把它拿掉,
-    // 否則航班編號填了之後, 機場銜接路線功能會直接失效。
-    // 有填航班編號: 「去程班機：CI100 桃園國際機場 → 東京成田機場」；沒填則維持原本的
-    // 「去程班機：桃園國際機場 → 東京成田機場」格式，向下相容舊資料/沒填這個新欄位的情境。
-    private String buildFlightLabel(String label, String flightNo, String fromAirport, String toAirport) {
+    // 組出項目清單上顯示的名稱：直接是「航班/車次編號 出發地→目的地」(例如「JX362 高雄小港機場 →
+    // 沖繩那霸國際空港」)，不再加「去程班機：」/「回程班機：」/「交通：」這種前綴文字。
+    //
+    // 使用者反映這種前綴文字很累贅（起始點/目的地/航班編號都已經是各自獨立的欄位了，看板卡片上還要
+    // 多讀一段「去程班機：」才是真正的內容）。以前之所以硬把方向塞進顯示名稱裡，是因為
+    // calculateAirportTransferSegments()（機場↔景點拉車距離）、updateItemDetails() 對回程班機座標的
+    // 特殊處理、TemplateMergeService 的「參考航班」摘要，全部都是用 customName.startsWith("去程班機"/
+    // "回程班機") 來判斷方向——沒有其他地方存這個資訊。現在改成 ItineraryItem.flightDirection
+    // ("outbound"/"return"/null) 這個結構化欄位單獨記錄方向，跟顯示名稱脫鉤，上面幾個地方都已經改讀
+    // 這個欄位，顯示名稱只單純負責「好讀」，使用者要怎麼編輯都不會影響方向判斷。
+    // fallbackLabel: 只有在起始點/目的地/編號全部沒填 (理論上不太會發生, attachFlightLegsAcrossDays()/
+    // addTransportItem() 呼叫端都已經先過濾掉全空的航段) 才會用到, 避免顯示名稱整個是空字串。
+    private String buildTransportName(String flightNo, String fromAirport, String toAirport, String fallbackLabel) {
         boolean hasFrom = !isBlank(fromAirport);
         boolean hasTo = !isBlank(toAirport);
         String route;
@@ -858,7 +1046,7 @@ public class ItineraryService {
             routeWithFlightNo = route;
         }
 
-        return routeWithFlightNo != null ? (label + "：" + routeWithFlightNo) : label;
+        return routeWithFlightNo != null ? routeWithFlightNo : fallbackLabel;
     }
 
     // 表單 <input type="time"> 送出的是 "HH:mm"，沒填就是空字串／null，兩種都當作沒填處理
@@ -1055,12 +1243,15 @@ public class ItineraryService {
     // ------------------------------------------------------------
 
     /** 上鎖：只有還沒上鎖時才能鎖, 避免蓋掉別人剛上的鎖。回傳 false 代表已經被別人鎖住了。 */
+    /**
+     * 上鎖。使用者要求「只有建立這個行程的使用者（建立者）可以鎖定跟解鎖」——是否為建立者由呼叫端
+     * (ItineraryController) 檢查, 這裡只負責實際寫入鎖定狀態; 已經是鎖定狀態的話直接視為成功
+     * (保護重複點擊, 不需要重新蓋一次 lockedAt)。
+     */
     public boolean lockItinerary(int ITID, int UID) {
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary == null) return false;
-        if (itinerary.isLocked() && itinerary.getLockedBy() != null && itinerary.getLockedBy() != UID) {
-            return false; // 已經被別人鎖住
-        }
+        if (itinerary.isLocked()) return true; // 已經鎖定, 視為成功 (idempotent)
         itinerary.setLocked(true);
         itinerary.setLockedBy(UID);
         itinerary.setLockedAt(java.time.LocalDateTime.now());
@@ -1068,7 +1259,7 @@ public class ItineraryService {
         return true;
     }
 
-    /** 解鎖：任何有編輯權限的人都能解鎖 (例如原本上鎖的人下線忘記解鎖, 主管可以強制解鎖)。 */
+    /** 解鎖。是否為建立者由呼叫端 (ItineraryController) 檢查, 這裡只負責實際清除鎖定狀態。 */
     public void unlockItinerary(int ITID) {
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary == null) return;
@@ -1079,13 +1270,18 @@ public class ItineraryService {
     }
 
     /**
-     * 檢查這個行程目前是否可以被 UID 編輯：沒上鎖，或上鎖的人就是自己。
-     * 供 controller 在寫入動作前擋一下, 避免兩人同時改同一個行程互相覆蓋。
+     * 檢查這個行程目前是否可以被編輯。
+     *
+     * 使用者要求「鎖定完不能更改」——上鎖後不管是誰 (含建立者/上鎖的人自己在內) 都不能再編輯行程內容,
+     * 要先解鎖才能繼續編輯。這跟舊版邏輯不一樣: 舊版是「協作防呆」性質 (上鎖只是為了避免兩人同時改
+     * 同一個行程互相覆蓋, 上鎖的人自己還是可以繼續編輯), 新版是「明確定案、鎖住不給改」性質, 解鎖
+     * 這個動作本身不受這裡影響 (解鎖不算「編輯行程內容」, 由 ItineraryController 的 /unlock 端點
+     * 另外用「是不是建立者」單獨判斷, 不會被這裡卡住變成怎麼樣都解不了鎖)。
      */
-    public boolean isEditableBy(int ITID, int UID) {
+    public boolean isEditableBy(int ITID) {
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary == null) return false;
-        return !itinerary.isLocked() || itinerary.getLockedBy() == null || itinerary.getLockedBy() == UID;
+        return !itinerary.isLocked();
     }
 
     /** 依 IDID (某一天) 反查所屬的 ITID, 給只帶 IDID 的 API 用來檢查上鎖狀態。 */
@@ -1119,6 +1315,20 @@ public class ItineraryService {
         }
         item.setExcludedImageIds(excluded.isEmpty() ? null
                 : excluded.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",")));
+        itineraryItemDAO.save(item);
+    }
+
+    /**
+     * 沒有連結公司景點資料庫的項目 (PID 為 null), 儲存/更新自己暫存的介紹說明 (ai_description)。
+     * 這種項目沒有共用的 POI 紀錄可以寫回, 直接存回這個行程項目自己身上就好——如果使用者事後把這個
+     * 項目「加入景點資料庫」連結上 POI, 之後就會改走 PoiService.updateDescription() 那套存回共用
+     * 資料庫的流程 (見 addItemToPoi() 也會優先拿這個欄位的內容當新 POI 的初始介紹說明)。
+     */
+    public void updateItemAiDescription(int IIID, String description) {
+        ItineraryItem item = itineraryItemDAO.findById(IIID);
+        if (item == null) throw new IllegalArgumentException("找不到這個項目");
+        revertToDraftIfCompletedByDay(item.getIDID());
+        item.setAiDescription(description == null || description.isBlank() ? null : description);
         itineraryItemDAO.save(item);
     }
 
@@ -1484,6 +1694,23 @@ public class ItineraryService {
         }
     }
 
+    // Patch 88: 使用者反映「行程時間不用限制最晚時間（自動安排行程再限制 但還是能自己加行程）」以及
+    // 「有時候儲存會把行程刪除 或是行程內資料刪除 不知道為什麼」——追查後發現就是這裡: patch 79 把
+    // trimItemsAroundFlights()/trimDaysExceedingCutoff() 這兩個「刪除不合理項目」的自我修復移到這個
+    // 全站共用的最底層讀取方法, 原意是讓所有呼叫端 (看板 API、Word 匯出、報價單、企劃書合併) 都自動
+    // 受惠, 但副作用是: 只要「讀取」這一天的項目 (不管是打開看板、切換分頁、還是單純重新整理畫面),
+    // 就會無條件重新套用「回程班機出發前 90 分鐘」「每天最晚 20:30」這些限制, 把任何剛好落在這些
+    // 範圍內的項目直接刪掉——不管這個項目是 AI 排的還是使用者剛手動加上去的。這正是「明明只是儲存/
+    // 整理畫面, 行程卻自己被刪掉一部分」的根本原因: 使用者手動加的晚間項目、或者手動調整過時間的項目,
+    // 只要之後任何一次讀取這一天 (包含使用者自己完全沒操作、只是切換到別天再切回來) 都可能被這裡當成
+    // 「不合理」而清掉。
+    //
+    // 修正: 拿掉這裡的自我修復, 只單純讀取、不再做任何刪除。這兩個方法依然存在、依然有效, 只是呼叫的
+    // 責任收回到真正代表「使用者主動要求自動安排」的地方——見 ItineraryController 的
+    // createWithAiPlan()/createItineraryWithAiPlan() (建立行程時的 AI 初稿) 以及 /day/{IDID}/auto-arrange、
+    // /{id}/auto-arrange (看板上「自動整理」「依早中晚餐時段」按鈕) 這幾個端點, 都已經各自明確呼叫這
+    // 兩個方法 (見那幾個地方的說明), 不需要再靠這裡的讀取端兜底。使用者手動新增/編輯的項目, 只要不是
+    // 透過這些「自動安排」的按鈕, 就不會再無緣無故被清掉。
     public List<ItineraryItem> getItems(int IDID) {
         return itineraryItemDAO.findByDay(IDID);
     }
@@ -1518,6 +1745,16 @@ public class ItineraryService {
         Itinerary itinerary = itineraryDAO.findById(ITID);
         if (itinerary == null) throw new IllegalArgumentException("找不到這個行程");
         itinerary.setStatus("draft");
+        itineraryDAO.save(itinerary);
+    }
+
+    // Patch 89: 使用者要求「在行程排班看板旁邊的標題可以點兩下直接編輯」——原本只有「編輯行程基本資料」
+    // 那個完整表單頁面可以改名稱, 這裡新增一個只改標題的輕量端點, 給看板頁面點兩下標題就地編輯用。
+    public void updateTitle(int ITID, String title) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) throw new IllegalArgumentException("找不到這個行程");
+        if (title == null || title.isBlank()) throw new IllegalArgumentException("行程名稱不能空白");
+        itinerary.setTitle(title.trim());
         itineraryDAO.save(itinerary);
     }
 
@@ -1605,7 +1842,14 @@ public class ItineraryService {
         } else {
             geoFuture = java.util.concurrent.CompletableFuture.completedFuture(null);
         }
-        java.util.concurrent.CompletableFuture<String> descriptionFuture = java.util.concurrent.CompletableFuture.supplyAsync(
+        // 自動生成景點介紹說明: 這個項目如果已經有 AI 解析原文帶來的簡介 (ai_description), 直接拿來當
+        // 新 POI 的介紹說明, 不用再另外呼叫 AI 生成一份 (原文本來就有寫, 沒理由捨棄不用、憑空生成別的
+        // 內容, 也省一次 API 呼叫)；沒有的話才維持原本「用備註當提示, 請 AI 生成」的做法。寫進 POI 之後
+        // 這個暫存欄位就功成身退, 清空它, 之後這個項目的介紹說明一律以資料庫版本為準。
+        boolean hasAiDescription = item.getAiDescription() != null && !item.getAiDescription().isBlank();
+        java.util.concurrent.CompletableFuture<String> descriptionFuture = hasAiDescription
+                ? java.util.concurrent.CompletableFuture.completedFuture(item.getAiDescription())
+                : java.util.concurrent.CompletableFuture.supplyAsync(
                 () -> anthropicClient.generateDescription(item.getCustomName(), category, finalCountry, finalRegion, item.getNote()));
 
         if (alreadyHasCoord) {
@@ -1628,6 +1872,9 @@ public class ItineraryService {
         if (poi.getLatitude() != null) {
             item.setLatitude(poi.getLatitude());
             item.setLongitude(poi.getLongitude());
+        }
+        if (hasAiDescription) {
+            item.setAiDescription(null); // 已經寫進 POI 資料庫了, 之後改以資料庫版本為準
         }
         itineraryItemDAO.save(item);
         return poi;
@@ -1667,23 +1914,25 @@ public class ItineraryService {
 
     /**
      * 新增一筆交通類項目 (item_type=transport) 到某一天的行程尾端, 沿用跟 attachFlightLegsAcrossDays
-     * 一樣的顯示名稱規則 (buildFlightLabel: 有填航班/車次編號就顯示「編號 出發地→目的地」, 沒有就是
-     * 「label：出發地→目的地」)。目前給 AI 解析匯入 (AiParseService.confirmImport) 呼叫, 讓 AI 從
-     * 原始文件裡解析出來的航班/交通資訊也能用跟手動輸入去程/回程班機一致的方式呈現。
-     * label 沒特別指定「去程/回程」語意時傳入通用的「交通」即可。
+     * 一樣的顯示名稱規則 (buildTransportName: 有填航班/車次編號就顯示「編號 出發地→目的地」)。目前給
+     * AI 解析匯入 (AiParseService.confirmImport) 呼叫, 讓 AI 從原始文件裡解析出來的航班/交通資訊也能用
+     * 跟手動輸入去程/回程班機一致的方式呈現。
+     * @param flightDirection 這筆項目是不是整趟行程的去程/回程班機: "outbound" / "return" / null
+     *                        (不是去程/回程班機, 例如行程中段的城市內接駁、非首末天的一般交通項目)。
      */
-    public ItineraryItem addTransportItem(int IDID, String label, String transportMethod, String transportNumber,
+    public ItineraryItem addTransportItem(int IDID, String flightDirection, String transportMethod, String transportNumber,
                                           String fromLocation, String toLocation,
                                           java.time.LocalTime startTime, java.time.LocalTime endTime, String note) {
         List<ItineraryItem> existing = itineraryItemDAO.findByDay(IDID);
         int nextOrder = existing.size();
 
-        String customName = buildFlightLabel(label, transportNumber, fromLocation, toLocation);
+        String customName = buildTransportName(transportNumber, fromLocation, toLocation, "交通");
         ItineraryItem item = new ItineraryItem(IDID, null, "transport", customName, nextOrder);
         item.setFromLocation(isBlank(fromLocation) ? null : fromLocation.trim());
         item.setToLocation(isBlank(toLocation) ? null : toLocation.trim());
         item.setTransportMethod(isBlank(transportMethod) ? "交通" : transportMethod.trim());
         item.setTransportNumber(isBlank(transportNumber) ? null : transportNumber.trim());
+        item.setFlightDirection(flightDirection);
         item.setStartTime(startTime);
         item.setEndTime(endTime);
         item.setNote(note);
@@ -1731,6 +1980,13 @@ public class ItineraryService {
         item.setItemCountry(itemCountry);
         item.setItemRegion(itemRegion);
         item.setTimeSlot(timeSlot);
+        // 使用者要求: 餐食類項目 (餐廳) 預設不要顯示在地圖上, 地圖上密密麻麻全部都是吃飯的點反而看不清楚
+        // 景點路線——這裡只是改「新增當下」的預設值, 使用者還是可以事後用看板項目列上的地圖圖示按鈕
+        // (toggleShowOnMap) 自己打開某一筆餐廳的地圖顯示。ItineraryItem entity 本身的欄位預設值維持
+        // true 不變 (景點/住宿等其他類別還是照舊預設顯示), 只在這裡針對 itemType=meal 覆寫成 false。
+        if ("meal".equals(itemType)) {
+            item.setShowOnMap(false);
+        }
 
         // 有連結 POI 的話, 直接把座標也複製到項目自己身上 (跟自訂項目走同一套地圖邏輯, 不用每次都查 Poi 表)
         if (PID != null) {
@@ -1770,6 +2026,23 @@ public class ItineraryService {
     }
 
     /**
+     * @param aiDescription AI 解析原文裡針對這個地點寫的簡介/介紹文字, 沒有就傳 null。只是暫存在這個
+     *                      行程項目自己身上 (ItineraryItem.aiDescription), 顯示/匯出時會優先於資料庫裡
+     *                      poi.description 的版本, 不會反過來覆寫共用的 POI 資料庫——只有使用者之後在
+     *                      行程編輯畫面手動存檔修改介紹說明, 才會真的寫回 poi 資料表 (見
+     *                      PoiService.updateDescription, 屆時也會把這個欄位清空, 改以資料庫版本為準)。
+     */
+    public ItineraryItem addItem(int IDID, Integer PID, String itemType, String customName, Integer stayDurationMin,
+                                 String itemCountry, String itemRegion, String timeSlot, String aiDescription) {
+        ItineraryItem item = addItem(IDID, PID, itemType, customName, stayDurationMin, itemCountry, itemRegion, timeSlot);
+        if (aiDescription != null && !aiDescription.isBlank()) {
+            item.setAiDescription(aiDescription);
+            itineraryItemDAO.save(item);
+        }
+        return item;
+    }
+
+    /**
      * 新增「自訂項目」: 不連結公司 POI 資料庫, 但會自動地理編碼取得座標, 讓地圖照樣顯示這個點
      * 支援名稱用「或」分隔多個選項 (例如飯店常見的「A飯店或B飯店或C飯店」), 每個候選都會分別地理編碼,
      * 預設選第一個, 之後可以用 selectItemOption() 切換
@@ -1800,6 +2073,11 @@ public class ItineraryService {
 
         ItineraryItem item = new ItineraryItem(IDID, null, itemType, names.get(0), nextOrder);
         item.setStayDurationMin(stayDurationMin);
+        // 使用者要求: 餐食類項目預設不要顯示在地圖上 (見 addItem() 同樣的說明), 自訂項目 (例如手動輸入的
+        // 「A餐廳或B餐廳」候選名稱) 也要套用同一個預設值, 不是只有連結資料庫的餐廳才處理。
+        if ("meal".equals(itemType)) {
+            item.setShowOnMap(false);
+        }
         itineraryItemDAO.save(item); // 先存起來拿 IIID
 
         boolean first = true;
@@ -2025,9 +2303,9 @@ public class ItineraryService {
         // 「出發機場」(fromLocation) 不是「目的地」(toLocation)——如果這裡沒有排除, 使用者之後只要編輯這個
         // 項目任何欄位存檔一次 (包含單純按「顯示在地圖上」切換), 就會被這段既有邏輯蓋回抵達機場的座標,
         // 「最後一個景點→出發機場」這段地圖路線就會跟著跑掉。判斷方式跟 calculateAirportTransferSegments()
-        // 找「回程班機」用的是同一套 (transportMethod === 飛機 + customName 開頭是「回程班機」)。
+        // 找「回程班機」用的是同一套 (transportMethod === 飛機 + flightDirection == "return")。
         boolean isReturnFlightLeg = "飛機".equals(item.getTransportMethod())
-                && item.getCustomName() != null && item.getCustomName().startsWith("回程班機");
+                && "return".equals(item.getFlightDirection());
         if (isReturnFlightLeg) {
             if (fromLocation != null && !fromLocation.isBlank()) {
                 if (geocodeCountry == null) geocodeCountry = resolveCountryForItem(item);
@@ -2122,7 +2400,8 @@ public class ItineraryService {
 
     /**
      * @param mode "meal_time" (預設): 早餐固定第一個, 午餐/晚餐依累計時間排到接近 12:00/18:00, 住宿排最後
-     *             "all_last": 不管時間, 餐廳跟住宿全部依原本順序排到這一天的最後面 (景點/交通/自費維持在前面)
+     *             "all_last": 只有餐廳依原本順序排到這一天的最後面 (景點/交通/自費/住宿都維持原本順序,
+     *             不動——住宿本來就習慣落在一天的尾端附近, 結果會是「行程/景點 → 住宿 → 餐廳」)
      */
     public void autoArrangeDay(int IDID, String mode) {
         List<ItineraryItem> items = itineraryItemDAO.findByDay(IDID);
@@ -2130,17 +2409,22 @@ public class ItineraryService {
         revertToDraftIfCompletedByDay(IDID); // 見上方「標記已完成後再編輯要退回草稿」的說明
 
         if ("all_last".equals(mode)) {
-            List<ItineraryItem> anchors = new ArrayList<>();
-            List<ItineraryItem> mealsAndHotels = new ArrayList<>();
+            // Patch 89: 使用者要求「餐廳住宿排最後改成只有餐廳排最後 所以會是行程 住宿 餐廳」——原本是
+            // 餐廳跟住宿「一起」依原本順序排到最後面 (兩者可能交錯), 改成只有餐廳被搬到最後面, 住宿跟
+            // 景點/交通/自費一樣維持原本順序不動——因為住宿在這個系統的其他建立/整理路徑本來就已經習慣
+            // 被排在一天的最後面 (例如 meal_time 模式的 arranged.addAll(hotels)), 只搬餐廳的結果自然就
+            // 會落成使用者要的「景點/行程 → 住宿 → 餐廳」這個順序, 不需要額外特判「把住宿排在餐廳前面」。
+            List<ItineraryItem> anchorsAndHotels = new ArrayList<>();
+            List<ItineraryItem> mealsToEnd = new ArrayList<>();
             for (ItineraryItem item : items) {
-                if ("meal".equals(item.getItemType()) || "hotel".equals(item.getItemType())) {
-                    mealsAndHotels.add(item);
+                if ("meal".equals(item.getItemType())) {
+                    mealsToEnd.add(item);
                 } else {
-                    anchors.add(item);
+                    anchorsAndHotels.add(item);
                 }
             }
-            List<ItineraryItem> arranged = new ArrayList<>(anchors);
-            arranged.addAll(mealsAndHotels);
+            List<ItineraryItem> arranged = new ArrayList<>(anchorsAndHotels);
+            arranged.addAll(mealsToEnd);
             for (int i = 0; i < arranged.size(); i++) {
                 arranged.get(i).setSortOrder(i);
                 itineraryItemDAO.save(arranged.get(i));
@@ -2155,6 +2439,23 @@ public class ItineraryService {
         java.time.LocalTime lunchTime = java.time.LocalTime.of(12, 0);
         java.time.LocalTime dinnerTime = java.time.LocalTime.of(18, 0);
 
+        // Patch 74: 這一天如果已經有回程班機 (attachFlightItems() 可能已經跑過——這個方法不只在「建立
+        // 行程」時被呼叫一次, 使用者在看板上按「餐廳住宿排最後」「依照早中晚安排」也會直接重跑這一天,
+        // 那時候班機通常早就存在), 算出「最晚可以安排到幾點」(回程班機出發前, 扣掉機場緩衝時間)——
+        // 早餐固定在最前面、本來就代表「出發前」, 不受這個限制; 午餐/晚餐算出來的時間如果已經到了/超過
+        // 這個緩衝時間點, 代表人已經要去機場了, 這一餐當天根本排不進去, 直接刪除, 不要硬塞在回程班機
+        // 後面 (那個時間點人已經在機場/飛機上, 不可能真的去吃, 見下面迴圈裡的說明)。
+        ItineraryItem departureFlightForCutoff = null;
+        for (ItineraryItem it : items) {
+            if ("transport".equals(it.getItemType()) && "return".equals(it.getFlightDirection())
+                    && it.getStartTime() != null) {
+                departureFlightForCutoff = it; // 同一天如果有多段轉機, 取「排序在最前面」的那一段
+                break;
+            }
+        }
+        java.time.LocalTime dayCutoff = departureFlightForCutoff != null
+                ? departureFlightForCutoff.getStartTime().minusMinutes(AIRPORT_BUFFER_MIN) : null;
+
         List<ItineraryItem> hotels = new ArrayList<>();
         List<ItineraryItem> mealsToPlace = new ArrayList<>(); // 所有餐廳, 依原本出現順序 (這是明確的「重新整理」動作, 不管之前有沒有標過時段, 都強制重新判斷位置)
         List<ItineraryItem> anchors = new ArrayList<>();      // 其餘項目 (景點/交通/自費/自由活動), 當作時間軸骨架
@@ -2162,36 +2463,74 @@ public class ItineraryService {
         for (ItineraryItem item : items) {
             if ("hotel".equals(item.getItemType())) {
                 hotels.add(item);
-            } else if ("meal".equals(item.getItemType())) {
+            } else if ("meal".equals(item.getItemType()) && !isInFlightMeal(item)) {
                 mealsToPlace.add(item);
             } else {
+                // Patch 85: 機上套餐 (isInFlightMeal) 這裡刻意跟景點/交通/班機一樣歸進 anchors, 不進
+                // mealsToPlace——它不是一筆需要依「目標用餐時間」重新排位置的一般餐食, 而是刻意跟在
+                // 它所屬的那個班機後面 (轉換當下已經由 hideMealsOverlappingFlights() 排定好位置, 見該
+                // 方法說明), 維持在 anchors 裡代表它會保留原本的相對順序, 不會被下面的早/午/晚餐排序
+                // 邏輯搬到別的地方去、也不會被誤標記時段。
                 anchors.add(item);
             }
         }
 
-        // 依序標記: 第1個餐廳=早餐, 第2個=午餐, 第3個(以後)=晚餐
-        for (int i = 0; i < mealsToPlace.size(); i++) {
-            mealsToPlace.get(i).setTimeSlot(i == 0 ? "breakfast" : (i == 1 ? "lunch" : "dinner"));
+        // 依序標記時段: 有明確早餐標記 (addBreakfastPlaceholder() 建立時就已經標好, 見該方法說明) 的
+        // 維持早餐, 不再無條件把「排在最前面的第 1 個餐廳」當成早餐——Patch 85 之後, 行程第一天已經
+        // 不會再有早餐項目 (使用者要求「第一天不需要安排早餐」), 如果還是照位置強制判斷, 第一天真正的
+        // 午餐反而會被誤標成早餐、插到最前面還套用 08:00 這個時間錨點, 排出完全錯誤的結果。其餘依序
+        // 標記第 1 個=午餐, 第 2 個 (以後)=晚餐 (機上套餐已經在上面分類時歸進 anchors, 不會出現在
+        // 這個清單裡, 不受這個時段標記影響)。
+        int mealSlotIndex = 0;
+        for (ItineraryItem meal : mealsToPlace) {
+            if ("breakfast".equals(meal.getTimeSlot())) continue;
+            meal.setTimeSlot(mealSlotIndex == 0 ? "lunch" : "dinner");
+            mealSlotIndex++;
         }
 
         // 早餐固定放最前面, 午餐/晚餐依累計停留時間算出最接近目標時間 (12:00 / 18:00) 的位置插進去。
         // Patch 28: 三餐的 start_time/end_time 同時固定用預設用餐時間錨點 (早餐 08:00、午餐 12:00、
         // 晚餐 18:00) 直接寫死, 不再是 null——使用者反映用餐時間應該要有預設值, 也讓後面
         // hideMealsOverlappingFlights() 可以用這個時間跟班機時間比對是否重疊。
+        //
+        // 使用者反映「時間表出現『13:10 迴頭路』後面接一個『12:00』開始的午餐, 時間倒退」——追查後發現:
+        // findIndexForTargetTime() 原本只用「停留時間」累加去估算插入點, 完全沒把景點跟景點之間的拉車
+        // 時間算進去; 但這一餐真正顯示的時間卻是寫死的目標時間 (12:00), 兩個基準對不起來——只要前面幾個
+        // 景點之間有拉車時間 (幾乎一定會有), 這一餐實際被插入的位置會比「沒有拉車時間」時晚, 可是顯示
+        // 時間還是釘死 12:00, 就會比它前一項的估計結束時間還早, 畫面上時間軸就會出現倒退的現象。
+        // 修正分兩步: (1) findIndexForTargetTime() 內部改用跟 RouteService fallback 公式一致的直線距離
+        // 估算 (estimateTravelMinutes), 讓抓插入點的基準盡量貼近之後 recalculateRoutes() 真正算出來的
+        // 拉車時間, 減少抓錯插入點的機會; (2) 這一餐真正顯示的開始時間, 改成「目標用餐時間」跟「照這個
+        // 順序實際排下來, 最早幾點才可能走到這個地點」(estimateArrivalTime) 兩者取比較晚的一個——行程
+        // 排得比較趕、實際到這一餐地點的時間比目標時間晚時, 直接採用比較晚、比較合理的那個時間, 不要死守
+        // 目標時間, 這樣整天的時間軸才能保證單調往後推進, 不會再出現「前面才走到 13:10、後面卻接一個
+        // 12:00 開始的午餐」這種時間倒退的狀況。早餐維持原本行為不變 (固定 08:00、固定插在最前面)——
+        // 這次沒有回報過早餐有類似問題, 範圍先只收斂在午餐/晚餐。
         List<ItineraryItem> arranged = new ArrayList<>(anchors);
+        List<ItineraryItem> mealsToDelete = new ArrayList<>(); // Patch 74: 見上面 dayCutoff 說明
         for (ItineraryItem meal : mealsToPlace) {
             int insertIndex;
-            java.time.LocalTime target;
+            java.time.LocalTime start;
             if ("breakfast".equals(meal.getTimeSlot())) {
                 insertIndex = 0;
-                target = breakfastTime;
+                start = breakfastTime;
             } else {
-                target = "lunch".equals(meal.getTimeSlot()) ? lunchTime : dinnerTime;
+                java.time.LocalTime target = "lunch".equals(meal.getTimeSlot()) ? lunchTime : dinnerTime;
                 insertIndex = findIndexForTargetTime(arranged, dayStart, target);
+                java.time.LocalTime estimatedArrival = estimateArrivalTime(arranged, dayStart, insertIndex, meal);
+                start = estimatedArrival.isAfter(target) ? estimatedArrival : target;
+
+                // Patch 74: 早餐 (上面 if 分支) 排在最前面、代表出發前, 不受這個限制; 午餐/晚餐這裡
+                // 算出來的開始時間如果已經到了/超過回程班機的機場緩衝時間點, 代表排出來的位置已經在
+                // 回程班機當天要去機場之後——不能硬塞, 直接刪除這筆, 不要進 arranged。
+                if (dayCutoff != null && !start.isBefore(dayCutoff)) {
+                    mealsToDelete.add(meal);
+                    continue;
+                }
             }
             int mealDur = meal.getStayDurationMin() != null ? meal.getStayDurationMin() : defaultStayMinutes(meal.getItemType());
-            meal.setStartTime(target);
-            meal.setEndTime(target.plusMinutes(mealDur));
+            meal.setStartTime(start);
+            meal.setEndTime(start.plusMinutes(mealDur));
             arranged.add(Math.min(insertIndex, arranged.size()), meal);
         }
 
@@ -2202,24 +2541,123 @@ public class ItineraryService {
             item.setSortOrder(i);
             itineraryItemDAO.save(item);
         }
+        if (!mealsToDelete.isEmpty()) {
+            // Patch 84: 使用者提供的 Railway 部署 log 顯示這裡實際跑出
+            // DataIntegrityViolationException（route_segment 的外鍵 from_item_id 擋住刪除）——這一天
+            // 如果先前已經呼叫過 recalculateRoutes() 算過拉車距離 (route_segment 表已經有連到這個項目的
+            // 快取列), 直接 itineraryItemDAO.deleteById() 會被那個外鍵擋下來。這個地雷 removeItem()
+            // (使用者在看板上手動刪除單一項目那個既有方法) 其實早就踩過、也已經修好了, 只是那次的修法
+            // 沒有同步套用到這裡——見 removeItem() 的註解「route_segment 的外鍵沒設 CASCADE, 有算過拉車
+            // 距離的項目直接刪會被擋」, 這裡比照同一套做法: 刪除項目之前先清掉這天的路段快取, 讓刪除本身
+            // 不會被外鍵擋住; 下面的 recalculateRoutes() 本來就會重新算出一份新的, 不會少算。
+            routeSegmentDAO.deleteByDay(IDID);
+            for (ItineraryItem meal : mealsToDelete) {
+                itineraryItemDAO.deleteById(meal.getIIID());
+            }
+        }
 
         recalculateRoutes(IDID);
     }
 
-    // 依「目前已排好的項目序列」累加停留時間, 找出最接近目標時間 (12:00/18:00) 該插在第幾個位置
-    // (只用停留時間估算, 沒有把拉車時間算進去, 是簡化過的推算, 不是精準排程)
+    // Patch 74: 使用者反映「AI排行程要以航班時間為主, 先處理完航班時間再去安排後續行程」——追查後發現
+    // 這一整組「累加估算現在排到幾點」的邏輯 (下面的 findIndexForTargetTime()/estimateArrivalTime(),
+    // 以及 trimItemsAroundFlights() 對住宿/交通類項目的游標推進), 對序列裡任何一個項目一律用「(可能沒
+    // 設定的) 停留時間, 或 defaultStayMinutes(itemType)」累加, 從來沒有檢查這個項目「自己是不是已經
+    // 有真實的出發/抵達時間」——班機 (attachFlightLegsAcrossDays() 設的) 剛好就是
+    // defaultStayMinutes("transport") 固定回傳 0 的類型, 等於把班機真正佔用的那幾個小時 (例如 05:00
+    // 飛到 12:00, 整整 7 小時) 當作瞬間發生, 後面接著的午餐/晚餐插入點跟顯示時間全部嚴重低估——這正是
+    // 「航班12:00抵達, 排的午餐卻沒跟著往後挪、時間軸還會倒退」的根因。
+    //
+    // 修正: 序列裡任何一項只要自己已經有真實的出發/抵達時間 (目前只有班機、以及這個方法自己在同一次
+    // 呼叫裡已經排定過時間的餐食符合), 直接跳到它的真實結束時間當作新的游標, 不要再用「預設停留時間」
+    // 累加瞎猜——已知的真實時間一定比瞎猜準, 這樣不管班機排在序列第幾個位置, 都能正確反映它真正佔用
+    // 的時間, 不會再被當成 0 分鐘忽略過去。
+    private java.time.LocalTime advancePast(java.time.LocalTime current, ItineraryItem prev, ItineraryItem it) {
+        if (it.getStartTime() != null && it.getEndTime() != null) {
+            java.time.LocalTime end = it.getEndTime();
+            // Patch 76: 使用者反映「去程飛機的抵達時間後 90 分鐘開始安排 (通勤時間)」——降落當下不代表
+            // 馬上就能開始行程, 還要過海關/領行李/從機場通勤到市區, 這裡統一補上這段緩衝, 讓後面所有沿用
+            // advancePast() 的邏輯 (findIndexForTargetTime/estimateArrivalTime 排午餐晚餐、
+            // trimItemsAroundFlights 判斷有沒有超出可行時間範圍) 都一致從「降落 + 90 分鐘」開始估算,
+            // 不再是「一降落就能馬上開始行程」這種不切實際的假設。只加在「去程班機」身上——回程班機本來就
+            // 代表這天最後一段行程, 後面不會再接東西, 不需要往後推。
+            if ("transport".equals(it.getItemType()) && "outbound".equals(it.getFlightDirection())) {
+                end = end.plusMinutes(AIRPORT_BUFFER_MIN);
+            }
+            return end.isBefore(current) ? current : end; // 理論上真實時間不會逆著游標跑, 保險起見取較晚者
+        }
+        current = current.plusMinutes(estimateTravelMinutes(prev, it));
+        int dur = it.getStayDurationMin() != null ? it.getStayDurationMin() : defaultStayMinutes(it.getItemType());
+        return current.plusMinutes(dur);
+    }
+
+    // 依「目前已排好的項目序列」累加「停留時間 + 估算拉車時間」(或項目自己真實的出發/抵達時間, 見上面
+    // advancePast() 說明), 找出最接近目標時間 (12:00/18:00) 該插在第幾個位置 (跟 RouteService 一樣用
+    // 直線距離估算拉車時間, 但這裡是排序當下用的簡化推算, 不是精準排程, 之後 recalculateRoutes() 算
+    // 出來的才是真正準確的距離/時間)
     private int findIndexForTargetTime(List<ItineraryItem> sequence, java.time.LocalTime dayStart, java.time.LocalTime target) {
         java.time.LocalTime current = dayStart;
+        ItineraryItem prev = null;
         for (int i = 0; i < sequence.size(); i++) {
             ItineraryItem it = sequence.get(i);
-            int dur = it.getStayDurationMin() != null ? it.getStayDurationMin() : defaultStayMinutes(it.getItemType());
-            java.time.LocalTime end = current.plusMinutes(dur);
+            java.time.LocalTime end = advancePast(current, prev, it);
             if (!end.isBefore(target)) {
                 return i + 1; // 這一項結束時已經超過目標時間, 插在它後面
             }
             current = end;
+            prev = it;
         }
         return sequence.size();
+    }
+
+    // 依「目前已排好的項目序列」的前 insertIndex 項, 估算最早幾點才能真的走到 meal 這個地點 (含每一段的
+    // 估算拉車時間, 或項目自己真實的出發/抵達時間), 給 autoArrangeDay() 判斷這一餐的顯示時間要不要比
+    // 寫死的目標時間 (12:00/18:00) 晚。
+    private java.time.LocalTime estimateArrivalTime(List<ItineraryItem> sequence, java.time.LocalTime dayStart,
+                                                    int insertIndex, ItineraryItem meal) {
+        java.time.LocalTime current = dayStart;
+        ItineraryItem prev = null;
+        int limit = Math.min(insertIndex, sequence.size());
+        for (int i = 0; i < limit; i++) {
+            ItineraryItem it = sequence.get(i);
+            current = advancePast(current, prev, it);
+            prev = it;
+        }
+        current = current.plusMinutes(estimateTravelMinutes(prev, meal));
+        return current;
+    }
+
+    // 兩個項目之間的拉車時間估算: 跟 RouteService 的 fallback 公式 (沒有 Google API 金鑰或呼叫失敗時用)
+    // 同一套邏輯——直線距離 (haversine) 除以均速 (1公里以內走路 4.5km/h, 否則開車 30km/h) 換算成分鐘,
+    // 乘 1.5 倍安全緩衝後四捨五入到最近 10 分鐘, 盡量讓這裡排序當下用的估算值跟之後 recalculateRoutes()
+    // 真正算出來的結果同一個量級。任一邊沒有座標 (還沒地理編碼成功、或本來就是純文字預留項目) 或這是這天
+    // 第一個項目 (prev 為 null) 時, 沒辦法算距離, 一律退回一個保守的預設緩衝值, 避免估成 0 分鐘反而低估。
+    private static final int DEFAULT_TRAVEL_ESTIMATE_MIN = 15;
+
+    private int estimateTravelMinutes(ItineraryItem prev, ItineraryItem next) {
+        if (prev == null || next == null) return DEFAULT_TRAVEL_ESTIMATE_MIN;
+        BigDecimal fromLat = prev.getLatitude(), fromLng = prev.getLongitude();
+        BigDecimal toLat = next.getLatitude(), toLng = next.getLongitude();
+        if (fromLat == null || fromLng == null || toLat == null || toLng == null) return DEFAULT_TRAVEL_ESTIMATE_MIN;
+
+        double distanceKm = scheduleHaversineKm(fromLat.doubleValue(), fromLng.doubleValue(),
+                toLat.doubleValue(), toLng.doubleValue());
+        double avgSpeedKmh = distanceKm <= 1.0 ? 4.5 : 30.0; // 跟 RouteService.recommendMode() 同一個門檻: 1公里內走路
+        double rawMinutes = (distanceKm / avgSpeedKmh) * 60;
+        long buffered = Math.round(rawMinutes * 1.5 / 10.0) * 10;
+        return (int) Math.max(buffered, 10);
+    }
+
+    // 跟 RouteService.haversineKm() 同一套公式——那邊是 private, 這裡為了不更動既有類別的可見度,
+    // 另外寫一份同樣的小工具函式 (排程預估跟實際算路線本來就是兩個不同階段, 分開維護風險更低)。
+    private double scheduleHaversineKm(double lat1, double lon1, double lat2, double lon2) {
+        final double earthRadiusKm = 6371;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double h = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * earthRadiusKm * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
     }
 
     private int defaultStayMinutes(String itemType) {
@@ -2245,6 +2683,22 @@ public class ItineraryService {
     // 但還是要照樣累加時間軸, 讓它後面接的項目 (理論上不會有, 但保留以防萬一) 估算時間維持連續。
     private static final java.time.LocalTime DAY_CUTOFF = java.time.LocalTime.of(20, 30);
 
+    /**
+     * Patch 78: 使用者反映「之前有設定最後行程時間應該是 20:30, 但直接排到凌晨 4 點」——這個方法本來
+     * 就是負責這條規則的地方 (patch 28), 但它原本只在 createItineraryWithAiPlan() 內部、班機都還沒
+     * 插入這天之前跑過一次, 之後不管是 attachFlightItems() 插入班機、看板「自動整理」按鈕重排、還是
+     * 單純重新整理看板頁 (前端呼叫 GET /day/{IDID}/items, 見 trimItemsAroundFlights() 同一次修正的
+     * 說明), 都完全不會再重跑這個檢查。這次 patch 76/77 讓「去程班機降落 + 90 分鐘緩衝」之後的景點
+     * 估算時間統一往後推, 這件事本身是對的, 但因為這個 20:30 上限從來沒有機會用「班機插入後、時間已經
+     * 往後推移」的最新狀態重新檢查一次, 才會一路排到隔天凌晨都沒有被擋下來——不是這次改壞的, 是這條
+     * 既有規則從一開始就沒有被放到會重複執行的地方。補上這個以 ITID 為單位的公開版本, 讓它可以跟
+     * trimItemsAroundFlights() 一樣被 create()/createWithAiPlan() 的班機處理流程、board() 的自我
+     * 修復、以及 GET /day/{IDID}/items 這個真正的資料來源一起呼叫。
+     */
+    public void trimDaysExceedingCutoff(int ITID) {
+        trimDaysExceedingCutoff(itineraryDayDAO.findByItinerary(ITID));
+    }
+
     private void trimDaysExceedingCutoff(List<ItineraryDay> days) {
         for (ItineraryDay day : days) {
             List<ItineraryItem> items = itineraryItemDAO.findByDay(day.getIDID());
@@ -2252,32 +2706,105 @@ public class ItineraryService {
 
             java.time.LocalTime dayStart = day.getStartTime() != null ? day.getStartTime() : java.time.LocalTime.of(9, 0);
             java.time.LocalTime current = dayStart;
+            ItineraryItem prev = null;
+            boolean cutoffTriggered = false;
+            List<ItineraryItem> toDelete = new ArrayList<>();
+
             for (ItineraryItem item : items) {
-                int dur = item.getStayDurationMin() != null ? item.getStayDurationMin() : defaultStayMinutes(item.getItemType());
-
                 if ("hotel".equals(item.getItemType()) || "transport".equals(item.getItemType())) {
-                    current = current.plusMinutes(dur);
+                    // Patch 78: 這裡原本用 defaultStayMinutes(item.getItemType()) 累加, 但班機/交通的
+                    // defaultStayMinutes() 固定回傳 0——等於完全忽略班機真正佔用的時間, 跟 patch 74
+                    // 修正 advancePast() 之前的 findIndexForTargetTime()/estimateArrivalTime() 是
+                    // 同一種毛病。改用 advancePast() (順便套用「去程班機降落 + 90 分鐘緩衝」), 讓這裡
+                    // 跟 trimItemsAroundFlights() 算出來的時間基準一致, 不要各算各的。
+                    current = advancePast(current, prev, item);
+                    prev = item;
+                    continue;
+                }
+                if (isInFlightMeal(item)) {
+                    // Patch 83: 機上套餐本來就綁定班機時間, 不受「每天最多排到 20:30」這條以地面行程
+                    // 為前提的規則限制 (班機本身也一樣不受這條規則限制, 見上面 hotel/transport 分支)——
+                    // 比照處理: 不刪除, 只用它自己真實的時間推進游標。
+                    current = advancePast(current, prev, item);
+                    prev = item;
+                    continue;
+                }
+                if (cutoffTriggered) {
+                    toDelete.add(item); // 已經超過 20:30, 後面接的也一併捨棄, 不留不連貫的殘留
                     continue;
                 }
 
-                // 餐食已經被 autoArrangeDay 設過固定的 start_time (08:00/12:00/18:00), 直接沿用這個時間
-                // 而不是用累加估算蓋掉, 才會跟畫面上顯示的用餐時間一致。
-                if (item.getStartTime() != null) {
-                    current = item.getStartTime();
+                // 這裡原本 (patch 78 第一版) 對「沒有寫死時間」的景點直接用 start = current, 完全沒有
+                // 加上 estimateTravelMinutes(prev, item) 這段拉車時間——跟 trimItemsAroundFlights() 的
+                // 對應邏輯不一致 (那邊每一項都會先加拉車時間再判斷), 會讓這裡低估整天實際累加下來的時間,
+                // 20:30 這個上限判斷得比應有的寬鬆。改成跟 trimItemsAroundFlights() 完全一致的算法:
+                // 先算「加上拉車時間後最早能到的時間」(travelArrival), 項目自己有寫死時間就用寫死的,
+                // 沒有就用 travelArrival；但寫死時間如果比 travelArrival 還早 (理論上不該發生, 保險起見),
+                // 一律取較晚者, 避免游標往回跳。
+                java.time.LocalTime travelArrival = current.plusMinutes(estimateTravelMinutes(prev, item));
+                java.time.LocalTime start = item.getStartTime() != null ? item.getStartTime() : travelArrival;
+                if (start.isBefore(travelArrival)) {
+                    start = travelArrival;
                 }
 
-                if (current.isAfter(DAY_CUTOFF)) {
+                if (start.isAfter(DAY_CUTOFF)) {
+                    cutoffTriggered = true;
+                    toDelete.add(item);
+                    continue;
+                }
+
+                int dur = item.getStayDurationMin() != null ? item.getStayDurationMin() : defaultStayMinutes(item.getItemType());
+                java.time.LocalTime realEnd = item.getEndTime();
+                current = (realEnd != null && !realEnd.isBefore(start)) ? realEnd : start.plusMinutes(dur);
+                prev = item;
+            }
+
+            if (!toDelete.isEmpty()) {
+                // Patch 84: 使用者提供的 Railway log 顯示這裡實際跑出 DataIntegrityViolationException
+                // （route_segment 的外鍵 from_item_id 擋住刪除）——這一天如果先前已經呼叫過
+                // recalculateRoutes() 算過拉車距離 (route_segment 表已經有連到這個項目的快取列), 直接
+                // itineraryItemDAO.deleteById() 會被那個外鍵擋下來 (見 createItineraryWithAiPlan() 裡
+                // autoArrangeItinerary() → 這個方法的呼叫順序: autoArrangeItinerary() 內部
+                // autoArrangeDay() 早就已經呼叫過 recalculateRoutes() 算好路段, 這個方法接著要刪除超過
+                // 20:30 的項目時就會撞上)。比照既有的 removeItem() 方法同一套做法: 刪除項目之前先清掉
+                // 這天的路段快取, 讓刪除本身不會被外鍵擋住; 下面的 recalculateRoutes() 本來就會重新算出
+                // 一份新的, 不會少算。
+                routeSegmentDAO.deleteByDay(day.getIDID());
+                for (ItineraryItem item : toDelete) {
                     itineraryItemDAO.deleteById(item.getIIID());
-                    continue;
                 }
-                current = current.plusMinutes(dur);
+                // 刪掉項目後 sort_order 會有空隙, 重新壓縮成連續的 0..n-1 (跟 trimItemsAroundFlights()
+                // 一致, 避免留下不連續的排序造成前端顯示/拖曳異常)。
+                List<ItineraryItem> remaining = itineraryItemDAO.findByDay(day.getIDID());
+                for (int i = 0; i < remaining.size(); i++) {
+                    remaining.get(i).setSortOrder(i);
+                    itineraryItemDAO.save(remaining.get(i));
+                }
+                recalculateRoutes(day.getIDID());
             }
         }
     }
 
+    // Patch 83: 這個名字是「機上套餐」轉換後的固定顯示名稱——判斷一筆餐食項目是不是已經被下面
+    // hideMealsOverlappingFlights() 轉換過的機上套餐, 讓 trimItemsAroundFlights()/trimDaysExceedingCutoff()
+    // 可以認得它、不要用「人在地面上移動」的前提去誤刪它 (見那兩個方法裡對應的說明)。
+    private static final String INFLIGHT_MEAL_NAME = "機上套餐";
+
+    private boolean isInFlightMeal(ItineraryItem item) {
+        return "meal".equals(item.getItemType()) && INFLIGHT_MEAL_NAME.equals(item.getCustomName());
+    }
+
     // Patch 28: 班機時間如果剛好卡到某一餐固定的用餐時間 (例如中午 12 點左右的班機跟午餐重疊), 這餐當天
-    // 就不需要再排了 (人已經在機場/飛機上, 排了也不會去吃)——一定要在 attachFlightItems() 把去程/回程班機
-    // 轉成 transport 項目「之後」才呼叫這個方法, 不然這天還沒有任何班機項目可以比對。
+    // 就不需要再排了——一定要在 attachFlightItems() 把去程/回程班機轉成 transport 項目「之後」才呼叫這個
+    // 方法, 不然這天還沒有任何班機項目可以比對。
+    //
+    // Patch 83: 使用者要求「行程第一天/最後一天如果航班時間包含到吃飯時間, 餐廳可以直接顯示機上套餐,
+    // 不須顯示早餐」——原本這裡是整筆刪除, 但線控實際上還是需要知道「這一餐算在機上解決, 不用額外
+    // 安排」, 直接刪掉反而讓行程表看起來這一餐憑空消失, 不夠清楚。改成: 不刪除這筆項目, 而是把它轉換成
+    // 一筆「機上套餐」——解除跟原本飯店/餐廳 POI 的連結 (機上套餐不是真正的地點, 不該再顯示座標/地圖
+    // 圖釘/簡介), 顯示名稱固定改成「機上套餐」(不管原本標記的是早餐/午餐/晚餐, 只要跟班機時間重疊, 代表
+    // 這一餐實際上是在飛機上解決)。開始/結束時間維持原本的值不變 (本來就是造成重疊判斷的那組時間, 不需要
+    // 也不應該重算)。已經轉換過的項目 (isInFlightMeal) 跳過, 不用重複處理。
     public void hideMealsOverlappingFlights(int ITID) {
         for (ItineraryDay day : itineraryDayDAO.findByItinerary(ITID)) {
             List<ItineraryItem> items = itineraryItemDAO.findByDay(day.getIDID());
@@ -2289,13 +2816,55 @@ public class ItineraryService {
 
             for (ItineraryItem item : items) {
                 if (!"meal".equals(item.getItemType())) continue;
+                if (isInFlightMeal(item)) continue; // 已經轉換過, 不用重複處理
                 if (item.getStartTime() == null || item.getEndTime() == null) continue; // 缺時間資訊就跳過, 不要誤刪
                 boolean overlaps = flights.stream().anyMatch(f ->
                         timeRangesOverlap(item.getStartTime(), item.getEndTime(), f.getStartTime(), f.getEndTime()));
                 if (overlaps) {
-                    itineraryItemDAO.deleteById(item.getIIID());
+                    // Patch 85: 使用者要求「機上套餐要跟在航班下面」——找出實際造成重疊的那一段班機,
+                    // 待會轉換完直接把這筆項目的順序移到緊接在它後面, 不管轉換前原本排在哪裡 (原本是
+                    // 依「午餐/晚餐目標時間」估算出來的位置, 不一定緊接著班機, 見使用者附的截圖: 曾經
+                    // 被排到降落後其他景點的後面)。
+                    ItineraryItem overlappingFlight = flights.stream()
+                            .filter(f -> timeRangesOverlap(item.getStartTime(), item.getEndTime(),
+                                    f.getStartTime(), f.getEndTime()))
+                            .findFirst().orElse(null);
+
+                    item.setPID(null);
+                    item.setCustomName(INFLIGHT_MEAL_NAME);
+                    item.setLatitude(null);
+                    item.setLongitude(null);
+                    item.setAiDescription(null);
+                    item.setShowOnMap(false);
+                    itineraryItemDAO.save(item);
+
+                    if (overlappingFlight != null) {
+                        repositionItemAfter(day.getIDID(), item, overlappingFlight);
+                    }
                 }
             }
+        }
+    }
+
+    // Patch 85: 把 itemToMove 移到緊接在 anchor 後面的位置, 其餘項目依原順序往後遞補, 重新壓縮
+    // sort_order 成連續的 0..n-1。給 hideMealsOverlappingFlights() 轉換機上套餐時使用, 讓它固定
+    // 緊跟在造成重疊的那段班機後面, 不管轉換前原本排在哪裡。anchor 如果因為某種原因已經不在清單裡
+    // (理論上不該發生, 保險起見), 退回排在最後面, 不會讓項目憑空消失。
+    private void repositionItemAfter(int IDID, ItineraryItem itemToMove, ItineraryItem anchor) {
+        List<ItineraryItem> items = new ArrayList<>(itineraryItemDAO.findByDay(IDID));
+        items.removeIf(it -> it.getIIID() == itemToMove.getIIID());
+        int anchorIndex = -1;
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).getIIID() == anchor.getIIID()) {
+                anchorIndex = i;
+                break;
+            }
+        }
+        int insertAt = anchorIndex >= 0 ? anchorIndex + 1 : items.size();
+        items.add(insertAt, itemToMove);
+        for (int i = 0; i < items.size(); i++) {
+            items.get(i).setSortOrder(i);
+            itineraryItemDAO.save(items.get(i));
         }
     }
 
@@ -2303,6 +2872,150 @@ public class ItineraryService {
     private boolean timeRangesOverlap(java.time.LocalTime aStart, java.time.LocalTime aEnd,
                                       java.time.LocalTime bStart, java.time.LocalTime bEnd) {
         return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
+    }
+
+    // 使用者反映「回程班機明明中午 12:30 就起飛, 行程表卻還排了晚上 18:00 的晚餐」——hideMealsOverlappingFlights()
+    // 只處理「跟班機時間『字面重疊』的那一餐」, 對「班機出發後幾個小時, 完全沒有重疊、但邏輯上人早就已經
+    // 離開/在飛機上」的項目完全沒有防護 (回程晚餐 18:00-19:00 對回程班機 12:30-14:00 來說沒有字面重疊,
+    // 就不會被那個方法刪掉)。這裡另外補一層更全面的檢查: 逐天累加估算 (跟 autoArrangeDay 的
+    // estimateArrivalTime 同一套 haversine 估算), 只要
+    //   (1) 這天有「去程班機」(flightDirection=outbound, 有抵達時間) 時, 抵達之前不可能有任何行程
+    //       (人根本還沒下飛機), 抵達前面排的項目全部刪掉;
+    //   (2) 這天有「回程班機」(flightDirection=return, 有出發時間) 時, 從班機起飛前 AIRPORT_BUFFER_MIN
+    //       分鐘 (預留去機場/辦登機的時間) 開始, 這個時間點之後才會開始的項目全部刪掉 (不只是跟班機時間
+    //       重疊的那幾筆, 後面接著的也一起刪, 不然會留下「刪掉午餐但晚餐還在」這種不連貫的殘留)。
+    // 只影響景點/餐廳這種「會佔用時間」的項目; 住宿/其他一般交通項目不受影響 (但還是要照樣累加時間軸,
+    // 讓後面的估算連續), 班機本身當然也不會刪自己。一定要在 attachFlightItems() 把去程/回程班機轉成
+    // transport 項目之後才呼叫這個方法, 不然這天還沒有任何班機項目可以判斷。
+    private static final int AIRPORT_BUFFER_MIN = 90; // 出發前預留到機場/辦登機的緩衝時間 (分鐘)
+
+    public void trimItemsAroundFlights(int ITID) {
+        for (ItineraryDay day : itineraryDayDAO.findByItinerary(ITID)) {
+            List<ItineraryItem> items = itineraryItemDAO.findByDay(day.getIDID());
+            if (items.isEmpty()) continue;
+
+            ItineraryItem arrivalFlight = null;
+            ItineraryItem departureFlight = null;
+            for (ItineraryItem it : items) {
+                if (!"transport".equals(it.getItemType())) continue;
+                if ("outbound".equals(it.getFlightDirection()) && it.getEndTime() != null) {
+                    // 同一天如果有多段轉機, 取「排序在最後面」的那一段抵達時間才是真正落地的時間
+                    arrivalFlight = it;
+                }
+                if ("return".equals(it.getFlightDirection()) && it.getStartTime() != null && departureFlight == null) {
+                    // 同一天如果有多段轉機, 取「排序在最前面」的那一段出發時間才是真正離開的時間
+                    departureFlight = it;
+                }
+            }
+            if (arrivalFlight == null && departureFlight == null) continue;
+
+            // Patch 76: 使用者反映「去程飛機的抵達時間後 90 分鐘開始安排(通勤時間), 回程飛機出發前 90
+            // 分鐘安排行程, 但現在都會無視飛機時間導致時間表錯亂」——追查後發現這裡原本只有回程 (departureFlight)
+            // 那一側有扣 AIRPORT_BUFFER_MIN 緩衝, 去程 (arrivalFlight) 這一側完全沒有: cursor 直接採用
+            // 「降落當下」(arrivalFlight.getEndTime()), 沒有預留下飛機後過海關/領行李/從機場通勤到市區的時間,
+            // 跟回程側的緩衝設計不對稱。補上 earliestAllowed (降落 + 90 分鐘緩衝), 當作這天真正能開始安排
+            // 行程的下限, 取代原本沒有緩衝的 cursor 起點。
+            java.time.LocalTime dayStart = day.getStartTime() != null ? day.getStartTime() : java.time.LocalTime.of(9, 0);
+            java.time.LocalTime earliestAllowed = (arrivalFlight != null)
+                    ? arrivalFlight.getEndTime().plusMinutes(AIRPORT_BUFFER_MIN) : null;
+            java.time.LocalTime cursor = (earliestAllowed != null) ? earliestAllowed : dayStart;
+            java.time.LocalTime cutoff = (departureFlight != null)
+                    ? departureFlight.getStartTime().minusMinutes(AIRPORT_BUFFER_MIN) : null;
+
+            boolean pastArrival = (arrivalFlight == null);
+            boolean cutoffTriggered = false;
+            List<ItineraryItem> toDelete = new ArrayList<>();
+            ItineraryItem prev = null;
+
+            for (ItineraryItem item : items) {
+                if (item == arrivalFlight) { pastArrival = true; prev = item; continue; }
+                if (item == departureFlight) { prev = item; continue; }
+                if ("hotel".equals(item.getItemType()) || "transport".equals(item.getItemType())) {
+                    // 住宿/其他一般交通不受剪裁影響, 但還是要照樣累加時間軸, 讓後面的估算連續。
+                    // Patch 74: 這裡原本一律用「預設停留時間」累加, 沒有檢查這個交通項目是不是本身
+                    // 已經有真實的出發/抵達時間 (例如同一天還有另一段轉機航班)——改用 advancePast()
+                    // (見上面說明), 有真實時間就直接採用, 不要再把它當成 0 分鐘忽略過去。
+                    cursor = advancePast(cursor, prev, item);
+                    prev = item;
+                    continue;
+                }
+                if (isInFlightMeal(item)) {
+                    // Patch 83: 機上套餐 (hideMealsOverlappingFlights() 轉換出來的) 本來就是刻意跟班機
+                    // 時間重疊——人在飛機上用餐, 不是在地面移動——下面「排在班機前面是否合理」「有沒有超過
+                    // 回程截止時間」這些判斷全部是以「人在地面上」為前提, 對這種項目完全不適用。比照上面
+                    // 住宿/交通的處理方式: 不刪除, 只用它自己真實的開始/結束時間推進游標, 讓後面接的項目
+                    // 估算時間維持連續。
+                    cursor = advancePast(cursor, prev, item);
+                    prev = item;
+                    continue;
+                }
+                if (!pastArrival) {
+                    // Patch 73: 配合上面 attachFlightLegsAcrossDays() 的修正——早餐這種「出發前」的固定
+                    // 時間餐食, 現在會被刻意留在班機『前面』(見那邊的說明), 排在班機前面本身不代表「人
+                    // 還沒下飛機却排了不可能的行程」, 只要它自己寫死的時間確實不晚於班機出發時間, 就是
+                    // 合理的「出發前先吃完早餐再去機場」, 不能砍掉——這裡原本無條件把「排在班機前面」的
+                    // 項目全部當成不可能發生而刪除, 沒有這層例外的話, 早餐反而會被這次改動連帶誤刪。
+                    boolean legitimateBeforeDeparture = arrivalFlight != null && "meal".equals(item.getItemType())
+                            && item.getStartTime() != null && arrivalFlight.getStartTime() != null
+                            && !item.getStartTime().isAfter(arrivalFlight.getStartTime());
+                    if (!legitimateBeforeDeparture) {
+                        toDelete.add(item); // 人還沒下飛機, 這個項目不可能真的排得進去
+                    }
+                    continue;
+                }
+                if (cutoffTriggered) {
+                    toDelete.add(item); // 已經過了「該去機場了」的時間點, 後面接的也一併捨棄, 不留不連貫的殘留
+                    continue;
+                }
+
+                // Patch 76: 這一項如果自己已經有寫死的開始時間 (餐廳訂位、或 autoArrangeDay 在班機還沒
+                // 插入這天之前就先算好、之後才被排到班機後面的舊午餐/晚餐時間——後者正是使用者這次截圖
+                // 「回程 11:00 起飛, 行程卻排到 21:30」「淺草今半 13:05 排在班機 15:00 降落、東京晴空塔
+                // 之後」的成因), 不能無條件信任它、直接拿來當這一項的顯示時間——那個時間可能是在完全不知道
+                // 班機真正時間的情況下算出來的舊值, 早於這天真正能開始 (去程降落+90分鐘緩衝) 的時間點,
+                // 也可能造成下面 cursor 往回跳、後面接的項目估算跟著錯亂。分兩層防護:
+                //   (1) 這個寫死時間早於 earliestAllowed (人根本還沒到、還沒過完緩衝時間), 代表這筆從一
+                //       開始排的時間點就不合理, 直接刪除, 不要留著造成時間軸倒退。
+                //   (2) 就算晚於 earliestAllowed, 也不能讓它比目前累加游標 (cursor, 已經反映前面所有
+                //       項目真正排到的時間) 還早——跟 advancePast() 一樣的「取較晚者」保護, 避免游標往回跳。
+                java.time.LocalTime travelArrival = cursor.plusMinutes(estimateTravelMinutes(prev, item));
+                java.time.LocalTime start = item.getStartTime() != null ? item.getStartTime() : travelArrival;
+                if (earliestAllowed != null && item.getStartTime() != null && item.getStartTime().isBefore(earliestAllowed)) {
+                    toDelete.add(item);
+                    continue;
+                }
+                if (start.isBefore(travelArrival)) {
+                    start = travelArrival; // 寫死時間比累加估算的到達時間還早, 不能真的採用, 否則游標倒退
+                }
+                if (cutoff != null && !start.isBefore(cutoff)) {
+                    cutoffTriggered = true;
+                    toDelete.add(item);
+                    continue;
+                }
+                int dur = item.getStayDurationMin() != null ? item.getStayDurationMin() : defaultStayMinutes(item.getItemType());
+                java.time.LocalTime realEnd = item.getEndTime();
+                cursor = (realEnd != null && !realEnd.isBefore(start)) ? realEnd : start.plusMinutes(dur);
+                prev = item;
+            }
+
+            if (!toDelete.isEmpty()) {
+                // Patch 84: 跟 trimDaysExceedingCutoff() 同一個地雷 (見那邊的說明)——這一天如果先前已經
+                // 呼叫過 recalculateRoutes() 算過拉車距離, route_segment 的外鍵會擋住這裡的
+                // itineraryItemDAO.deleteById()。比照 removeItem() 的既有做法, 刪除前先清掉這天的路段
+                // 快取, 下面的 recalculateRoutes() 會重新算出一份新的。
+                routeSegmentDAO.deleteByDay(day.getIDID());
+                for (ItineraryItem item : toDelete) {
+                    itineraryItemDAO.deleteById(item.getIIID());
+                }
+                // 刪掉項目後 sort_order 會有空隙, 重新壓縮成連續的 0..n-1
+                List<ItineraryItem> remaining = itineraryItemDAO.findByDay(day.getIDID());
+                for (int i = 0; i < remaining.size(); i++) {
+                    remaining.get(i).setSortOrder(i);
+                    itineraryItemDAO.save(remaining.get(i));
+                }
+                recalculateRoutes(day.getIDID());
+            }
+        }
     }
 
     /**

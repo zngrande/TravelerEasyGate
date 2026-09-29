@@ -24,6 +24,17 @@
  * 不需要再呼叫任何初始化函式, 這支腳本自己會在 DOMContentLoaded 時掃描一次、之後持續監看新增的元素。
  *
  * 如果某個 date/time input 就是不想被這支腳本接管 (例如刻意要用原生的), 加上屬性 data-dtp-skip 即可。
+ *
+ * 使用者要求「時間全部改成5分鐘一個級距, 而且要可以打字也可以選」——這兩個行為只有加上屬性
+ * data-dtp-step="5" (數字是分鐘級距, 目前只有行程重點資訊/行程排版看板這兩個頁面的時間欄位有加)
+ * 的 time input 才會啟用, 沒有這個屬性的其他頁面時間欄位 (例如 AI 匯入預覽、側邊欄) 完全不受影響、
+ * 行為維持原樣: 分鐘面板還是逐分鐘 (0~59) 列出、觸發器還是純按鈕不能打字。
+ * 有加這個屬性的欄位, 分鐘面板會改成只列出該級距的倍數 (例如級距5就是 00,05,10...55 共12格),
+ * 而且原本純顯示用的按鈕會換成「圖示 + 可以打字的文字框」: 點圖示/框內空白處跟以前一樣打開選擇面板,
+ * 也可以直接把文字框內容清掉、手動輸入時間 (支援 "9:30"、"0930"、"930"、單純的"9"這幾種常見打法),
+ * 打完按 Enter 或移開焦點 (blur) 時就會自動轉成 24 小時制的 HH:mm 格式、並且無條件捨去到最近的
+ * 5 分鐘倍數 (例如打 9:32 存成 9:30、打 9:33 存成 9:35)。打的格式看不懂的話就直接還原成原本的值,
+ * 不會把整個欄位清空或存進奇怪的值。
  */
 (function () {
     'use strict';
@@ -79,6 +90,36 @@
         if (!m) return null;
         var h = Number(m[1]), min = Number(m[2]);
         if (h > 23 || min > 59) return null;
+        return { h: h, m: min };
+    }
+
+    // 使用者直接在文字框打字輸入時間時 (只有 data-dtp-step 的欄位才會用到), 盡量接受幾種常見打法:
+    //   "9:30" / "09:30" / "9.30" / "9 30"  -> 時:分, 用冒號/句點/空白當分隔都可以
+    //   "930" / "0930" / "1430"             -> 純數字, 3碼當「時(1碼)+分(2碼)」、4碼當「時(2碼)+分(2碼)」
+    //   "9" / "14"                          -> 只打時, 分鐘當 0
+    // 解析完的分鐘一律無條件依 stepMinutes 級距四捨五入到最近的倍數 (例如 32 -> 30, 33 -> 35),
+    // 進位超過 59 分的話自動歸零並讓小時 +1 (跨到隔天用 %24 繞回 0 點)。看不懂的格式或超出範圍
+    // (時 > 23、分 > 59) 一律回傳 null, 呼叫端看到 null 就會把欄位還原成打字前的值, 不會硬存。
+    function parseTypedTime(str, stepMinutes) {
+        if (!str) return null;
+        str = str.trim();
+        if (!str) return null;
+        var h, min;
+        var sep = /^(\d{1,2})[:.\s](\d{1,2})$/.exec(str);
+        if (sep) {
+            h = Number(sep[1]); min = Number(sep[2]);
+        } else if (/^\d{3,4}$/.test(str)) {
+            var cut = str.length - 2;
+            h = Number(str.substring(0, cut)); min = Number(str.substring(cut));
+        } else if (/^\d{1,2}$/.test(str)) {
+            h = Number(str); min = 0;
+        } else {
+            return null;
+        }
+        if (isNaN(h) || isNaN(min) || h < 0 || h > 23 || min < 0 || min > 59) return null;
+        var step = stepMinutes > 1 ? stepMinutes : 1;
+        min = Math.round(min / step) * step;
+        if (min >= 60) { min -= 60; h = (h + 1) % 24; }
         return { h: h, m: min };
     }
 
@@ -271,6 +312,8 @@
     function openTimePanel(trigger, input) {
         closeOpenPanel();
         var t = parseTime(input.value) || { h: null, m: null };
+        // 分鐘級距: 只有加了 data-dtp-step 的欄位才會限制成該級距的倍數, 其他欄位維持逐分鐘 (級距1)
+        var minuteStep = (input.__dtpStepMinutes > 1) ? input.__dtpStepMinutes : 1;
 
         var panel = document.createElement('div');
         panel.className = 'dtp-panel dtp-time';
@@ -285,7 +328,7 @@
         function commit(h, m) {
             if (h == null || m == null) return;
             setInputValue(input, pad2(h) + ':' + pad2(m));
-            refreshTrigger(input);
+            refreshTrigger(input, true); // 明確的點選動作, 強制更新畫面, 不受「打字中不要覆蓋」保護擋住
         }
 
         for (var h = 0; h < 24; h++) {
@@ -303,7 +346,7 @@
             })(h, hCell);
             hourCol.appendChild(hCell);
         }
-        for (var m = 0; m < 60; m++) {
+        for (var m = 0; m < 60; m += minuteStep) {
             var mCell = document.createElement('div');
             mCell.className = 'dtp-time-cell'; mCell.textContent = pad2(m);
             if (m === t.m) mCell.classList.add('dtp-selected');
@@ -331,7 +374,7 @@
         clearBtn.type = 'button'; clearBtn.className = 'dtp-today-btn'; clearBtn.textContent = '清除';
         clearBtn.onclick = function () {
             setInputValue(input, '');
-            refreshTrigger(input);
+            refreshTrigger(input, true); // 明確的點選動作, 強制更新畫面
             closeOpenPanel();
         };
         var confirmBtn = document.createElement('button');
@@ -343,11 +386,14 @@
         panel.appendChild(footer);
 
         positionPanel(panel, trigger);
-        // 打開時捲動到目前選到的位置 (置中), 沒有選過就停在開頭
-        [[hourCol, t.h], [minCol, t.m]].forEach(function (pair) {
-            var col = pair[0], val = pair[1];
-            if (val == null) return;
-            var cell = col.children[val];
+        // 打開時捲動到目前選到的位置 (置中), 沒有選過就停在開頭。
+        // 分鐘欄位如果有設級距 (minuteStep > 1), 格子數比 60 少, 要用「值 / 級距」換算成第幾個格子
+        // (只有值剛好是級距倍數才找得到對應格子, 不是倍數的舊資料 (例如既有資料庫裡存了 9:07 這種
+        // 沒對齊過級距的值) 就不特別捲過去、停在開頭即可, 不影響功能)。
+        [[hourCol, t.h, 1], [minCol, t.m, minuteStep]].forEach(function (triple) {
+            var col = triple[0], val = triple[1], step = triple[2];
+            if (val == null || val % step !== 0) return;
+            var cell = col.children[val / step];
             if (cell) col.scrollTop = cell.offsetTop - col.clientHeight / 2 + cell.offsetHeight / 2;
         });
 
@@ -356,21 +402,43 @@
     }
 
     // ---------------- 觸發按鈕 ----------------
-    function refreshTrigger(input) {
+    // force=true: 不管文字框現在是不是 focus 中都強制更新顯示——用在「使用者剛從彈出面板點選了一個
+    // 時間格子」這種明確的選擇動作, 這種情況一定要立刻反映到畫面上, 不能被「使用者正在打字中」的
+    // 保護邏輯擋住 (面板選格子時文字框有可能還留著 focus, 沒有真的在打字)。
+    function refreshTrigger(input, force) {
         var trigger = input.__dtpTrigger;
         if (!trigger) return;
         var valueEl = trigger.querySelector('.dtp-value');
+        var isTypeable = valueEl && valueEl.tagName === 'INPUT';
         var isDate = input.type === 'date' || input.getAttribute('data-dtp-type') === 'date';
+        var text, placeholder;
         if (isDate) {
             var d = parseIsoDate(input.value);
-            if (d) { valueEl.textContent = formatDateDisplay(d); valueEl.classList.remove('dtp-placeholder'); }
-            else { valueEl.textContent = input.placeholder || '選擇日期'; valueEl.classList.add('dtp-placeholder'); }
+            text = d ? formatDateDisplay(d) : '';
+            placeholder = input.placeholder || '選擇日期';
         } else {
             var t = parseTime(input.value);
-            if (t) { valueEl.textContent = pad2(t.h) + ':' + pad2(t.m); valueEl.classList.remove('dtp-placeholder'); }
-            else { valueEl.textContent = input.placeholder || '選擇時間'; valueEl.classList.add('dtp-placeholder'); }
+            text = t ? (pad2(t.h) + ':' + pad2(t.m)) : '';
+            placeholder = input.placeholder || '選擇時間';
         }
-        trigger.disabled = !!input.disabled;
+        if (isTypeable) {
+            // 使用者正在這個文字框打字 (focus 中) 的時候不要覆蓋掉他打到一半的內容——例如頁面其他既有
+            // 邏輯 (時間表自動帶入等) 直接對同一個原生 input 設定 .value 而觸發這裡, 不應該打斷使用者
+            // 手上正在輸入的文字。等使用者打完 (blur/Enter 提交後) 這裡自然會再被呼叫一次同步回正確值。
+            if (force || document.activeElement !== valueEl) {
+                valueEl.value = text;
+                valueEl.placeholder = placeholder;
+            }
+            valueEl.disabled = !!input.disabled;
+        } else {
+            if (text) { valueEl.textContent = text; valueEl.classList.remove('dtp-placeholder'); }
+            else { valueEl.textContent = placeholder; valueEl.classList.add('dtp-placeholder'); }
+        }
+        if (trigger.tagName === 'BUTTON') {
+            trigger.disabled = !!input.disabled;
+        } else {
+            trigger.classList.toggle('dtp-disabled', !!input.disabled);
+        }
     }
 
     function enhance(input) {
@@ -379,6 +447,16 @@
         var isDate = input.type === 'date';
         var isTime = input.type === 'time';
         if (!isDate && !isTime) return;
+
+        // data-dtp-step="5" (分鐘) 這種欄位才啟用「5分鐘級距 + 可以打字」, 沒加這個屬性的維持原樣
+        // (逐分鐘選單、觸發器是純按鈕不能打字), 這樣才不會動到其他沒被使用者要求的頁面/欄位。
+        var stepMinutes = 0;
+        if (isTime) {
+            var stepAttr = input.getAttribute('data-dtp-step');
+            var parsedStep = stepAttr ? parseInt(stepAttr, 10) : NaN;
+            if (!isNaN(parsedStep) && parsedStep > 1 && parsedStep < 60) stepMinutes = parsedStep;
+        }
+        input.__dtpStepMinutes = stepMinutes;
 
         // 使用者回報「新增航班會多顯示」「時間被蓋住」「填寫完後無法修改」——根因是這個網站有幾個地方
         // (例如 itinerary/new.html 的「+新增航段」) 用 cloneNode(true) 複製一整列表單當範本再清空欄位。
@@ -434,15 +512,32 @@
         input.parentNode.insertBefore(wrap, input);
         wrap.appendChild(input);
 
-        var trigger = document.createElement('button');
-        trigger.type = 'button';
-        trigger.className = 'dtp-trigger';
         var icon = document.createElement('i');
         icon.className = 'dtp-icon ' + (isDate ? 'fa-regular fa-calendar' : 'fa-regular fa-clock');
-        var valueEl = document.createElement('span');
-        valueEl.className = 'dtp-value';
-        trigger.appendChild(icon);
-        trigger.appendChild(valueEl);
+
+        var trigger, valueEl, textInput;
+        if (stepMinutes > 0) {
+            // 可以打字的版本: 觸發器換成 <span> (裡面包一個真的 <input type="text">), 而不是 <button>——
+            // 瀏覽器不允許在 <button> 裡放另一個可以打字、可以拿到焦點的 <input>, 一定要用容器元素包起來。
+            trigger = document.createElement('span');
+            trigger.className = 'dtp-trigger dtp-trigger-typeable';
+            textInput = document.createElement('input');
+            textInput.type = 'text';
+            textInput.className = 'dtp-value dtp-value-input';
+            textInput.autocomplete = 'off';
+            textInput.setAttribute('inputmode', 'numeric');
+            trigger.appendChild(icon);
+            trigger.appendChild(textInput);
+            valueEl = textInput;
+        } else {
+            trigger = document.createElement('button');
+            trigger.type = 'button';
+            trigger.className = 'dtp-trigger';
+            valueEl = document.createElement('span');
+            valueEl.className = 'dtp-value';
+            trigger.appendChild(icon);
+            trigger.appendChild(valueEl);
+        }
         wrap.appendChild(trigger);
 
         // 原生 input 疊在按鈕正下方、視覺上隱形, 但不是 display:none —— 保留 required/pattern 這些原生
@@ -458,11 +553,45 @@
         input.__dtpTrigger = trigger;
         refreshTrigger(input);
 
-        trigger.addEventListener('click', function () {
-            if (input.disabled) return;
-            if (openTrigger === trigger) { closeOpenPanel(); return; }
-            if (isDate) openDatePanel(trigger, input); else openTimePanel(trigger, input);
-        });
+        if (textInput) {
+            // 打字版本: 點圖示/框內背景一樣打開面板 (跟原本按鈕行為一致), 但點/focus 到文字框本身時
+            // 讓瀏覽器正常把游標放進去打字, 不要搶焦點或攔截點擊。
+            var cancellingEdit = false;
+            function commitTypedValue() {
+                var parsed = parseTypedTime(textInput.value, stepMinutes);
+                if (parsed) setInputValue(input, pad2(parsed.h) + ':' + pad2(parsed.m));
+                refreshTrigger(input); // 看不懂的格式就直接還原成原本的值, 不會清空或存進奇怪的值
+            }
+            trigger.addEventListener('click', function (e) {
+                if (input.disabled) return;
+                if (e.target === textInput) return; // 交給 textInput 自己的 focus 事件處理
+                if (openTrigger === trigger) { closeOpenPanel(); return; }
+                openTimePanel(trigger, input);
+                textInput.focus();
+            });
+            textInput.addEventListener('focus', function () {
+                textInput.select();
+                if (openTrigger !== trigger) openTimePanel(trigger, input);
+            });
+            textInput.addEventListener('keydown', function (e) {
+                // Enter/Escape 都交給 blur 事件實際處理 (blur 觸發當下 document.activeElement 才會真的
+                // 已經離開這個文字框, refreshTrigger() 裡「使用者正在打字中就不要覆蓋顯示」的判斷才不會
+                // 誤判成「還在打字」而漏更新畫面)。Escape 額外標記 cancellingEdit, 讓 blur 處理時知道要
+                // 直接還原、不要把還沒按 Enter 確認的內容當成使用者要存的值。
+                if (e.key === 'Enter') { e.preventDefault(); closeOpenPanel(); textInput.blur(); }
+                else if (e.key === 'Escape') { e.preventDefault(); cancellingEdit = true; closeOpenPanel(); textInput.blur(); }
+            });
+            textInput.addEventListener('blur', function () {
+                if (cancellingEdit) { cancellingEdit = false; refreshTrigger(input); return; }
+                commitTypedValue();
+            });
+        } else {
+            trigger.addEventListener('click', function () {
+                if (input.disabled) return;
+                if (openTrigger === trigger) { closeOpenPanel(); return; }
+                if (isDate) openDatePanel(trigger, input); else openTimePanel(trigger, input);
+            });
+        }
 
         // 有些地方的既有邏輯會在事後才動態改 disabled (目前這三個頁面用到的 date/time input 幾乎都是
         // 渲染當下就決定好 canEdit、不會事後切換, 這裡多做一次保險同步, 成本很低)。

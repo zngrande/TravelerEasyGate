@@ -1,6 +1,7 @@
 package com.example.travelereasygate.service;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -13,10 +14,16 @@ import java.util.UUID;
 /**
  * LocalImageStorageService - 把圖片存在伺服器本機的資料夾
  *
- * 只適合單機開發/測試環境使用! 部署到雲端 (容器化/自動縮放/無狀態部署) 時圖片會遺失,
- * 屆時要換成 S3ImageStorageService 之類的物件儲存實作 (實作 ImageStorageService 介面即可)。
+ * 只適合單機開發/測試環境使用! 部署到雲端 (容器化/自動縮放/無狀態部署) 時圖片會遺失
+ * (Railway 每次重新部署都是全新容器, 本機硬碟內容會整個歸零, 但資料庫裡的綁定紀錄還在,
+ * 造成「已綁定景點」卻圖片變成壞掉的方框這種症狀)。
+ *
+ * 已新增 S3ImageStorageService (見該檔案), 把 app.storage.provider 設成 s3 就會改用
+ * 物件儲存服務, 不會再有這個問題; 沒有另外設定的話 (預設值 local) 會繼續用這個實作,
+ * 不影響既有部署行為。
  */
 @Service
+@ConditionalOnProperty(prefix = "app.storage", name = "provider", havingValue = "local", matchIfMissing = true)
 public class LocalImageStorageService implements ImageStorageService {
 
     @Value("${app.upload.image-dir:uploads/images}")

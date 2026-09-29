@@ -56,6 +56,31 @@ public class PoiService {
             throw new IllegalArgumentException("沒有權限編輯這筆景點");
         }
 
+        // 使用者反映「行程編輯頁面只是新增相片、沒有更改其他東西, 景點資料庫還是會建立一筆 AID
+        // 自己的資料」——追查後發現: 前端存檔時不管介紹說明欄位有沒有真的被使用者改過, 一律把
+        // textarea 目前顯示的內容 (通常就是從伺服器抓回來、原封不動的舊值) 送到這個端點, 這裡
+        // 原本完全沒有比對「新值是不是真的跟現有值不一樣」, 對共用庫景點來說就等於「每次存檔都
+        // 當成一次編輯」, 平白多建立一筆沒有實際內容差異的專屬複本 (違反使用者原本確認過的規則:
+        // 只有真的編輯到景點欄位, 才應該建立複本; 單純新增圖片不算編輯景點)。
+        // 修正: 內容其實沒變的話直接跳過, 不建立複本、也不動任何欄位, null 跟空字串視為相同
+        // (避免「原本沒有介紹說明」跟「介紹說明被清成空字串」這種差異被誤判成有變更)。
+        String normalizedNew = description != null ? description : "";
+        String normalizedOld = poi.getDescription() != null ? poi.getDescription() : "";
+        if (normalizedNew.equals(normalizedOld)) {
+            return poi;
+        }
+
+        // 使用者要求: 這個項目身上如果還暫存著 AI 解析原文帶來的介紹說明 (ai_description, 存檔前
+        // 顯示/匯出時都優先於資料庫版本), 使用者既然已經在這裡手動存檔改了介紹說明, 就代表要正式
+        // 採用資料庫版本了——存檔當下順便清掉這個暫存欄位, 之後不會再被它蓋過去。
+        if (IIID != null) {
+            ItineraryItem triggeringItem = itineraryItemDAO.findById(IIID);
+            if (triggeringItem != null && triggeringItem.getAiDescription() != null) {
+                triggeringItem.setAiDescription(null);
+                itineraryItemDAO.save(triggeringItem);
+            }
+        }
+
         if (poi.getAID() == null) {
             // 共用庫景點: 複製一份變成這間旅行社自己的, 介紹說明改在複本上 (共用庫原始那筆不會被動到)
             Poi copy = new Poi(AID, poi.getCategory(), poi.getName(), poi.getCountry(), poi.getCity(),

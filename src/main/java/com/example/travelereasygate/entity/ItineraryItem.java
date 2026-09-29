@@ -39,6 +39,13 @@ public class ItineraryItem {
     @Column(name = "note")
     private String note;
 
+    // 使用者要求: AI 解析上傳文件時如果原文裡有寫這個地點的簡介, 暫存在這裡先顯示 (優先於資料庫裡
+    // poi.description 的版本), 不會反過來覆寫共用的 POI 資料庫; 使用者事後在行程編輯畫面手動存檔改了
+    // 介紹說明, 才會真的寫回 poi 資料表, 屆時這個欄位會被清空 (見 PoiService.updateDescription)。
+    // 沒有連結 POI 資料庫的自訂/AI 項目也可以用這個欄位單獨存自己的介紹說明。
+    @Column(name = "ai_description", columnDefinition = "TEXT")
+    private String aiDescription;
+
     @Column(name = "latitude")
     private java.math.BigDecimal latitude; // 這個項目自己的座標, 不一定要連結 POI 資料庫才有
 
@@ -77,6 +84,13 @@ public class ItineraryItem {
 
     @Column(name = "transport_number")
     private String transportNumber; // 航班/車次編號 (例如: CI100、新幹線のぞみ23号), 選填, 只有交通類項目會用到
+
+    // 這筆交通項目是不是整趟行程的去程/回程班機: "outbound" / "return" / null (不是, 或一般交通項目)。
+    // 取代舊版靠 customName 字首文字（「去程班機」/「回程班機」）判斷方向的做法——結構化欄位, 不會因為
+    // 使用者編輯顯示名稱而跟著失效。匯出範本「參考航班」摘要、機場↔景點拉車距離計算
+    // (ItineraryService.calculateAirportTransferSegments)、看板編輯面板判斷回程班機座標，都改讀這個欄位。
+    @Column(name = "flight_direction")
+    private String flightDirection;
 
     @Column(name = "commute_duration")
     private String commuteDuration; // 通勤時間 (自由文字, 例如「約1小時30分」) —— 已改用下面 commuteDurationMin
@@ -136,6 +150,9 @@ public class ItineraryItem {
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
 
+    public String getAiDescription() { return aiDescription; }
+    public void setAiDescription(String aiDescription) { this.aiDescription = aiDescription; }
+
     public java.math.BigDecimal getLatitude() { return latitude; }
     public void setLatitude(java.math.BigDecimal latitude) { this.latitude = latitude; }
 
@@ -171,6 +188,9 @@ public class ItineraryItem {
 
     public String getTransportNumber() { return transportNumber; }
     public void setTransportNumber(String transportNumber) { this.transportNumber = transportNumber; }
+
+    public String getFlightDirection() { return flightDirection; }
+    public void setFlightDirection(String flightDirection) { this.flightDirection = flightDirection; }
 
     public String getCommuteDuration() { return commuteDuration; }
     public void setCommuteDuration(String commuteDuration) { this.commuteDuration = commuteDuration; }

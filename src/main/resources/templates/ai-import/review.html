@@ -7,6 +7,8 @@
     <!-- Google Fonts & FontAwesome -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/css/datetime-picker.css">
+    <script src="/js/datetime-picker.js"></script>
     <style>
         :root {
             --primary-blue: #2563eb;
@@ -225,6 +227,10 @@
         .btn-small.add-poi:hover { background: #d1fae5; }
         .btn-small.edit-toggle { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
         .btn-small.edit-toggle:hover { background: #e2e8f0; }
+        /* 「取消比對」用跟 .unmatched-tag 同一套琥珀色——按下去之後這個項目就會變回「新項目」狀態,
+           顏色上先讓使用者有心理準備，跟「加入資料庫」(綠色=正面動作) 區分開來。 */
+        .btn-small.cancel-match { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+        .btn-small.cancel-match:hover { background: #fef3c7; }
 
         .edit-form { background: #fff; border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; margin-top: 10px; }
         .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -250,6 +256,11 @@
         </a>
     </div>
 
+    <!-- 轉成正式行程失敗的友善提示 (見 AiImportController.confirm() 說明) -->
+    <div th:if="${confirmError}" class="error-box">
+        <span th:text="${confirmError}"></span>
+    </div>
+
     <!-- 錯誤訊息提示區 (若有失敗狀態) -->
     <div th:if="${aiImport != null and aiImport.status == 'failed'}" class="error-box">
         解析失敗：<span th:text="${aiImport.errorMessage}"></span>
@@ -257,10 +268,6 @@
             → 這是 Anthropic 帳號額度不足，請至 <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> 儲值。
         </div>
     </div>
-
-    <!-- 確認匯入 (轉成正式行程) 失敗時的提示——見 AiImportController.confirm() 的 catch 區塊,
-         用 flash attribute 帶回這個 review 頁面而不是直接顯示系統錯誤頁 -->
-    <div th:if="${confirmError}" class="error-box" th:text="${confirmError}"></div>
 
     <!-- 頂部摘要與表單確認區 -->
     <div class="summary-card" style="flex-direction: column; align-items: stretch;" th:if="${aiImport != null and aiImport.status == 'parsed'}">
@@ -337,6 +344,16 @@
                                     ＋ 加入景點資料庫
                                 </button>
                             </form>
+                            <!-- 使用者反映自動比對資料庫有時候會比對到不正確的資料 (名稱相似但其實是不同地點),
+                                 加一個「取消比對」讓線控自己發現比對錯的時候可以單獨解除, 這個項目會退回
+                                 「新項目」狀態 (名稱維持 AI 解析出來的文字), 不會動到 POI 資料庫本身。 -->
+                            <form th:if="${item.matchedPid != null}"
+                                  method="post" th:action="@{'/ai-import/item/' + ${item.APIID} + '/cancel-match'}" style="display:inline;">
+                                <button type="submit" class="btn-small cancel-match"
+                                        onclick="return confirm('確定要取消這個項目跟資料庫的比對嗎？取消後會變成「新項目」，匯入時不會採用資料庫裡的名稱/資料。');">
+                                    ✕ 取消比對
+                                </button>
+                            </form>
                             <button type="button" class="btn-small edit-toggle" th:onclick="'toggleEdit(' + ${item.APIID} + ')'">
                                 ✎ 編輯
                             </button>
@@ -349,6 +366,8 @@
                     </div>
 
                     <div class="note" th:if="${item.note != null and !item.note.isEmpty()}" th:text="${item.note}"></div>
+                    <div class="note" th:if="${item.description != null and !item.description.isEmpty()}"
+                         style="color:#1d4ed8;"><i class="fa-solid fa-file-lines"></i> <span th:text="${item.description}"></span></div>
 
                     <!-- 編輯表單, 預設隱藏 -->
                     <form method="post" th:action="@{'/ai-import/item/' + ${item.APIID} + '/edit'}"
@@ -423,6 +442,10 @@
                             <div style="grid-column: 1 / -1;">
                                 <label>備註</label>
                                 <input type="text" name="note" th:value="${item.note}" />
+                            </div>
+                            <div style="grid-column: 1 / -1;">
+                                <label>簡介/介紹說明 (原文裡針對這個地點寫的完整介紹文字，會優先於資料庫裡既有的介紹說明顯示)</label>
+                                <textarea name="description" rows="3" style="width:100%;padding:6px 10px;font-size:13px;border:1px solid var(--border-color);border-radius:6px;box-sizing:border-box;" th:text="${item.description}"></textarea>
                             </div>
                         </div>
                         <div style="margin-top: 10px; display: flex; gap: 8px;">

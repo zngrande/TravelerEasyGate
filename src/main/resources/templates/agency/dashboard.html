@@ -152,9 +152,26 @@
         <div class="hero-content">
             <h2>讓每一段旅程，都清楚而精彩</h2>
             <p>專業的行程管理工具，讓規劃更高效，執行更順暢。</p>
-            <a th:href="@{/itinerary/new}" class="btn-primary">
-                <i class="fa-solid fa-plus"></i> 建立新行程
-            </a>
+            <!-- 使用者要求把原本這裡單一顆「建立新行程」按鈕、跟下面 (原本在 section-header 右邊的)
+                 「AI 行程拆解分析」按鈕, 三個入口合併成一整排三顆按鈕放在這裡:
+                   1. 手動建立行程 — 原本 itinerary/new.html 表單下方的「建立行程並進入看板」
+                   2. 行程自動編排 — 原本 itinerary/new.html 表單下方的「AI 安排行程」
+                   3. 行程檔案拆解 — 原本 section-header 右邊的「AI 行程拆解分析」
+                 手動建立/行程自動編排這兩個動作實際上是同一份表單 (itinerary/new.html) 最後選擇的
+                 送出方式, 不是兩個獨立頁面——差別是加了 ?mode=ai 這個查詢參數。itinerary/new.html
+                 會依這個參數 (isAiMode) 決定: 頁面標題/圖示要顯示哪一種、「逐天城市指定」區塊只有
+                 行程自動編排才需要顯示、以及下方只顯示這個模式對應的那一顆送出按鈕 (不會兩顆都出現)。 -->
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <a th:href="@{/itinerary/new}" class="btn-primary">
+                    <i class="fa-solid fa-pen-to-square"></i> 手動建立行程
+                </a>
+                <a th:href="@{/itinerary/new(mode='ai')}" class="btn-primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> 行程自動編排
+                </a>
+                <a th:href="@{/ai-import/new}" class="btn-ai">
+                    <i class="fa-solid fa-file-import"></i> 行程檔案拆解
+                </a>
+            </div>
         </div>
 
         <!-- Stats Cards：即時計算目前真實資料數量 (見 AgencyController.dashboard())
@@ -178,20 +195,26 @@
         </div>
     </div>
 
-    <!-- Section Title & AI Button -->
+    <!-- Section Title -->
+    <!-- 使用者要求移除這裡原本的「AI 行程拆解分析」按鈕 (已經搬到上面 Hero Banner 那排三顆按鈕裡,
+         改名叫「行程檔案拆解」), 這裡只留篩選框。 -->
     <div class="section-header">
         <div class="section-title">
             <i class="fa-solid fa-suitcase"></i> 我的行程
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
+            <!-- 排序: 最近編輯 (預設, 跟後端 findByAgency() 撈出來的順序一致) / 出發日期近 / 出發日期遠。
+                 純前端排序, 不用重新整理頁面——見下方 script 的 renderItineraryList()。 -->
+            <select id="itinerarySortSelect" class="filter-box" style="padding:8px 10px;" onchange="onItineraryFilterOrSortChange()">
+                <option value="recent">最近編輯</option>
+                <option value="dateAsc">出發日期近</option>
+                <option value="dateDesc">出發日期遠</option>
+            </select>
             <!-- 篩選: 用名稱/國家/地區即時篩選下面的行程列表, 純前端過濾不用重新整理頁面 -->
             <div class="filter-box">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="itineraryFilterInput" placeholder="篩選：名稱／國家／地區／代碼" oninput="filterItineraries()" />
+                <input type="text" id="itineraryFilterInput" placeholder="篩選：名稱／國家／地區／代碼" oninput="onItineraryFilterOrSortChange()" />
             </div>
-            <a th:href="@{/ai-import/new}" class="btn-ai">
-                <i class="fa-solid fa-wand-magic-sparkles"></i> AI 行程拆解分析
-            </a>
         </div>
     </div>
 
@@ -204,15 +227,20 @@
                 <th>國家</th>
                 <th>天數</th>
                 <th>出發日期</th>
+                <th>建立者</th>
                 <th>狀態</th>
                 <th>操作</th>
             </tr>
             </thead>
-            <tbody>
+            <tbody id="itineraryTbody">
+            <!-- data-updated / data-start-date 給 JS 排序用 (見 renderItineraryList()):
+                 updatedAt 是 LocalDateTime 預設 toString (yyyy-MM-ddTHH:mm:ss...), startDate 是 LocalDate
+                 預設 toString (yyyy-MM-dd) —— 兩種格式字串排序結果都跟時間先後一致, 不用另外格式化。
+                 沒有 startDate 的行程 data-start-date 會是空字串, JS 排序時視為「排最後面」。 -->
             <tr th:each="it : ${itineraries}"
                 th:id="'it-row-' + ${it.ITID}"
                 th:classappend="${it.pinned} ? 'is-pinned' : ''"
-                th:attr="data-title=${it.title}, data-country=${it.country}, data-region=${it.region}, data-code=${filterCodesByItinerary.get(it.ITID)}">
+                th:attr="data-title=${it.title}, data-country=${it.country}, data-region=${it.region}, data-code=${filterCodesByItinerary.get(it.ITID)}, data-pinned=${it.pinned}, data-updated=${it.updatedAt}, data-start-date=${it.startDate}">
                 <td>
                     <!-- 名稱這一格支援「往右滑釘選」手勢 (仿 LINE 聊天列表), swipe-content 是實際會位移的內容,
                          swipe-hint 是滑開後底下露出的釘選圖示提示 -->
@@ -232,6 +260,7 @@
                     <i class="fa-regular fa-calendar" style="color: #94a3b8; margin-right: 4px;"></i>
                     <span th:text="${it.startDate}"></span>
                 </td>
+                <td th:text="${creatorNameByItinerary.get(it.ITID)}"></td>
                 <td>
                     <!-- 狀態 Badge: draft(進行中/草稿) 顯示藍色, 其他 (completed 及舊資料的 confirmed/departed) 一律當作已完成顯示綠色 -->
                     <span th:if="${it.status == null or it.status == 'draft'}" class="status-badge status-draft">草稿</span>
@@ -276,8 +305,10 @@
             目前還沒有任何行程，點擊上方「＋ 建立新行程」開始規劃。
         </div>
 
-        <div class="table-footer" th:if="${!itineraries.isEmpty()}">
-            <a href="#">查看全部行程 <i class="fa-solid fa-chevron-down" style="margin-left: 4px;"></i></a>
+        <!-- 使用者要求把原本沒有功能的「查看全部行程」下拉箭頭, 改成真的一頁五筆、可以換頁的分頁列。
+             跟排序/篩選一樣是純前端做 (資料本來就整批撈回來了, 不用額外打 API), 見下方
+             renderItineraryList()/renderPager()。找不到符合篩選條件的任何一筆時整個分頁列隱藏。 -->
+        <div class="table-footer" id="itineraryPager" th:if="${!itineraries.isEmpty()}" style="display:flex; align-items:center; justify-content:center; gap:6px;">
         </div>
     </div>
 
@@ -312,15 +343,109 @@
         }, 5000); // 每 5 秒淡入下一張
     })();
 
-    // 篩選：用名稱/國家/地區即時過濾下面的行程表格 (純前端, 不用重新整理頁面)
-    function filterItineraries() {
+    // 篩選 + 排序 + 分頁：三個功能都是純前端做 (資料本來就整批撈回來塞進表格了, 不用另外打 API 重抓),
+    // 統一由這支函式處理, 篩選框/排序下拉/換頁都呼叫它重新算一次要顯示哪些列。
+    // 使用者要求:
+    //   1. 排序: 最近編輯 (預設) / 出發日期近 / 出發日期遠——但不管選哪種排序, 已釘選的行程都維持
+    //      「一律排最前面」的既有規則不變 (跟後端 findByAgency() 的預設順序邏輯一致), 只有同樣是
+    //      釘選/同樣是沒釘選的行程之間才比較實際排序條件, 避免使用者切排序後找不到自己釘選的行程。
+    //   2. 分頁: 一頁只顯示 5 筆, 下面用數字按鈕換頁 (見 renderPager())。
+    // 排序跟分頁都只是「移動/隱藏既有的 tr 元素」, 不會整個重新產生 DOM, 所以每一列上原本綁定的
+    // 事件 (釘選按鈕、往右滑手勢) 都不會不見, 不用重新初始化。
+    const ITINERARY_PAGE_SIZE = 5;
+    let itineraryCurrentPage = 1;
+
+    // 篩選框輸入/排序方式改變時呼叫這支 (而不是直接呼叫 renderItineraryList()): 條件變了就該回到
+    // 第 1 頁重新看, 不然使用者原本停在第 3 頁、篩選後結果只剩 1 頁, 會誤以為篩選壞掉沒東西可看。
+    // 換頁按鈕點擊則是直接帶著目標頁碼呼叫 renderItineraryList(), 不會經過這裡。
+    function onItineraryFilterOrSortChange() {
+        itineraryCurrentPage = 1;
+        renderItineraryList();
+    }
+
+    function renderItineraryList() {
+        const tbody = document.getElementById('itineraryTbody');
+        if (!tbody) return;
         const keyword = document.getElementById('itineraryFilterInput').value.trim().toLowerCase();
-        document.querySelectorAll('.table-container tbody tr').forEach(function (row) {
+        const sortMode = document.getElementById('itinerarySortSelect').value;
+        const allRows = Array.from(tbody.querySelectorAll('tr'));
+
+        // 1) 篩選: 符合關鍵字的留下, 其餘先隱藏、也不排進分頁計算
+        const matched = allRows.filter(function (row) {
             const haystack = [row.dataset.title, row.dataset.country, row.dataset.region, row.dataset.code]
                 .filter(Boolean).join(' ').toLowerCase();
-            row.style.display = (!keyword || haystack.indexOf(keyword) !== -1) ? '' : 'none';
+            return !keyword || haystack.indexOf(keyword) !== -1;
         });
+        const unmatched = allRows.filter(function (row) { return matched.indexOf(row) === -1; });
+        unmatched.forEach(function (row) { row.style.display = 'none'; });
+
+        // 2) 排序: 釘選一律優先, 同一組 (都釘選/都沒釘選) 內再依選擇的排序方式比較
+        matched.sort(function (a, b) {
+            const pinnedA = a.dataset.pinned === 'true';
+            const pinnedB = b.dataset.pinned === 'true';
+            if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
+
+            if (sortMode === 'dateAsc' || sortMode === 'dateDesc') {
+                const dateA = a.dataset.startDate || '';
+                const dateB = b.dataset.startDate || '';
+                if (!dateA && !dateB) return 0;
+                if (!dateA) return 1; // 沒有出發日期的排最後面, 不管哪種日期排序
+                if (!dateB) return -1;
+                return sortMode === 'dateAsc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+            }
+            // 'recent' (最近編輯, 預設): updatedAt 新到舊
+            return (b.dataset.updated || '').localeCompare(a.dataset.updated || '');
+        });
+
+        // 用排序後的順序重新把 tr 接回 tbody——appendChild 對「已經在文件裡的節點」是「移動」不是「複製」,
+        // 元素上原本的事件監聽器/dataset 都會跟著留著, 不用重新綁定
+        matched.forEach(function (row) { tbody.appendChild(row); });
+
+        // 3) 分頁: 換排序/篩選條件時重置回第 1 頁, 換頁按鈕點擊則是直接呼叫這支函式並帶著目前頁碼
+        const totalPages = Math.max(1, Math.ceil(matched.length / ITINERARY_PAGE_SIZE));
+        if (itineraryCurrentPage > totalPages) itineraryCurrentPage = totalPages;
+        const startIdx = (itineraryCurrentPage - 1) * ITINERARY_PAGE_SIZE;
+        matched.forEach(function (row, idx) {
+            row.style.display = (idx >= startIdx && idx < startIdx + ITINERARY_PAGE_SIZE) ? '' : 'none';
+        });
+
+        renderPager(totalPages, matched.length);
     }
+
+    // 分頁列: 找不到符合篩選條件的任何一筆時整個隱藏; 否則顯示「上一頁／頁碼按鈕／下一頁」,
+    // 頁數不多時 (<=7 頁) 全部列出來, 太多頁的話先不做省略號縮寫, 目前的使用情境 (單一旅行社的行程數)
+    // 應該不至於一次多到幾十頁, 之後真的有需要再加。
+    function renderPager(totalPages, totalCount) {
+        const pager = document.getElementById('itineraryPager');
+        if (!pager) return;
+        if (totalCount === 0) { pager.style.display = 'none'; return; }
+        pager.style.display = 'flex';
+        pager.innerHTML = '';
+
+        function makeBtn(label, page, disabled, active) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = label;
+            btn.disabled = !!disabled;
+            btn.style.cssText = 'min-width:32px;padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer;'
+                + (active
+                    ? 'background:var(--primary-blue);color:#fff;border:1px solid var(--primary-blue);font-weight:600;'
+                    : 'background:#fff;color:var(--text-dark);border:1px solid var(--border-color);')
+                + (disabled ? 'opacity:0.4;cursor:default;' : '');
+            if (!disabled && !active) {
+                btn.onclick = function () { itineraryCurrentPage = page; renderItineraryList(); };
+            }
+            return btn;
+        }
+
+        pager.appendChild(makeBtn('上一頁', itineraryCurrentPage - 1, itineraryCurrentPage <= 1, false));
+        for (let p = 1; p <= totalPages; p++) {
+            pager.appendChild(makeBtn(String(p), p, false, p === itineraryCurrentPage));
+        }
+        pager.appendChild(makeBtn('下一頁', itineraryCurrentPage + 1, itineraryCurrentPage >= totalPages, false));
+    }
+
+    document.addEventListener('DOMContentLoaded', renderItineraryList);
 
     // 釘選 / 取消釘選：呼叫後端切換狀態，成功後直接重新整理頁面讓釘選的行程排到最上面
     // (排序邏輯在後端 SQL 做, 前端不用自己重新排列 DOM 順序, 比較不容易跟資料庫狀態兜不起來)

@@ -4,10 +4,10 @@ import com.example.travelereasygate.DAO.*;
 import com.example.travelereasygate.entity.*;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -55,15 +55,16 @@ public class AiParseService {
               "items": [
                 {
                   "item_type": "attraction | meal | hotel | transport | highlight",
-                  "name": "景點/餐廳/飯店的中文名稱(或原文語言, 找不到中文就用原文); item_type=transport 時可以留空字串, 顯示名稱會由系統依 transport_number/from_location/to_location 自動組成",
+                  "name": "景點/餐廳/飯店的中文名稱(或原文語言, 找不到中文就用原文); item_type=transport 時一律給空字串 (不要自己組字串放進來, 包含不要填航空公司名稱), 顯示名稱會由系統依 transport_number/from_location/to_location 自動組成",
                   "name_en": "這個地點的英文名稱或該國常見的外文原名 (例如日文景點給日文原名、英文景點/連鎖店給英文), 原文裡有出現才填, 完全沒有就給 null; 不要自己音譯猜測",
                   "item_country": "這一個項目實際所在的國家 (不是整趟行程的國家, 是這一項自己的), 例如多國行程裡某個景點在「不丹」某個在「印度」就分別標註, 判斷不出來給 null",
                   "item_region": "這一個項目實際所在的地區/城市, 判斷不出來給 null",
                   "time_slot": "morning | noon | afternoon | evening | breakfast | lunch | dinner | null",
                   "note": "原文中的補充說明 (例如: 含早餐、五星飯店、注意事項等), 沒有就給空字串",
+                  "description": "原文裡針對這個地點寫的完整介紹/簡介文字 (通常是一整段敘述, 跟上面 note 的一句話備註不同); 只有原文真的有寫才填, 不要自己生成或延伸, 沒有就給空字串; item_type=transport 一律給空字串",
                   "stay_minutes": "預估在這個地方會停留幾分鐘 (數字, 15的倍數, 例如 90); attraction/meal 一定要給估計值, hotel/transport 給 null",
-                  "transport_method": "只有 item_type=transport 才需要: 交通工具, 例如「飛機」「高鐵」「遊覽車」「渡輪」「計程車」, 判斷不出來就填「交通」, 其他 item_type 一律給 null",
-                  "transport_number": "只有 item_type=transport 才需要: 航班/車次編號, 例如「CI100」「新幹線のぞみ23号」, 原文沒提到就給 null, 其他 item_type 一律給 null",
+                  "transport_method": "只有 item_type=transport 才需要: 交通工具種類, 例如「飛機」「高鐵」「遊覽車」「渡輪」「計程車」, 判斷不出來就填「交通」, 其他 item_type 一律給 null; 這個欄位不是航空公司名稱, 見下面 transport_number 的說明",
+                  "transport_number": "只有 item_type=transport 才需要: 班機/車次的編號本身, 例如「CX459」「CI100」「新幹線のぞみ23号」——只填英數字代號那一段; 如果原文表格同時列出「航班/班機編號」(例如CX459) 跟「航空公司」(例如國泰航空、長榮航空) 兩個不同欄位, 這裡只能填編號那一欄, 絕對不要把航空公司名稱填進這個欄位、也不要把兩者串在一起; 航空公司名稱這個欄位本身不需要額外記錄 (可以放進 note 備註, 選填), 原文完全沒有編號就給 null, 其他 item_type 一律給 null",
                   "from_location": "只有 item_type=transport 才需要: 出發地點 (機場/車站/飯店名稱等), 判斷不出來給 null, 其他 item_type 一律給 null",
                   "to_location": "只有 item_type=transport 才需要: 抵達地點, 判斷不出來給 null, 其他 item_type 一律給 null",
                   "departure_time": "只有 item_type=transport 才需要: 出發時間, 24小時制 HH:mm 格式 (例如 09:30), 原文沒提到就給 null, 其他 item_type 一律給 null",
@@ -79,6 +80,16 @@ public class AiParseService {
           交通移動資訊; highlight 是行銷亮點文案或注意事項(不屬於實體地點的敘述)。
         - 原文裡提到的機場接送、航班班次、高鐵車次、包車移動等交通資訊，都要拆解成 item_type=transport
           的項目 (依原文出現的位置放進對應的天數/順序即可)，不要略過、也不要只放進其他項目的 note 裡。
+        - transport 項目要盡量完整擷取「編號 (transport_number)、出發地 (from_location)、抵達地
+          (to_location)、出發時間 (departure_time)、抵達時間 (arrival_time)」這 5 個欄位, 原文表格
+          裡實際有列出來的資訊都要精準對應到正確的欄位, 不要遺漏、也不要對應錯欄位——尤其常見錯誤是
+          把「航空公司」欄位的內容誤填進 transport_number (航班編號) 裡, 這是兩個不同的東西, 絕對不要
+          搞混 (見上面 transport_number 的詳細說明)。舉例, 原文是這樣一張表格:
+              航班 CX459 | 行程 高雄/香港 | 啟程時間 19:10 | 抵達時間 20:50 | 航空公司 國泰航空
+          正確拆解成: transport_method="飛機", transport_number="CX459" (不是「國泰航空」),
+          from_location="高雄", to_location="香港", departure_time="19:10", arrival_time="20:50";
+          航空公司「國泰航空」這個資訊不強制填在哪一個欄位, 可以選填進 note (例如 note="國泰航空"),
+          但絕對不能取代或混進 transport_number。
         - 依照原文出現的天數順序拆解，若原文沒有明確分天，你要合理推斷。
         - 名稱要精簡(例如「故宮博物院」而不是整句話)，細節放到 note。
         - stay_minutes 依常識估算: 大型景點/博物館約90~180分鐘, 一般景點約60~90分鐘,
@@ -174,6 +185,7 @@ public class AiParseService {
                     );
                     item.setNameEn(nameEn);
                     item.setMatchedPid(matchedPid);
+                    item.setDescription(emptyToNull(itemNode.path("description").asText(null)));
 
                     item.setItemCountry(emptyToNull(itemNode.path("item_country").asText(null)));
                     item.setItemRegion(emptyToNull(itemNode.path("item_region").asText(null)));
@@ -192,8 +204,9 @@ public class AiParseService {
                         item.setArrivalTime(parseTimeOrNull(itemNode.path("arrival_time").asText(null)));
                         // AI 通常會把 transport 項目的 name 留空 (顯示名稱交給系統組), review 頁面的
                         // 項目清單是直接顯示 item.getName(), 空字串會讓那一列看起來像壞掉的資料;
-                        // 這裡先組一個跟正式匯入後 (buildFlightLabel) 同樣格式的顯示名稱存進去，
-                        // 讓使用者在確認匯入之前就能看到「CI100 桃園國際機場 → 東京成田機場」這種完整資訊。
+                        // 這裡先組一個跟正式匯入後 (ItineraryService.buildTransportName) 同樣格式的顯示
+                        // 名稱存進去，讓使用者在確認匯入之前就能看到「CI100 桃園國際機場 → 東京成田機場」
+                        // 這種完整資訊。
                         if (emptyToNull(name) == null) {
                             item.setName(buildTransportDisplayName(item.getTransportNumber(),
                                     item.getFromLocation(), item.getToLocation()));
@@ -374,9 +387,10 @@ public class AiParseService {
         return (s == null || s.isBlank() || "null".equalsIgnoreCase(s)) ? null : s;
     }
 
-    // 跟 ItineraryService.buildFlightLabel() 同一套顯示格式 (那邊是私有方法, 服務不同、犯不著為了共用
-    // 十幾行邏輯特地改成 public), 只在這裡給 review 頁面「還沒確認匯入之前」預先組一個看得懂的顯示名稱用:
-    // 一律維持「交通：...」前綴 (有填編號則是「交通：CI100 出發地→目的地」)。
+    // 跟 ItineraryService.buildTransportName() 同一套顯示格式 (那邊是私有方法, 服務不同、犯不著為了共用
+    // 十幾行邏輯特地改成 public), 只在這裡給 review 頁面「還沒確認匯入之前」預先組一個看得懂的顯示名稱用。
+    // 不加「交通：」這種前綴文字——起始點/目的地/編號本身就夠說明這是什麼, 前綴文字反而累贅；
+    // 全部欄位都沒填 (理論上很少見) 才退回顯示「交通」兩個字, 至少不會是空字串。
     private String buildTransportDisplayName(String transportNumber, String fromLocation, String toLocation) {
         boolean hasFrom = !isBlankStr(fromLocation);
         boolean hasTo = !isBlankStr(toLocation);
@@ -393,7 +407,7 @@ public class AiParseService {
             routeWithNumber = route;
         }
 
-        return routeWithNumber != null ? ("交通：" + routeWithNumber) : "交通";
+        return routeWithNumber != null ? routeWithNumber : "交通";
     }
 
     private boolean isBlankStr(String s) {
@@ -525,6 +539,23 @@ public class AiParseService {
         return poi;
     }
 
+    /**
+     * 取消這個項目跟公司 POI 資料庫的自動比對連結 (matchedPid 清成 null, 畫面上會變回「新項目」)。
+     * 使用者反映: 自動比對(findMatchingPoi 的模糊比對)有時候會比對到不正確的資料 (例如名稱相似但
+     * 實際上是不同地點), 確認匯入之前如果沒有發現, 匯入後就會直接採用資料庫裡那筆(可能錯誤)的名稱/
+     * 座標/介紹。這裡只是清掉連結、讓這個項目退回「自訂項目」狀態 (名稱維持 AI 解析出來的文字),
+     * 不會動到 POI 資料庫本身的資料; 使用者之後如果要重新連結，可以用「編輯」表單或未來的手動比對功能。
+     * 只有已經比對過 (matchedPid != null) 的項目才能取消，交通類型項目本來就不會比對，這裡也不用擋。
+     */
+    public void cancelMatch(int APIID) {
+        AiParsedItem item = aiParsedItemDAO.findById(APIID);
+        if (item == null) throw new IllegalArgumentException("找不到這個項目");
+        if (item.getMatchedPid() == null) return; // 本來就沒有比對, 不用做任何事
+
+        item.setMatchedPid(null);
+        aiParsedItemDAO.save(item);
+    }
+
     // 判斷這個項目是否需要自動地理編碼: 飛機不用, 純飯店內早餐(沒有具體店名)也不用, 其餘一律要定位
     private boolean shouldGeocode(String itemType, String timeSlot, String name) {
         if ("transport".equals(itemType)) return false;
@@ -586,7 +617,7 @@ public class AiParseService {
                                  String note, Integer stayMinutes,
                                  String fromLocation, String toLocation,
                                  String transportMethod, String transportNumber,
-                                 String departureTime, String arrivalTime) {
+                                 String departureTime, String arrivalTime, String description) {
         AiParsedItem item = aiParsedItemDAO.findById(APIID);
         if (item == null) throw new IllegalArgumentException("找不到這個項目");
 
@@ -595,6 +626,7 @@ public class AiParseService {
         item.setTimeSlot(timeSlot == null || timeSlot.isBlank() ? null : timeSlot);
         item.setNote(note);
         item.setStayMinutes(stayMinutes);
+        item.setDescription(emptyToNull(description));
 
         item.setFromLocation(emptyToNull(fromLocation));
         item.setToLocation(emptyToNull(toLocation));
@@ -625,27 +657,42 @@ public class AiParseService {
         List<AiParsedDay> days = aiParsedDayDAO.findByImport(IPID);
         int daysCount = Math.max(1, days.size());
 
+        // 使用者反映「AI 解析行程草稿, 會出現轉成正式就系統發生錯誤」——追查後發現這整段 (把暫存的
+        // AI 解析項目一筆一筆轉成正式 itinerary_item, 含每一天最後呼叫的 autoArrangeDay() 觸發的拉車
+        // 距離重算) 原本完全沒有防護, 任何一步丟例外 (實際發生過的案例: 某個項目的座標離前後項目太遠,
+        // 算出來的拉車距離超過 route_segment.distance_km 欄位存得下的範圍, INSERT 時被資料庫拒絕丟出
+        // DataIntegrityViolationException) 都會讓整個 request 直接被 GlobalExceptionHandler 攔截、
+        // 顯示「系統發生錯誤」500 頁面——但這時候上面 createItinerary() 早就已經成功寫入一筆新行程
+        // (可能還加了一部分項目進去), 使用者等於卡在「畫面說系統錯誤, 但這筆 AI 解析紀錄背後其實已經生出
+        // 一個殘缺不全的行程」這種更混亂的狀態, 而且 review 頁面上這筆 AiImport 的狀態也還停在 parsed,
+        // 沒辦法重新確認一次。
+        // 修法跟 ItineraryService.createItineraryWithAiPlan() 失敗時的既有處理方式一致: 這裡整段包
+        // try/catch, 失敗就把剛剛已經建立的殘缺行程整個刪掉 (itineraryService.deleteItinerary() 本來就
+        // 會連同 itinerary_day/itinerary_item/route_segment 一起清乾淨), 不留孤兒資料, 再包成一個訊息
+        // 給使用者看得懂的例外往上丟, 讓 controller 那層改成顯示友善提示、導回 review 頁面讓使用者可以
+        // 再按一次「確認」重試, 而不是整頁死掉的系統錯誤畫面。
         Itinerary itinerary = itineraryService.createItinerary(
                 aiImport.getAID(), aiImport.getCreatedBy(), title, country, region, daysCount, startDate);
 
-        // 使用者反映「AI 解析確認匯入後, 行程有些天完全沒有出現任何項目」/「SQL 有資料, 可是行程沒有出現」
-        // ——追查後發現: 上面 createItinerary() 先把「行程 + 每一天」的骨架存進資料庫、各自獨立 commit,
-        // 接下來下面這整段逐天把暫存資料轉成正式項目的迴圈, 原本完全沒有錯誤處理。只要其中一筆項目在轉入
-        // 過程中丟出例外 (例如地理編碼逾時、資料庫瞬斷), 已經處理過的前幾天資料仍然真的留在資料庫裡
-        // (每個 DAO save 都是各自獨立 commit, 不是整批一起送出才生效), 只有例外發生那一天(含)之後的內容
-        // 完全不會被建立——結果就是一個「有些天有資料、有些天完全空白」的半殘行程, 而且它還是會正常出現在
-        // 使用者的行程列表裡，點進去才發現缺東缺西, 很容易被誤以為是「畫面沒把資料庫裡的東西讀出來」的
-        // 顯示 bug, 但其實資料庫裡那幾天真的就是空的。
-        // 修正: 這裡屬於「全有全無」的一次性匯入動作, 失敗就不該留下一個殘缺不全、卻還留在列表裡混淆視聽的
-        // 「幽靈行程」——直接把剛剛建立的這個行程 (含骨架、含已經加進去的部分項目) 整個刪除乾淨, 再把例外
-        // 往上丟給 controller (AiImportController.confirm() 已經有 try/catch 會顯示清楚的錯誤訊息、
-        // 讓使用者可以重新確認匯入一次), 而不是留下一個看起來像正常行程、點進去卻缺東缺西的東西。
         try {
             // 把使用者選擇的企劃書風格帶到正式行程上, 匯出企劃書時會套用同樣風格
             itineraryService.updateTemplateStyle(itinerary.getITID(), aiImport.getTemplateStyle());
             itinerary.setTemplateStyle(aiImport.getTemplateStyle());
 
             List<ItineraryDay> realDays = itineraryService.getDays(itinerary.getITID());
+
+            // 使用者反映: 用系統目前提供下載的自訂範本匯出企劃書, 航班資訊完全沒有輸出（範本裡的「參考航班」
+            // 欄位是空的）。追查後發現根因: 下面原本不管三七二十一, 一律把交通項目的方向資訊丟掉, 只留一個
+            // 寫死的「交通」文字標籤。但 TemplateMergeService.buildTemplateData() 蒐集「參考航班」摘要、
+            // ItineraryService.calculateAirportTransferSegments()（機場↔景點拉車距離）、看板編輯面板判斷
+            // 回程班機座標的邏輯, 都需要知道「這筆交通項目是不是整趟行程的去程/回程班機」——AI 解析匯入這條
+            // 路徑完全沒有算出/傳遞這個資訊, 導致這幾個功能對 AI 解析匯入的班機項目全部悄悄失效。
+            // 修法: 比照「建立行程」手動填班機的預設慣例 (去程=行程第一天、回程=行程最後一天), 交通項目只要
+            // 是飛機、又剛好落在第一天/最後一天, 就設定 ItineraryItem.flightDirection = "outbound"/"return"
+            // (結構化欄位, 不影響顯示名稱, 見 ItineraryService.buildTransportName 的說明); 不是飛機、或落在
+            // 中間天數的交通項目 (例如市區接駁車、城市內段落) 維持 null, 行為不變。
+            int firstDayNumber = days.stream().mapToInt(AiParsedDay::getDayNumber).min().orElse(1);
+            int lastDayNumber = days.stream().mapToInt(AiParsedDay::getDayNumber).max().orElse(firstDayNumber);
 
             for (AiParsedDay day : days) {
                 // day_number 對應到剛剛自動產生的 itinerary_day
@@ -657,9 +704,15 @@ public class AiParseService {
                 for (AiParsedItem item : aiParsedItemDAO.findByDay(day.getAPDID())) {
                     if ("transport".equals(item.getItemType())) {
                         // 交通項目 (航班/高鐵/包車等): 不連結 POI, 直接用跟「建立新行程」手動填去程/回程班機
-                        // 一致的方式組成項目 (ItineraryService.addTransportItem → buildFlightLabel), 顯示格式
-                        // 統一是「航班/車次編號 出發地→目的地」(沒填編號就退回「交通：出發地→目的地」)。
-                        itineraryService.addTransportItem(realDay.getIDID(), "交通",
+                        // 一致的方式組成項目 (ItineraryService.addTransportItem → buildTransportName), 顯示
+                        // 格式是「航班/車次編號 出發地→目的地」(沒填編號就退回「出發地→目的地」), 不加任何
+                        // 方向或類型前綴文字。
+                        String flightDirection = null;
+                        if ("飛機".equals(item.getTransportMethod())) {
+                            if (day.getDayNumber() == firstDayNumber) flightDirection = "outbound";
+                            else if (day.getDayNumber() == lastDayNumber) flightDirection = "return";
+                        }
+                        itineraryService.addTransportItem(realDay.getIDID(), flightDirection,
                                 item.getTransportMethod(), item.getTransportNumber(),
                                 item.getFromLocation(), item.getToLocation(),
                                 item.getDepartureTime(), item.getArrivalTime(),
@@ -672,15 +725,26 @@ public class AiParseService {
                     // (AI 生成的文字) 當顯示名稱。修正: 有比對到 POI 的話, 改用該筆 POI 資料庫裡的正式名稱,
                     // 真正做到「已比對=採用資料庫資料」, 沒比對到才維持用 AI 解析出來的文字。
                     String displayName = item.getName();
-                    if (item.getMatchedPid() != null) {
-                        Poi matchedPoi = poiDAO.findById(item.getMatchedPid());
-                        if (matchedPoi != null && matchedPoi.getName() != null && !matchedPoi.getName().isBlank()) {
-                            displayName = matchedPoi.getName();
-                        }
+                    Poi matchedPoi = item.getMatchedPid() != null ? poiDAO.findById(item.getMatchedPid()) : null;
+                    if (matchedPoi != null && matchedPoi.getName() != null && !matchedPoi.getName().isBlank()) {
+                        displayName = matchedPoi.getName();
+                    }
+
+                    // 使用者反映: AI 解析比對到資料庫景點時, 停留時間卻跟資料庫不一致——同一個景點, 從景點資料庫
+                    // 手動加入行程會顯示資料庫設定的建議停留時間, 但 AI 解析匯入卻是顯示 AI 自己看原文估的數字,
+                    // 兩邊對不上。根因: ItineraryService.addItem() 的既有規則是「呼叫端有明確傳值就優先用呼叫端的,
+                    // 只有呼叫端傳 null 才套用景點自己的建議停留時間」(這是之前為了不讓 AI 預估值被蓋掉刻意設計的),
+                    // 但這裡不管有沒有比對到資料庫景點, 一律傳 AI 自己估的 item.getStayMinutes(), 導致已經比對到
+                    // 資料庫的項目也一樣被 AI 的估計值蓋掉, 沒有真正做到「已比對=採用資料庫資料」。
+                    // 修正: 比對到的景點自己有設定建議停留時間的話, 改用資料庫版本, 確保跟資料庫一致；沒比對到,
+                    // 或比對到的景點自己沒設定建議停留時間 (null), 才維持用 AI 自己估的值當保底。
+                    Integer stayMinutes = item.getStayMinutes();
+                    if (matchedPoi != null && matchedPoi.getSuggestedStayMin() != null) {
+                        stayMinutes = matchedPoi.getSuggestedStayMin();
                     }
                     itineraryService.addItem(realDay.getIDID(), item.getMatchedPid(), item.getItemType(),
-                            displayName, item.getStayMinutes(), item.getItemCountry(), item.getItemRegion(),
-                            item.getTimeSlot());
+                            displayName, stayMinutes, item.getItemCountry(), item.getItemRegion(),
+                            item.getTimeSlot(), item.getDescription());
                 }
 
                 // 套用預設規則: 早餐固定第一個、中午安排午餐、晚上安排晚餐 (只補沒時段的餐廳)、飯店固定排這天最後
@@ -693,15 +757,17 @@ public class AiParseService {
 
             return itinerary;
         } catch (Exception e) {
-            LOGGER.warn("AI 解析確認匯入失敗, 已刪除殘缺的行程骨架 (ITID={}, IPID={}, title={}): {}",
-                    itinerary.getITID(), IPID, title, e.toString(), e);
             try {
                 itineraryService.deleteItinerary(itinerary.getITID());
             } catch (Exception cleanupEx) {
-                LOGGER.warn("AI 解析確認匯入失敗後, 清除殘缺行程 (ITID={}) 也失敗, 請手動檢查/刪除這筆行程: {}",
+                LOGGER.warn("AI 解析轉正式行程失敗後, 清除殘缺行程也失敗 (ITID={}): {}",
                         itinerary.getITID(), cleanupEx.toString(), cleanupEx);
             }
-            throw new RuntimeException("AI 解析確認匯入失敗: " + (e.getMessage() != null ? e.getMessage() : e.toString()), e);
+            LOGGER.warn("AI 解析結果轉成正式行程失敗, 已刪除剛建立的殘缺行程 (IPID={}): {}",
+                    IPID, e.toString(), e);
+            throw new IllegalStateException(
+                    "轉成正式行程時發生錯誤 (可能是行程中某些地點的距離計算異常), 剛剛建立的行程已自動清除,"
+                            + "請確認左側解析結果內容後再按一次「確認」重試。", e);
         }
     }
 }

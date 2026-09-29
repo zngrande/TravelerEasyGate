@@ -3,9 +3,11 @@ package com.example.travelereasygate.controller;
 import com.example.travelereasygate.DAO.CountryCityCodeDAO;
 import com.example.travelereasygate.DAO.ImageAssetDAO;
 import com.example.travelereasygate.DAO.ItineraryDAO;
+import com.example.travelereasygate.DAO.StaffUserDAO;
 import com.example.travelereasygate.entity.CountryCityCode;
 import com.example.travelereasygate.entity.ImageAsset;
 import com.example.travelereasygate.entity.Itinerary;
+import com.example.travelereasygate.entity.StaffUser;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -28,12 +30,15 @@ public class AgencyController {
     private final ItineraryDAO itineraryDAO;
     private final ImageAssetDAO imageAssetDAO;
     private final CountryCityCodeDAO countryCityCodeDAO;
+    private final StaffUserDAO staffUserDAO;
 
     @Autowired
-    public AgencyController(ItineraryDAO itineraryDAO, ImageAssetDAO imageAssetDAO, CountryCityCodeDAO countryCityCodeDAO) {
+    public AgencyController(ItineraryDAO itineraryDAO, ImageAssetDAO imageAssetDAO, CountryCityCodeDAO countryCityCodeDAO,
+                             StaffUserDAO staffUserDAO) {
         this.itineraryDAO = itineraryDAO;
         this.imageAssetDAO = imageAssetDAO;
         this.countryCityCodeDAO = countryCityCodeDAO;
+        this.staffUserDAO = staffUserDAO;
     }
 
     @GetMapping("/agency/dashboard")
@@ -71,6 +76,23 @@ public class AgencyController {
             filterCodesByItinerary.put(it.getITID(), String.join(" ", codes));
         }
         model.addAttribute("filterCodesByItinerary", filterCodesByItinerary);
+
+        // 使用者要求行程列表要顯示「建立者」(帳號設定的顯示名稱, 也就是 StaffUser.name)。
+        // 一次查出這個旅行社底下全部員工 (含已停用帳號, 這裡只是顯示名字用, 帳號被停用不代表這個人
+        // 之前建立的行程就要跟著消失顯示名稱), 組成 UID -> 顯示名稱的 Map, 避免對每一筆行程各自查一次
+        // (findByAgency 內部只有一個 SQL 查詢, 比起在迴圈裡對每個 createdBy 呼叫 findById 划算很多)。
+        // 找不到對應員工 (帳號被刪除等極端情況) 時 fallback 顯示「(已刪除的帳號)」, 不要讓整格空白看起來
+        // 像資料庫壞掉。
+        Map<Integer, String> creatorNameByUID = new HashMap<>();
+        for (StaffUser staff : staffUserDAO.findByAgency(AID)) {
+            creatorNameByUID.put(staff.getUID(), staff.getName());
+        }
+        Map<Integer, String> creatorNameByItinerary = new HashMap<>();
+        for (Itinerary it : itineraries) {
+            String name = creatorNameByUID.get(it.getCreatedBy());
+            creatorNameByItinerary.put(it.getITID(), name != null ? name : "(已刪除的帳號)");
+        }
+        model.addAttribute("creatorNameByItinerary", creatorNameByItinerary);
 
         // 統計卡片: 依 status 欄位即時算出目前真實數量
         // status 欄位定義 (Itinerary.java): draft / confirmed / departed / completed

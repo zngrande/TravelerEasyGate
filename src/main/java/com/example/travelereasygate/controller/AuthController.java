@@ -17,6 +17,12 @@ public class AuthController {
         this.authService = authService;
     }
 
+    // GET / → 首頁沒有內容，直接導去登入頁
+    @GetMapping("/")
+    public String home() {
+        return "redirect:/login";
+    }
+
     // GET /login → 登入頁面
     @GetMapping("/login")
     public String loginPage() {

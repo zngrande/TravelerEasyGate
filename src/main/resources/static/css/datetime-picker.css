@@ -40,6 +40,27 @@
 .dtp-trigger .dtp-value { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dtp-trigger .dtp-placeholder { color: #94a3b8; font-weight: 500; }
 
+/* 使用者要求「時間要可以打字也可以選」的欄位 (加了 data-dtp-step 屬性) ——這種欄位的觸發器改用
+   <span> 包一個可以打字的 <input type="text">, 不是原本純顯示用的 <span class="dtp-value">,
+   這裡把這顆文字框的瀏覽器預設外觀 (邊框/背景/內距) 都去掉, 讓它看起來跟原本的純文字顯示一樣,
+   融進整顆觸發器裡, 使用者感覺不出來這裡本來是按鈕、現在變成文字框。 */
+.dtp-trigger-typeable { cursor: text; }
+.dtp-trigger-typeable .dtp-icon { cursor: pointer; }
+.dtp-value-input {
+    flex: 1; min-width: 0; width: 100%;
+    border: none; background: transparent; outline: none; padding: 0; margin: 0;
+    font: inherit; color: inherit; font-variant-numeric: tabular-nums; letter-spacing: inherit;
+    cursor: text;
+}
+.dtp-value-input::placeholder { color: #94a3b8; font-weight: 500; opacity: 1; }
+.dtp-value-input:disabled { cursor: not-allowed; }
+/* 沒有原生 :disabled 偽類可用 (觸發器現在是 <span>, 不是 <button>), 用 class 手動同步停用樣式,
+   跟原本 .dtp-trigger:disabled 那組配色維持一致。 */
+.dtp-trigger.dtp-disabled {
+    background: #f1f5f9; color: var(--text-gray, #64748b); cursor: not-allowed; border-color: var(--border-color, #e2e8f0);
+}
+.dtp-trigger.dtp-disabled .dtp-icon { color: var(--text-gray, #64748b); opacity: .6; cursor: not-allowed; }
+
 /* 彈出面板: 固定定位, JS 會在打開當下算好座標貼到 trigger 下方 (或上方, 靠近視窗邊緣時) */
 .dtp-panel {
     position: fixed; z-index: 3000; background: #fff; border: 1px solid var(--border-color, #e2e8f0);

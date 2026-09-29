@@ -1,5 +1,9 @@
 package com.example.travelereasygate.service;
 
+import com.example.travelereasygate.DAO.GoogleDistanceCacheDAO;
+import com.example.travelereasygate.DAO.GooglePolylineCacheDAO;
+import com.example.travelereasygate.entity.GoogleDistanceCache;
+import com.example.travelereasygate.entity.GooglePolylineCache;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,6 +11,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -30,16 +36,30 @@ import java.util.List;
 @Component
 public class GoogleMapsClient {
 
+    // 距離/折線快取 key 用的座標精度: 四捨五入到小數點後5位 (約1.1公尺), 詳見
+    // GoogleDistanceCache/GooglePolylineCache 的類別說明。
+    private static final int CACHE_KEY_SCALE = 5;
+
     @Value("${google.maps.api.key:}")
     private String apiKey;
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final GoogleDistanceCacheDAO distanceCacheDAO;
+    private final GooglePolylineCacheDAO polylineCacheDAO;
 
     @Autowired
-    public GoogleMapsClient(ObjectMapper objectMapper) {
+    public GoogleMapsClient(ObjectMapper objectMapper, GoogleDistanceCacheDAO distanceCacheDAO,
+                             GooglePolylineCacheDAO polylineCacheDAO) {
         this.objectMapper = objectMapper;
+        this.distanceCacheDAO = distanceCacheDAO;
+        this.polylineCacheDAO = polylineCacheDAO;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    }
+
+    // 座標四捨五入到 CACHE_KEY_SCALE 位小數, 當快取查詢/寫入的 key 使用
+    private static BigDecimal roundForCacheKey(double value) {
+        return BigDecimal.valueOf(value).setScale(CACHE_KEY_SCALE, RoundingMode.HALF_UP);
     }
 
     public boolean isConfigured() {
@@ -247,6 +267,18 @@ public class GoogleMapsClient {
         if (!isConfigured()) return null;
         String safeMode = "walking".equalsIgnoreCase(mode) ? "walking" : "driving";
 
+        // 先查快取: 同一組座標配對 (四捨五入到約1.1公尺精度) 在拖曳排序/AI重排/不同行程之間常常會
+        // 重複被查詢, 命中的話直接回傳, 完全不打 Google API (這是 Distance Matrix API 費用的主要來源)。
+        BigDecimal fromLatKey = roundForCacheKey(fromLat);
+        BigDecimal fromLngKey = roundForCacheKey(fromLng);
+        BigDecimal toLatKey = roundForCacheKey(toLat);
+        BigDecimal toLngKey = roundForCacheKey(toLng);
+
+        GoogleDistanceCache cached = distanceCacheDAO.find(fromLatKey, fromLngKey, toLatKey, toLngKey, safeMode);
+        if (cached != null && cached.getDistanceKm() != null && cached.getDurationMin() != null) {
+            return new DistanceResult(cached.getDistanceKm().doubleValue(), cached.getDurationMin());
+        }
+
         try {
             String origins = fromLat + "," + fromLng;
             String destinations = toLat + "," + toLng;
@@ -267,7 +299,14 @@ public class GoogleMapsClient {
             double meters = element.path("distance").path("value").asDouble();
             double seconds = element.path("duration").path("value").asDouble();
 
-            return new DistanceResult(meters / 1000.0, (int) Math.round(seconds / 60.0));
+            DistanceResult result = new DistanceResult(meters / 1000.0, (int) Math.round(seconds / 60.0));
+
+            // 只快取成功查到的結果; 呼叫失敗/查不到路線不快取, 避免把暫時性的網路問題或誤判座標
+            // 誤存成永久的錯誤資料 (下次還是會重新嘗試打 Google, 符合原本的 fallback 行為)。
+            distanceCacheDAO.save(new GoogleDistanceCache(fromLatKey, fromLngKey, toLatKey, toLngKey, safeMode,
+                    BigDecimal.valueOf(result.distanceKm), result.durationMin));
+
+            return result;
         } catch (Exception e) {
             return null; // 呼叫失敗就讓 caller fallback 成直線距離估算
         }
@@ -335,8 +374,21 @@ public class GoogleMapsClient {
 
     // 呼叫 Directions API 拿兩點之間「真實沿道路走」的路線, 回傳 Google 的編碼折線字串 (encoded polyline), 查不到回傳 null
     private String fetchRoutePolyline(double[] from, double[] to, String mode) {
+        String safeMode = "walking".equalsIgnoreCase(mode) ? "walking" : "driving";
+
+        // 同一組座標配對常常被重複查詢 (同一份行程被多次匯出企劃書、看板地圖被重新整理),
+        // 先查快取, 命中就不用再打 Directions API。
+        BigDecimal fromLatKey = roundForCacheKey(from[0]);
+        BigDecimal fromLngKey = roundForCacheKey(from[1]);
+        BigDecimal toLatKey = roundForCacheKey(to[0]);
+        BigDecimal toLngKey = roundForCacheKey(to[1]);
+
+        GooglePolylineCache cached = polylineCacheDAO.find(fromLatKey, fromLngKey, toLatKey, toLngKey, safeMode);
+        if (cached != null && cached.getPolyline() != null) {
+            return cached.getPolyline();
+        }
+
         try {
-            String safeMode = "walking".equalsIgnoreCase(mode) ? "walking" : "driving";
             String url = "https://maps.googleapis.com/maps/api/directions/json"
                     + "?origin=" + from[0] + "," + from[1]
                     + "&destination=" + to[0] + "," + to[1]
@@ -350,7 +402,12 @@ public class GoogleMapsClient {
             JsonNode root = objectMapper.readTree(response.body());
             if (!"OK".equals(root.path("status").asText())) return null;
 
-            return root.path("routes").path(0).path("overview_polyline").path("points").asText(null);
+            String polyline = root.path("routes").path(0).path("overview_polyline").path("points").asText(null);
+            if (polyline != null) {
+                // 只快取成功查到的結果, 理由同 getDistance() 的快取寫入。
+                polylineCacheDAO.save(new GooglePolylineCache(fromLatKey, fromLngKey, toLatKey, toLngKey, safeMode, polyline));
+            }
+            return polyline;
         } catch (Exception e) {
             return null; // 查不到就讓呼叫端 fallback 成直線, 不影響整張圖產出
         }

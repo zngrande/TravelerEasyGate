@@ -14,6 +14,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -100,12 +101,13 @@ public class AiImportController {
                            @RequestParam(required = false) String transportNumber,
                            @RequestParam(required = false) String departureTime,
                            @RequestParam(required = false) String arrivalTime,
+                           @RequestParam(required = false) String description,
                            HttpSession session) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
 
         int IPID = aiParseService.getIpidByItem(APIID);
         aiParseService.updateParsedItem(APIID, name, itemType, timeSlot, note, stayMinutes,
-                fromLocation, toLocation, transportMethod, transportNumber, departureTime, arrivalTime);
+                fromLocation, toLocation, transportMethod, transportNumber, departureTime, arrivalTime, description);
         return "redirect:/ai-import/" + IPID + "/review";
     }
 
@@ -121,6 +123,17 @@ public class AiImportController {
         } catch (Exception e) {
             // 加入失敗 (例如類型不支援、已經比對過) 就靜默導回, review 頁面上狀態不會變
         }
+        return "redirect:/ai-import/" + IPID + "/review";
+    }
+
+    // POST /ai-import/item/{apiid}/cancel-match → 取消這個項目跟公司 POI 資料庫的自動比對
+    // (使用者反映自動比對有時候會比對到不正確的資料, 想要能個別解除)
+    @PostMapping("/item/{apiid}/cancel-match")
+    public String cancelMatch(@PathVariable("apiid") int APIID, HttpSession session) {
+        if (session.getAttribute("AID") == null) return "redirect:/login";
+
+        int IPID = aiParseService.getIpidByItem(APIID);
+        aiParseService.cancelMatch(APIID);
         return "redirect:/ai-import/" + IPID + "/review";
     }
 
@@ -152,28 +165,23 @@ public class AiImportController {
                           @RequestParam(required = false) String region,
                           @RequestParam(required = false) String startDate,
                           HttpSession session,
-                          org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes) {
+                          RedirectAttributes redirectAttributes) {
         if (session.getAttribute("AID") == null) return "redirect:/login";
 
         java.time.LocalDate parsedDate = (startDate != null && !startDate.isBlank())
                 ? java.time.LocalDate.parse(startDate) : null;
+        // 使用者反映「AI 解析行程草稿, 會出現轉成正式就系統發生錯誤」——原本這裡完全沒有防護, confirmImport()
+        // 內部任何一步丟例外都會讓整個 request 被 GlobalExceptionHandler 攔截、直接顯示「系統發生錯誤」
+        // 500 頁面, 而且這筆 AiImport 的狀態卡在 parsed、使用者沒辦法重試。改成: 失敗時顯示友善提示訊息、
+        // 導回 review 頁面讓使用者可以再按一次「確認」(confirmImport() 失敗時本身已經會把剛建立的殘缺
+        // 行程刪掉, 見 AiParseService.confirmImport() 說明), 而不是整頁死掉。
         try {
             Itinerary itinerary = aiParseService.confirmImport(IPID, title, country, region, parsedDate);
             return "redirect:/itinerary/" + itinerary.getITID() + "/board";
         } catch (Exception e) {
-            // 使用者反映「行程排版看板：AI解析沒出現行程」——確認匯入這一步 (confirmImport) 原本完全沒有
-            // 防護, 逐天把 AI 解析出來的項目寫進正式行程時, 只要中間某一筆項目丟出例外 (例如比對到的 POI
-            // 剛好被刪除、或某個欄位資料格式異常), 整個迴圈會立刻中斷、剩下的天數/項目完全不會被寫入——
-            // 但這時候 createItinerary() 早就已經成功建好行程骨架 (Day1~DayN), 使用者被導去 (或事後自己
-            // 打開) 看板時就會看到「行程存在, 但每一天都是空的」這種畫面, 同時這個 request 本身因為例外
-            // 沒被接住, 會顯示「系統發生錯誤」——這正好對上「AI解析沒出現行程」+「AI安排行程報錯」兩個
-            // 症狀同時出現的回報。改成: 失敗就留 log、導回 review 頁面並提示錯誤, 不要讓使用者卡在看不到
-            // 內容也看不懂原因的系統錯誤頁——確認匯入本來就允許重新來一次 (review 頁面的資料不會被這次
-            // 失敗的嘗試清掉)。
-            LOGGER.warn("AI 解析確認匯入失敗 (IPID={}, title={}, country={}, region={}): {}",
-                    IPID, title, country, region, e.toString(), e);
+            LOGGER.warn("AI 解析結果確認轉成正式行程失敗 (IPID={}): {}", IPID, e.toString(), e);
             redirectAttributes.addFlashAttribute("confirmError",
-                    "確認匯入失敗，行程可能沒有完整建立，請重新整理後再試一次；如果持續失敗，請聯絡客服並提供這個時間點。");
+                    e.getMessage() != null ? e.getMessage() : "轉成正式行程時發生錯誤，請稍後再試一次。");
             return "redirect:/ai-import/" + IPID + "/review";
         }
     }
