@@ -21,7 +21,9 @@
 --   * rename_database_useful_travel_to_traveler_easy_gate.sql (改資料庫名稱, 與結構無關)
 -- ============================================================
 
--- USE traveler_easy_gate;
+SET NAMES utf8mb4;
+CREATE DATABASE IF NOT EXISTS traveler_easy_gate DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE traveler_easy_gate;
 
 SET NAMES utf8mb4;
 SET SQL_SAFE_UPDATES = 0;
@@ -379,6 +381,32 @@ CREATE TABLE IF NOT EXISTS country_city_code (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+CREATE TABLE IF NOT EXISTS google_distance_cache (
+    GDCID INT AUTO_INCREMENT PRIMARY KEY,
+    from_lat DECIMAL(8,5) NOT NULL,
+    from_lng DECIMAL(8,5) NOT NULL,
+    to_lat DECIMAL(8,5) NOT NULL,
+    to_lng DECIMAL(8,5) NOT NULL,
+    mode VARCHAR(20) NOT NULL,
+    distance_km DECIMAL(19,2) NULL,
+    duration_min INT NULL,
+    cached_at DATETIME NULL,
+    UNIQUE KEY uq_google_distance_cache (from_lat, from_lng, to_lat, to_lng, mode)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS google_polyline_cache (
+    GPCID INT AUTO_INCREMENT PRIMARY KEY,
+    from_lat DECIMAL(8,5) NOT NULL,
+    from_lng DECIMAL(8,5) NOT NULL,
+    to_lat DECIMAL(8,5) NOT NULL,
+    to_lng DECIMAL(8,5) NOT NULL,
+    mode VARCHAR(20) NOT NULL,
+    polyline TEXT NULL,
+    cached_at DATETIME NULL,
+    UNIQUE KEY uq_google_polyline_cache (from_lat, from_lng, to_lat, to_lng, mode)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ============================================================
 -- 二、先記錄「這批異動之前」的狀態 (決定要不要跑一次性的資料搬移)
 -- ============================================================
@@ -390,8 +418,9 @@ SET @fresh_split = (SELECT IF(COUNT(*)=0, 1, 0) FROM information_schema.COLUMNS 
 -- 若專案有用 Flyway 且 V2 (拆分預設規則) 還沒被套用, 就把 default_pricing/default_tier 交給 Flyway 建立,
 -- 避免這裡先加了、Flyway 之後再加一次而啟動失敗。沒用 Flyway / V2 已套用 -> @flyway_v2_pending 維持 0。
 SET @flyway_v2_pending = 0;
-SET @s = (SELECT IF(COUNT(*)>0, 'SELECT IF(COUNT(*)=0,1,0) INTO @flyway_v2_pending FROM flyway_schema_history WHERE version=''2'' AND success=1', 'DO 0') FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='flyway_schema_history');
-PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+-- Flyway V4 (itinerary_item.ai_description) / V5 (ai_parsed_item.description): 尚未套用就交給 Flyway 建, 避免重複加欄位導致啟動失敗
+SET @flyway_v4_pending = 0;
+SET @flyway_v5_pending = 0;
 
 -- ============================================================
 -- 三、舊欄位改名: quotation_line.basic_quote -> gross_cost (只有舊資料庫才會執行)
@@ -506,6 +535,15 @@ PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 SET @s = (SELECT IF(COUNT(*)=0, 'ALTER TABLE `ai_parsed_item` ADD COLUMN `departure_time` TIME NULL', 'DO 0') FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_parsed_item' AND COLUMN_NAME='departure_time');
 PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 SET @s = (SELECT IF(COUNT(*)=0, 'ALTER TABLE `ai_parsed_item` ADD COLUMN `arrival_time` TIME NULL', 'DO 0') FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_parsed_item' AND COLUMN_NAME='arrival_time');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+-- itinerary: arrange_mode (行程排程模式)
+SET @s = (SELECT IF(COUNT(*)=0, 'ALTER TABLE `itinerary` ADD COLUMN `arrange_mode` VARCHAR(20) NULL', 'DO 0') FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='itinerary' AND COLUMN_NAME='arrange_mode');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+-- itinerary_item: ai_description (Flyway V4)
+SET @s = (SELECT IF(COUNT(*)=0 AND @flyway_v4_pending=0, 'ALTER TABLE `itinerary_item` ADD COLUMN `ai_description` TEXT NULL', 'DO 0') FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='itinerary_item' AND COLUMN_NAME='ai_description');
+PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
+-- ai_parsed_item: description (Flyway V5)
+SET @s = (SELECT IF(COUNT(*)=0 AND @flyway_v5_pending=0, 'ALTER TABLE `ai_parsed_item` ADD COLUMN `description` TEXT NULL', 'DO 0') FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_parsed_item' AND COLUMN_NAME='description');
 PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 -- component
 SET @s = (SELECT IF(COUNT(*)=0, 'ALTER TABLE `component` ADD COLUMN `currency_code` VARCHAR(10) NOT NULL DEFAULT ''TWD''', 'DO 0') FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='component' AND COLUMN_NAME='currency_code');
@@ -662,68 +700,19 @@ PREPARE p FROM @s; EXECUTE p; DEALLOCATE PREPARE p;
 -- 八、預設資料 (已存在就不重複新增)
 -- ============================================================
 -- 平台共用幣別
-INSERT INTO currency (AID, code, name, rate_to_twd) SELECT NULL, 'TWD', '新台幣', 1.000000 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM currency WHERE AID IS NULL AND code = 'TWD');
-INSERT INTO currency (AID, code, name, rate_to_twd) SELECT NULL, 'JPY', '日圓', 0.210000 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM currency WHERE AID IS NULL AND code = 'JPY');
-INSERT INTO currency (AID, code, name, rate_to_twd) SELECT NULL, 'USD', '美金', 31.500000 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM currency WHERE AID IS NULL AND code = 'USD');
-INSERT INTO currency (AID, code, name, rate_to_twd) SELECT NULL, 'KRW', '韓元', 0.023000 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM currency WHERE AID IS NULL AND code = 'KRW');
-INSERT INTO currency (AID, code, name, rate_to_twd) SELECT NULL, 'CNY', '人民幣', 4.350000 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM currency WHERE AID IS NULL AND code = 'CNY');
 
 -- 國家 / 城市通用代碼 (依 type + code 判斷, 已存在就跳過)
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'JP', '日本', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'JP');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'TYO', '東京', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'TYO');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'OSA', '大阪', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'OSA');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'KYO', '京都', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'KYO');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'NGO', '名古屋', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'NGO');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'CTS', '札幌', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'CTS');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'FUK', '福岡', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'FUK');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'OKA', '沖繩', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'OKA');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'HIJ', '廣島', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'HIJ');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'SDJ', '仙台', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'SDJ');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'KMQ', '金澤', 'JP' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'KMQ');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'TW', '台灣', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'TW');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'TPE', '台北', 'TW' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'TPE');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'KHH', '高雄', 'TW' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'KHH');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'KR', '韓國', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'KR');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'SEL', '首爾', 'KR' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'SEL');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'PUS', '釜山', 'KR' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'PUS');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'CJU', '濟州島', 'KR' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'CJU');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'HK', '香港', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'HK');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'MO', '澳門', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'MO');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'CN', '中國', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'CN');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'SHA', '上海', 'CN' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'SHA');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'BJS', '北京', 'CN' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'BJS');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'TH', '泰國', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'TH');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'BKK', '曼谷', 'TH' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'BKK');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'CNX', '清邁', 'TH' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'CNX');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'HKT', '普吉島', 'TH' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'HKT');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'SG', '新加坡', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'SG');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'MY', '馬來西亞', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'MY');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'KUL', '吉隆坡', 'MY' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'KUL');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'PH', '菲律賓', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'PH');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'MNL', '馬尼拉', 'PH' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'MNL');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'CEB', '宿霧', 'PH' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'CEB');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'ID', '印尼', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'ID');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'DPS', '峇里島', 'ID' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'DPS');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'JKT', '雅加達', 'ID' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'JKT');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'VN', '越南', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'VN');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'SGN', '胡志明市', 'VN' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'SGN');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'HAN', '河內', 'VN' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'HAN');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'DAD', '峴港', 'VN' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'DAD');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'US', '美國', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'US');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'LAX', '洛杉磯', 'US' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'LAX');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'SFO', '舊金山', 'US' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'SFO');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'NYC', '紐約', 'US' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'NYC');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'GB', '英國', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'GB');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'LON', '倫敦', 'GB' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'LON');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'FR', '法國', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'FR');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'PAR', '巴黎', 'FR' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'PAR');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'AU', '澳洲', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'AU');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'SYD', '雪梨', 'AU' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'SYD');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'country', 'AE', '阿聯', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'country' AND code = 'AE');
-INSERT INTO country_city_code (type, code, name, country_code) SELECT 'city', 'DXB', '杜拜', 'AE' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM country_city_code WHERE type = 'city' AND code = 'DXB');
+
+-- ============================================================
+-- 一次性資料修正 (原 Flyway V3, 冪等): 景點被旅行社 override 之後, 把圖片綁定搬到專屬複本 PID
+-- ============================================================
+UPDATE image_asset ia
+JOIN poi_override po ON po.AID = ia.AID AND po.original_pid = ia.matched_pid
+SET ia.matched_pid = po.override_pid
+WHERE po.override_pid IS NOT NULL;
 
 -- ============================================================
 -- 九、完成提示
 -- ============================================================
-SELECT IF(@flyway_v2_pending=1, '注意: 偵測到 Flyway 尚未套用 V2, margin_setting.default_pricing/default_tier 會在程式下次啟動時由 Flyway 建立, 本次未新增。', '完成: 結構已是最新, 重複匯入不會有影響。') AS result;
+SELECT '完成: 資料庫結構已是最新版本 (本機版, 不使用 Flyway)' AS result;
 SELECT TABLE_NAME AS table_name, COUNT(*) AS column_count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() GROUP BY TABLE_NAME ORDER BY TABLE_NAME;

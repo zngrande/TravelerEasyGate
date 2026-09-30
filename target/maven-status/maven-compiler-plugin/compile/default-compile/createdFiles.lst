@@ -1,7 +1,9 @@
 com\example\travelereasygate\service\ExcelTemplateMergeService.class
 com\example\travelereasygate\entity\ItineraryDay.class
 com\example\travelereasygate\service\PoiService.class
+com\example\travelereasygate\entity\GooglePolylineCache.class
 com\example\travelereasygate\DAO\PriceTierTemplateDAOImpl.class
+com\example\travelereasygate\DAO\GoogleDistanceCacheDAO.class
 com\example\travelereasygate\controller\QuotationController.class
 com\example\travelereasygate\DAO\ItineraryDAO.class
 com\example\travelereasygate\service\TemplateMergeService$ImageData.class
@@ -44,11 +46,13 @@ com\example\travelereasygate\DAO\QuotationLineTierDAO.class
 com\example\travelereasygate\service\AuthService.class
 com\example\travelereasygate\DAO\AiImportDAO.class
 com\example\travelereasygate\DAO\RouteSegmentDAOImpl.class
+com\example\travelereasygate\service\TemplateMergeService$FlightLeg.class
 com\example\travelereasygate\entity\PriceTierTemplateRow.class
 com\example\travelereasygate\service\GoogleMapsClient$GeocodeResult.class
 com\example\travelereasygate\DAO\QuotationDAOImpl.class
 com\example\travelereasygate\DAO\QuotationGroupTierDAO.class
 com\example\travelereasygate\DAO\MarginSettingDAOImpl.class
+com\example\travelereasygate\DAO\GoogleDistanceCacheDAOImpl.class
 com\example\travelereasygate\DAO\StaffUserDAO.class
 com\example\travelereasygate\entity\QuotationLineTier.class
 com\example\travelereasygate\entity\Currency.class
@@ -63,6 +67,8 @@ com\example\travelereasygate\DAO\TravelComponentDAO.class
 com\example\travelereasygate\controller\TravelComponentController.class
 com\example\travelereasygate\DAO\ItineraryItemDAOImpl.class
 com\example\travelereasygate\DAO\CountryCityCodeDAOImpl.class
+com\example\travelereasygate\DAO\GooglePolylineCacheDAOImpl.class
+com\example\travelereasygate\entity\GoogleDistanceCache.class
 com\example\travelereasygate\entity\AiParsedDay.class
 com\example\travelereasygate\service\TemplateMergeService$TemplateData.class
 com\example\travelereasygate\DAO\AgencyDAO.class
@@ -78,6 +84,7 @@ com\example\travelereasygate\service\AiParseService.class
 com\example\travelereasygate\entity\Quotation.class
 com\example\travelereasygate\service\QuotationExportService.class
 com\example\travelereasygate\DAO\QuotationDAO.class
+com\example\travelereasygate\DAO\GooglePolylineCacheDAO.class
 com\example\travelereasygate\service\FormulaEngine$Parser.class
 com\example\travelereasygate\entity\AiImport.class
 com\example\travelereasygate\DAO\CountryCityCodeDAO.class
