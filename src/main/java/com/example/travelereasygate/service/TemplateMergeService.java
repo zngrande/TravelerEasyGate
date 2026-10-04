@@ -105,6 +105,8 @@ public class TemplateMergeService {
      */
     public byte[] merge(byte[] templateBytes, TemplateData data) throws Exception {
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(templateBytes))) {
+            // 參考航班欄位常被 Word 拆成多個 run，直接合併儲存格內的文字再替換，避免只得到空白。
+            replaceFlightPlaceholdersInTables(doc, data.simpleValues());
             replaceAllPlaceholders(doc, data.simpleValues());
             expandDayBlock(doc, data.days());
             insertImagesBlock(doc, data.images());
@@ -118,7 +120,8 @@ public class TemplateMergeService {
     // 「參考航班」摘要用的單一航段資料 (見下方蒐集邏輯的說明)。flightNo: 這段航班在看板上填的航班編號
     // (item.getTransportNumber()), 使用者要求要顯示在機場名稱前面 (例如「CX459 高雄小港機場」), 沒填就
     // 只顯示機場名稱。
-    private record FlightLeg(LocalDate date, String flightNo, String fromAirport, String toAirport, LocalTime depTime, LocalTime arrTime) {}
+    private record FlightLeg(LocalDate date, String flightNo, String fromAirport, String toAirport,
+                             LocalTime depTime, LocalTime arrTime, String direction) {}
 
     /**
      * 從資料庫組出合併用的 TemplateData（複用 ItineraryService 既有的查詢邏輯）
@@ -147,6 +150,7 @@ public class TemplateMergeService {
         // 轉機當中經過哪些機場不會顯示。依 day/sort_order 掃過去, 同方向遇到後面的段落只更新「迄點」,
         // 第一次遇到才記「起點」。
         FlightLeg outboundFirst = null, outboundLast = null, returnFirst = null, returnLast = null;
+        List<FlightLeg> unclassifiedFlights = new ArrayList<>();
 
         for (ItineraryDay day : itineraryService.getDays(itinerary.getITID())) {
             List<ItineraryItem> items = itineraryService.getItems(day.getIDID());
@@ -213,29 +217,27 @@ public class TemplateMergeService {
                         }
                     }
                     case "transport" -> {
-                        // 使用者要求「交通/班機不要顯示在行程內容裡」——去程/回程班機已經改成用上面
-                        // outbound_*/return_* 這組「參考航班」摘要欄位單獨呈現 (見下方蒐集邏輯), 一般
-                        // 交通項目也一併不重複顯示。這裡先把去程/回程班機資訊記下來, 再直接跳過, 不加進
-                        // content/itemList/dayTitle。方向判斷改讀 item.getFlightDirection() 這個結構化
-                        // 欄位 ("outbound"/"return"/null)，不再靠 customName 字首文字——使用者可以自由
-                        // 編輯顯示名稱 (例如拿掉編號、改用自己習慣的寫法) 也不會讓這裡的判斷失效。
-                        if ("飛機".equals(item.getTransportMethod())) {
+                        // 航班記入上方 outbound_*/return_*「參考航班」摘要；一般交通項目名稱仍放進當日標題。
+                        if (isFlightTransport(item)) {
                             FlightLeg leg = new FlightLeg(day.getDayDate(), item.getTransportNumber(),
                                     item.getFromLocation(), item.getToLocation(),
-                                    item.getStartTime(), item.getEndTime());
-                            if ("outbound".equals(item.getFlightDirection())) {
+                                    item.getStartTime(), item.getEndTime(), item.getFlightDirection());
+                            if ("outbound".equalsIgnoreCase(item.getFlightDirection())) {
                                 if (outboundFirst == null) outboundFirst = leg;
                                 outboundLast = leg;
-                            } else if ("return".equals(item.getFlightDirection())) {
+                            } else if ("return".equalsIgnoreCase(item.getFlightDirection())) {
                                 if (returnFirst == null) returnFirst = leg;
                                 returnLast = leg;
+                            } else {
+                                // 舊資料或手動建立的航班可能沒有方向欄位，仍列入上方參考航班摘要。
+                                unclassifiedFlights.add(leg);
                             }
                         }
                         // Patch 90: 不管是不是去程/回程班機、不管是不是飛機 (火車/巴士/接駁車一樣算), 這一天
                         // 只要出現過交通項目, 名稱都收進這裡——併入 day.title 顯示 (見下面 dayTitle 組法),
                         // 不會再整個消失不見; 也不會受限於上面 outboundFirst/outboundLast 只取頭尾的簡化,
                         // 轉機中間的每一段都會各自出現在這裡。
-                        if (!name.isBlank()) {
+                        if (!name.isBlank() && !isFlightTransport(item)) {
                             transportTitleParts.add(name);
                         }
                     }
@@ -300,6 +302,57 @@ public class TemplateMergeService {
                     itemList, mapImage));
         }
 
+        // 參考航班摘要另外掃描完整行程項目，不依賴逐日內容組裝時的分類分支；
+        // 這樣已存在於 itinerary_item 的航班即使沒有被日內容分支辨識，也會出現在範本上方。
+        outboundFirst = null;
+        outboundLast = null;
+        returnFirst = null;
+        returnLast = null;
+        unclassifiedFlights.clear();
+        for (ItineraryDay day : itineraryService.getDays(itinerary.getITID())) {
+            for (ItineraryItem item : itineraryService.getItems(day.getIDID())) {
+                if (item.getItemType() == null || !"transport".equalsIgnoreCase(item.getItemType().trim())
+                        || !isFlightTransport(item)) continue;
+                String direction = item.getFlightDirection() == null ? ""
+                        : item.getFlightDirection().trim().toLowerCase(Locale.ROOT);
+                String name = item.getCustomName() == null ? "" : item.getCustomName();
+                if (direction.isBlank()) {
+                    if (name.startsWith("去程班機")) direction = "outbound";
+                    else if (name.startsWith("回程班機")) direction = "return";
+                }
+                String flightNo = firstNonBlank(item.getTransportNumber(), flightNumberFromName(name));
+                String fromAirport = firstNonBlank(item.getFromLocation(), airportFromName(name, true));
+                String toAirport = firstNonBlank(item.getToLocation(), airportFromName(name, false));
+                FlightLeg leg = new FlightLeg(day.getDayDate(), flightNo,
+                        fromAirport, toAirport, item.getStartTime(), item.getEndTime(), direction);
+                if ("outbound".equals(direction)) {
+                    if (outboundFirst == null) outboundFirst = leg;
+                    outboundLast = leg;
+                } else if ("return".equals(direction)) {
+                    if (returnFirst == null) returnFirst = leg;
+                    returnLast = leg;
+                } else {
+                    unclassifiedFlights.add(leg);
+                }
+            }
+        }
+
+        // 相容尚未設定 flight_direction 的舊航班：依行程中出現順序將第一段視為去程，
+        // 若有多段且尚無回程資料，最後一段補作回程，避免參考航班區整列空白。
+        if (!unclassifiedFlights.isEmpty()) {
+            if (outboundFirst == null) {
+                outboundFirst = unclassifiedFlights.get(0);
+                outboundLast = outboundFirst;
+            }
+            if (returnFirst == null && unclassifiedFlights.size() > 1) {
+                returnFirst = unclassifiedFlights.get(unclassifiedFlights.size() - 1);
+                returnLast = returnFirst;
+            } else if (returnFirst == null && outboundFirst != unclassifiedFlights.get(0)) {
+                returnFirst = unclassifiedFlights.get(0);
+                returnLast = returnFirst;
+            }
+        }
+
         // 使用者要求新增的「參考航班」摘要欄位: 去程/回程各 4 個 (出發機場/抵達機場/出發時間/抵達時間),
         // 沒有填去程或回程班機的行程就給空字串 (範本裡的欄位會直接顯示空白, 不會顯示 null 字樣)。
         // 使用者後續要求: 機場名稱前面要帶出這段航班在看板上填的航班編號 (例如「CX459 高雄小港機場」)——
@@ -320,12 +373,45 @@ public class TemplateMergeService {
 
     private static String emptyIfNull(String s) { return s == null ? "" : s; }
 
+    private static boolean isFlightTransport(ItineraryItem item) {
+        String method = item.getTransportMethod() == null ? "" : item.getTransportMethod().trim().toLowerCase(java.util.Locale.ROOT);
+        String name = item.getCustomName() == null ? "" : item.getCustomName();
+        String lowerName = name.toLowerCase(java.util.Locale.ROOT);
+        return method.contains("飛機") || method.contains("航班") || method.contains("航空")
+                || method.contains("flight") || method.contains("plane") || method.contains("airplane")
+                || item.getFlightDirection() != null
+                || name.contains("班機") || name.contains("航班")
+                || ((name.contains("→") || name.contains("->"))
+                    && (name.contains("機場") || lowerName.contains("airport")));
+    }
+
+    private static String firstNonBlank(String preferred, String fallback) {
+        return preferred == null || preferred.isBlank() ? emptyIfNull(fallback) : preferred.trim();
+    }
+
+    private static String flightNumberFromName(String name) {
+        if (name == null || name.isBlank()) return "";
+        String route = name.replaceFirst("^(去程|回程)?班機[:：]?\\s*", "").trim();
+        java.util.regex.Matcher matcher = Pattern.compile("^([A-Za-z0-9]{2,8})\\s+").matcher(route);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private static String airportFromName(String name, boolean departure) {
+        if (name == null || name.isBlank()) return "";
+        String[] parts = name.split("→|->", 2);
+        if (parts.length < 2) return "";
+        String airport = (departure ? parts[0] : parts[1]).trim();
+        airport = airport.replaceFirst("^(去程|回程)?班機[:：]?\\s*", "");
+        airport = airport.replaceFirst("^[A-Za-z0-9]{2,8}\\s+", "");
+        return airport.trim();
+    }
+
     // 機場名稱前面帶出航班編號, 例如「CX459 高雄小港機場」; 沒有編號就只顯示機場名稱本身;
     // 機場名稱也沒填 (理論上不太會發生) 就回傳空字串, 不會出現只有編號沒有機場名稱的怪畫面。
     private static String withFlightNo(String flightNo, String airport) {
         String airportText = emptyIfNull(airport);
         if (flightNo == null || flightNo.isBlank()) return airportText;
-        return airportText.isBlank() ? "" : flightNo.trim() + " " + airportText;
+        return airportText.isBlank() ? flightNo.trim() : flightNo.trim() + " " + airportText;
     }
 
     // 使用者要求: 參考航班摘要的時間只要顯示時分 (HH:mm), 不需要年月日——日期已經在標題頁「{{date_range}}」
@@ -408,6 +494,38 @@ public class TemplateMergeService {
             for (XWPFTableRow row : table.getRows()) {
                 for (XWPFTableCell cell : row.getTableCells()) {
                     replaceAllPlaceholders(cell, values); // XWPFTableCell 也是 IBody, 遞迴處理巢狀表格
+                }
+            }
+        }
+    }
+
+    /** 直接合併參考航班儲存格內的分段 run，再套用航班欄位值，避免 Word 佔位符被拆開後漏替換。 */
+    private void replaceFlightPlaceholdersInTables(IBody body, Map<String, String> values) {
+        for (XWPFTable table : body.getTables()) {
+            for (XWPFTableRow row : table.getRows()) {
+                for (XWPFTableCell cell : row.getTableCells()) {
+                    for (XWPFParagraph paragraph : cell.getParagraphs()) {
+                        StringBuilder original = new StringBuilder();
+                        for (XWPFRun run : paragraph.getRuns()) {
+                            String text = run.getText(0);
+                            if (text != null) original.append(text);
+                        }
+                        String replacement = original.toString();
+                        for (String key : List.of(
+                                "outbound_departure_airport", "outbound_arrival_airport",
+                                "outbound_departure_time", "outbound_arrival_time",
+                                "return_departure_airport", "return_arrival_airport",
+                                "return_departure_time", "return_arrival_time")) {
+                            replacement = replacement.replace("{{" + key + "}}", emptyIfNull(values.get(key)));
+                        }
+                        if (!replacement.equals(original.toString())) {
+                            List<XWPFRun> runs = paragraph.getRuns();
+                            XWPFRun first = runs.isEmpty() ? paragraph.createRun() : runs.get(0);
+                            first.setText(replacement, 0);
+                            for (int i = runs.size() - 1; i >= 1; i--) paragraph.removeRun(i);
+                        }
+                    }
+                    if (!cell.getTables().isEmpty()) replaceFlightPlaceholdersInTables(cell, values);
                 }
             }
         }

@@ -2111,9 +2111,9 @@
         const carryOverHotel = dayCache[idid] && dayCache[idid].carryOverHotel;
         if (carryOverHotel) {
             const carryRow = document.createElement('div');
-            carryRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;margin-bottom:2px;font-size:12.5px;color:var(--text-gray);background:#f0fdfa;border:1px dashed #99f6e4;border-radius:12px;';
+            carryRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;margin-bottom:2px;font-size:12.5px;color:#115e59;background:#f0fdfa;border:1px dashed #99f6e4;border-radius:12px;';
             carryRow.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#0d9488;color:#fff;font-size:12px;flex-shrink:0;">🛏️</span>
-                <span>延續前一晚住宿：<strong style="color:var(--text-dark);">${carryOverHotel.customName}</strong>（自動當作今天的出發點，不算在今天的行程項目內）</span>`;
+                <span><strong style="color:#0f766e;">前一晚住宿</strong>　${carryOverHotel.customName}<span style="display:block;color:#64748b;font-size:11px;margin-top:2px;">昨日入住，今天從此處出發</span></span>`;
             list.appendChild(carryRow);
 
             const carryRoute = routes.find(r => r.fromItemId === carryOverHotel.IIID);
@@ -2816,12 +2816,22 @@
                     <div class="name">${poi.name}</div>
                     <div class="meta">${poi.category} · ${poi.city || ''}</div>
                 </div>
-                <button onclick="addToCurrentDay(${poi.PID}, '${(poi.name || '').replace(/'/g, "\\'")}', 'attraction')">＋ 加入</button>
+                <button onclick="addToCurrentDay(${poi.PID}, '${(poi.name || '').replace(/'/g, "\\'")}', poiCategoryToItemType('${(poi.category || '').replace(/'/g, "\\'")}'))">＋ 加入</button>
             </div>
         `).join('');
     }
 
     renderPoiQuickList(); // 頁面載入時先畫一次全部景點 (等同原本沒有搜尋功能時的預設清單)
+
+    // POI 資料庫用中文分類，行程項目則使用 meal/hotel/attraction 等英文類型。
+    // 所有「從資料庫加入」入口共用這個轉換，避免飯店、餐廳被錯誤存成景點。
+    function poiCategoryToItemType(category) {
+        const value = String(category || '').trim();
+        if (value.includes('餐廳') || value.includes('美食')) return 'meal';
+        if (value.includes('飯店') || value.includes('住宿') || value.includes('旅館')) return 'hotel';
+        if (value.includes('交通') || value.includes('機場')) return 'transport';
+        return 'attraction';
+    }
 
     let exportFormatPending = 'b2c';
 
@@ -3008,6 +3018,7 @@
         // 今天項目清單中」的點, 用這個特徵抓出來就好, 不用另外呼叫一次 carry-over-hotel API。
         const todayIIIDs = new Set(displayItemsForMap.map(it => it.IIID));
         const carryOverPoint = data.points.find(p => !todayIIIDs.has(p.iiid));
+        const previousNightHotelIIID = carryOverPoint && carryOverPoint.itemType === 'hotel' ? carryOverPoint.iiid : null;
         if (carryOverPoint) itemPoints.unshift(carryOverPoint);
         // 這個行程國家/地區相關、但「還沒排進今天」的公司 POI (地圖上顯示灰色小標記, 點了可以直接加入)
         // 注意: 排除名單要用「今天所有項目」(不管有沒有勾選顯示地圖), 不能只看目前顯示在地圖上的點,
@@ -3062,21 +3073,29 @@
         itemPoints.forEach((p) => {
             const pos = { lat: p.lat, lng: p.lng };
             const isHotel = p.itemType === 'hotel';
+            const isPreviousNightHotel = isHotel && p.iiid === previousNightHotelIIID;
             const isFlight = p.itemType === 'transport' && p.transportMethod === '飛機';
-            const color = isHotel ? HOTEL_MARKER_COLOR : (isFlight ? FLIGHT_MARKER_COLOR : STANDARD_MARKER_COLOR);
+            const color = isPreviousNightHotel ? '#64748b' : (isHotel ? HOTEL_MARKER_COLOR : (isFlight ? FLIGHT_MARKER_COLOR : STANDARD_MARKER_COLOR));
             const normalScale = isHotel ? 13 : 10;
             const normalIcon = { path: google.maps.SymbolPath.CIRCLE, scale: normalScale, fillColor: color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 };
             const bigIcon = { path: google.maps.SymbolPath.CIRCLE, scale: normalScale * MARKER_SCALE_UP_RATIO, fillColor: color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 };
             let labelConfig;
             if (isHotel) {
-                labelConfig = { text: '🛏️', fontSize: '13px' };
+                labelConfig = isPreviousNightHotel
+                    ? { text: '昨', color: '#fff', fontWeight: '700', fontSize: '10px' }
+                    : { text: '🛏️', fontSize: '13px' };
             } else if (isFlight) {
                 labelConfig = { text: '✈️', fontSize: '13px' }; // 機場銜接點, 不編 A/B/C 字母, 避免跟真正的景點順序混在一起
             } else {
                 labelConfig = { text: String.fromCharCode(65 + Math.min(letterIndex, 25)), color: '#fff', fontWeight: '700', fontSize: '11px' };
                 letterIndex++;
             }
-            const marker = new google.maps.Marker({ position: pos, map: inst.map, title: p.name, label: labelConfig, icon: normalIcon });
+            const dayLabel = document.querySelector(`#tab-${idid} .day-tab-label`);
+            const selectedDayNumber = dayLabel ? parseInt(dayLabel.textContent.replace(/[^0-9]/g, ''), 10) : NaN;
+            const markerTitle = isPreviousNightHotel
+                ? `前一晚住宿（Day ${Number.isFinite(selectedDayNumber) ? Math.max(1, selectedDayNumber - 1) : '前一天'}）：${p.name}`
+                : p.name;
+            const marker = new google.maps.Marker({ position: pos, map: inst.map, title: markerTitle, label: labelConfig, icon: normalIcon });
             marker.set('normalIcon', normalIcon);
             marker.set('bigIcon', bigIcon);
             inst.markers.push(marker);
@@ -3098,7 +3117,7 @@
                 }
             });
             marker.addListener('click', () => {
-                const typeGuess = poi.category === '餐廳' ? 'meal' : (poi.category === '飯店' ? 'hotel' : 'attraction');
+                const typeGuess = poiCategoryToItemType(poi.category);
                 const content = document.createElement('div');
                 content.style.cssText = 'padding:2px;font-family:inherit;';
                 content.innerHTML = `

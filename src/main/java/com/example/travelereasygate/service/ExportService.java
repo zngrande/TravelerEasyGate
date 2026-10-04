@@ -84,6 +84,7 @@ public class ExportService {
         try (XWPFDocument doc = new XWPFDocument()) {
             addTitlePage(doc, itinerary, isB2B, palette);
             if (options.includeItinerary) {
+                addFlightSummary(doc, itinerary.getITID());
                 addDaysContent(doc, itinerary.getITID(), itinerary.getAID(), palette, options);
             }
             if (isB2B) {
@@ -168,6 +169,7 @@ public class ExportService {
             // 標題後面, 下面的內容清單完全跳過這些項目, 不會再用「【交通】」標籤混在景點/餐廳裡面。
             String transportTitles = items.stream()
                     .filter(item -> "transport".equals(item.getItemType()))
+                    .filter(item -> !isFlightTransport(item))
                     .map(ItineraryItem::getCustomName)
                     .filter(n -> n != null && !n.isBlank())
                     .collect(java.util.stream.Collectors.joining("、"));
@@ -394,5 +396,51 @@ public class ExportService {
         run.setBold(header);
         if (header) run.setColor("FFFFFF");
         if (header) cell.setColor("2563EB");
+    }
+
+    /** 客戶版與同業版共用的參考航班區塊，放在標題頁後、每日行程前。 */
+    private void addFlightSummary(XWPFDocument doc, int ITID) {
+        List<ItineraryItem> flights = itineraryService.getDays(ITID).stream()
+                .flatMap(day -> itineraryService.getItems(day.getIDID()).stream())
+                .filter(this::isFlightTransport)
+                .toList();
+        if (flights.isEmpty()) return;
+
+        XWPFParagraph heading = doc.createParagraph();
+        XWPFRun headingRun = heading.createRun();
+        headingRun.setText("參考航班");
+        headingRun.setBold(true);
+        headingRun.setFontSize(15);
+        headingRun.setColor("0369A1");
+
+        XWPFTable table = doc.createTable(flights.size() + 1, 5);
+        setCell(table, 0, 0, "方向", true);
+        setCell(table, 0, 1, "航班", true);
+        setCell(table, 0, 2, "出發地", true);
+        setCell(table, 0, 3, "目的地", true);
+        setCell(table, 0, 4, "起飛 / 抵達", true);
+        int row = 1;
+        for (ItineraryItem item : flights) {
+            String direction = "outbound".equals(item.getFlightDirection()) ? "去程"
+                    : ("return".equals(item.getFlightDirection()) ? "回程" : "航班");
+            String times = (item.getStartTime() == null ? "" : item.getStartTime().toString()) + " / "
+                    + (item.getEndTime() == null ? "" : item.getEndTime().toString());
+            setCell(table, row, 0, direction, false);
+            setCell(table, row, 1, item.getTransportNumber() == null ? "" : item.getTransportNumber(), false);
+            setCell(table, row, 2, item.getFromLocation() == null ? "" : item.getFromLocation(), false);
+            setCell(table, row, 3, item.getToLocation() == null ? "" : item.getToLocation(), false);
+            setCell(table, row, 4, times, false);
+            row++;
+        }
+        doc.createParagraph();
+    }
+
+    private boolean isFlightTransport(ItineraryItem item) {
+        String method = item.getTransportMethod() == null ? "" : item.getTransportMethod().trim().toLowerCase(java.util.Locale.ROOT);
+        String name = item.getCustomName() == null ? "" : item.getCustomName();
+        return "transport".equalsIgnoreCase(item.getItemType())
+                && (method.contains("飛機") || method.contains("航班") || method.contains("航空")
+                || method.contains("flight") || method.contains("plane") || method.contains("airplane")
+                || item.getFlightDirection() != null || name.contains("班機") || name.contains("航班"));
     }
 }

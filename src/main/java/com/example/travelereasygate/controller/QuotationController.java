@@ -271,7 +271,13 @@ public class QuotationController {
         model.addAttribute("itinerary", itinerary);
         List<QuotationLine> lines = quotationService.findLines(QID);
         model.addAttribute("lines", lines);
-        model.addAttribute("totals", quotationService.getTotals(QID));
+        Map<String, BigDecimal> totals = quotationService.getTotals(QID);
+        model.addAttribute("totals", totals);
+        Map<String, BigDecimal> perPersonTotals = new LinkedHashMap<>();
+        BigDecimal groupSize = BigDecimal.valueOf(Math.max(1, quotation.getGroupSize()));
+        totals.forEach((key, value) -> perPersonTotals.put(key,
+                value.divide(groupSize, 0, java.math.RoundingMode.HALF_UP)));
+        model.addAttribute("perPersonTotals", perPersonTotals);
         model.addAttribute("currencies", currencyOptionsForJs(AID));
         // 「新增報價項目」表單幣別欄位預設值: 記住這張報價單目前最後一筆項目用的幣別, 而不是每次都預設 TWD
         // (使用者回報「加入報價單的項目幣別會跟上一筆加入的幣別一樣」這個行為不見了——這裡補回來)。

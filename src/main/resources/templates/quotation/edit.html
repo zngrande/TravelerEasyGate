@@ -558,6 +558,18 @@
                         <td class="num" style="color:var(--green);" th:text="${#numbers.formatDecimal(totals.get('profitRetail'), 0, 'COMMA', 0, 'POINT')}"></td>
                         <td th:if="${canEdit}"></td>
                     </tr>
+                    <tr style="background:#f8fafc;font-weight:700;">
+                        <td th:attr="colspan=${canEdit} ? 7 : 6">每人（合計 ÷ <span th:text="${quotation.groupSize}"></span> 人）</td>
+                        <td class="num" th:text="${#numbers.formatDecimal(perPersonTotals.get('grossCost'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(perPersonTotals.get('netCost'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(perPersonTotals.get('basicPrice'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(perPersonTotals.get('tradePrice'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(perPersonTotals.get('retailPrice'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(perPersonTotals.get('rebateAmount'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(perPersonTotals.get('profitTrade'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td class="num" th:text="${#numbers.formatDecimal(perPersonTotals.get('profitRetail'), 0, 'COMMA', 0, 'POINT')}"></td>
+                        <td th:if="${canEdit}"></td>
+                    </tr>
                     </tfoot>
                 </table>
             </div>
