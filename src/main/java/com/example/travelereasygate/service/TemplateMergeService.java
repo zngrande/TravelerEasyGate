@@ -105,9 +105,11 @@ public class TemplateMergeService {
      */
     public byte[] merge(byte[] templateBytes, TemplateData data) throws Exception {
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(templateBytes))) {
+            boolean hasReferenceFlightTokens = hasAnyFlightPlaceholder(doc);
             // 參考航班欄位常被 Word 拆成多個 run，直接合併儲存格內的文字再替換，避免只得到空白。
             replaceFlightPlaceholdersInTables(doc, data.simpleValues());
             replaceAllPlaceholders(doc, data.simpleValues());
+            if (!hasReferenceFlightTokens) insertReferenceFlightFallback(doc, data.simpleValues());
             expandDayBlock(doc, data.days());
             insertImagesBlock(doc, data.images());
 
@@ -115,6 +117,92 @@ public class TemplateMergeService {
             doc.write(out);
             return out.toByteArray();
         }
+    }
+
+    /** 舊版自訂 Word 範本沒有航班佔位符時，仍在每日行程前插入參考航班資料。 */
+    private boolean hasAnyFlightPlaceholder(XWPFDocument doc) {
+        List<String> tokens = List.of("{{outbound_departure_airport}}", "{{outbound_arrival_airport}}",
+                "{{outbound_departure_time}}", "{{outbound_arrival_time}}", "{{return_departure_airport}}",
+                "{{return_arrival_airport}}", "{{return_departure_time}}", "{{return_arrival_time}}");
+        return bodyHasFlightToken(doc, tokens);
+    }
+
+    private boolean bodyHasFlightToken(IBody body, List<String> tokens) {
+        for (XWPFParagraph paragraph : body.getParagraphs()) {
+            String text = paragraph.getRuns().stream().map(run -> run.getText(0))
+                    .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.joining());
+            if (tokens.stream().anyMatch(text::contains)) return true;
+        }
+        for (XWPFTable table : body.getTables()) {
+            for (XWPFTableRow row : table.getRows()) {
+                for (XWPFTableCell cell : row.getTableCells()) {
+                    if (bodyHasFlightToken(cell, tokens)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void insertReferenceFlightFallback(XWPFDocument doc, Map<String, String> values) {
+        List<String> rows = new ArrayList<>();
+        addFlightFallbackRow(rows, "去程", values, "outbound");
+        addFlightFallbackRow(rows, "回程", values, "return");
+        if (rows.isEmpty()) return;
+
+        // 若自訂範本已經有「參考航班」標題，沿用該區塊，不要再自動多生一個同名標題。
+        XWPFParagraph existingHeading = findParagraphContaining(doc, "參考航班");
+        XWPFParagraph marker = existingHeading == null ? findParagraphByExactText(doc, "{{images_block}}") : null;
+        if (marker == null && existingHeading == null) marker = findParagraphByExactText(doc, "{{day_start}}");
+        XWPFParagraph heading = existingHeading;
+        if (heading == null && marker != null && doc.getPosOfParagraph(marker) >= 0) {
+            XmlCursor cursor = marker.getCTP().newCursor();
+            heading = doc.insertNewParagraph(cursor);
+            cursor.dispose();
+        } else if (heading == null) {
+            heading = doc.createParagraph();
+        }
+        if (existingHeading == null) {
+            XWPFRun title = heading.createRun();
+            title.setText("參考航班");
+            title.setBold(true);
+            title.setColor("0369A1");
+            title.setFontSize(13);
+        } else {
+            // 現有標題下的首個段落作為插入點，令航班值出現在範本既有的參考航班區。
+            List<XWPFParagraph> paragraphs = doc.getParagraphs();
+            int headingIndex = paragraphs.indexOf(existingHeading);
+            if (headingIndex >= 0 && headingIndex + 1 < paragraphs.size()) marker = paragraphs.get(headingIndex + 1);
+            else marker = null;
+        }
+        for (String row : rows) {
+            XWPFParagraph paragraph;
+            if (marker != null && doc.getPosOfParagraph(marker) >= 0) {
+                XmlCursor cursor = marker.getCTP().newCursor();
+                paragraph = doc.insertNewParagraph(cursor);
+                cursor.dispose();
+            } else {
+                paragraph = doc.createParagraph();
+            }
+            paragraph.createRun().setText(row);
+        }
+    }
+
+    private XWPFParagraph findParagraphContaining(XWPFDocument doc, String text) {
+        for (XWPFParagraph paragraph : doc.getParagraphs()) {
+            String fullText = paragraph.getRuns().stream().map(run -> run.getText(0))
+                    .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.joining());
+            if (fullText.contains(text)) return paragraph;
+        }
+        return null;
+    }
+
+    private void addFlightFallbackRow(List<String> rows, String direction, Map<String, String> values, String prefix) {
+        String from = emptyIfNull(values.get(prefix + "_departure_airport"));
+        String to = emptyIfNull(values.get(prefix + "_arrival_airport"));
+        String depart = emptyIfNull(values.get(prefix + "_departure_time"));
+        String arrive = emptyIfNull(values.get(prefix + "_arrival_time"));
+        if (from.isBlank() && to.isBlank() && depart.isBlank() && arrive.isBlank()) return;
+        rows.add(direction + "：" + from + " " + depart + " → " + to + " " + arrive);
     }
 
     // 「參考航班」摘要用的單一航段資料 (見下方蒐集邏輯的說明)。flightNo: 這段航班在看板上填的航班編號
@@ -187,7 +275,7 @@ public class TemplateMergeService {
                     routeText = routes.stream()
                             .filter(r -> r.getFromItemId() == item.getIIID())
                             .findFirst()
-                            .map(r -> (r.isBacktrack() ? "⚠ 疑似迴頭路 · " : "🚗 ") + "約 " + r.getDistanceKm()
+                            .map(r -> (r.isBacktrack() ? "⚠ 疑似回頭路 · " : "🚗 ") + "約 " + r.getDistanceKm()
                                     + " 公里，車程約 " + r.getDurationMin() + " 分鐘")
                             .orElse(null);
                 }

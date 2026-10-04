@@ -52,6 +52,7 @@ public class PoiController {
         if (!canEditItinerary(session)) return "redirect:/agency/dashboard";
 
         model.addAttribute("pois", poiService.search(AID, keyword, category, location));
+        model.addAttribute("categories", poiService.listCategories(AID));
         model.addAttribute("keyword", keyword);
         model.addAttribute("category", category);
         model.addAttribute("location", location);
@@ -78,6 +79,8 @@ public class PoiController {
                           @RequestParam(required = false) BigDecimal longitude,
                           @RequestParam(required = false) Integer suggestedStayMin,
                           @RequestParam(required = false) String description,
+                          @RequestParam(required = false) List<String> travelStyleTags,
+                          @RequestParam(defaultValue = "false") boolean partnerPriority,
                           @RequestParam(required = false) BigDecimal agencyPrice,
                           @RequestParam(required = false) String supplierContact,
                           @RequestParam(required = false) String supplierNotes,
@@ -90,6 +93,8 @@ public class PoiController {
         poi.setOriginalName(originalName);
         if (suggestedStayMin != null) poi.setSuggestedStayMin(suggestedStayMin);
         poi.setDescription(description);
+        poi.setTravelStyleTags(normalizeTravelStyleTags(travelStyleTags));
+        poi.setPartnerPriority(partnerPriority);
         poi.setAgencyPrice(agencyPrice);
         poi.setSupplierContact(supplierContact);
         poi.setSupplierNotes(supplierNotes);
@@ -240,6 +245,8 @@ public class PoiController {
                         @RequestParam(required = false) BigDecimal longitude,
                         @RequestParam(required = false) Integer suggestedStayMin,
                         @RequestParam(required = false) String description,
+                        @RequestParam(required = false) List<String> travelStyleTags,
+                        @RequestParam(defaultValue = "false") boolean partnerPriority,
                         @RequestParam(required = false) BigDecimal agencyPrice,
                         @RequestParam(required = false) String supplierContact,
                         @RequestParam(required = false) String supplierNotes,
@@ -279,6 +286,8 @@ public class PoiController {
             copy.setOriginalName(originalName);
             copy.setSuggestedStayMin(suggestedStayMin);
             copy.setDescription(description);
+            copy.setTravelStyleTags(normalizeTravelStyleTags(travelStyleTags));
+            copy.setPartnerPriority(partnerPriority);
             copy.setAgencyPrice(agencyPrice);
             copy.setSupplierContact(supplierContact);
             copy.setSupplierNotes(supplierNotes);
@@ -294,6 +303,8 @@ public class PoiController {
         original.setAddress(address);
         original.setSuggestedStayMin(suggestedStayMin);
         original.setDescription(description);
+        original.setTravelStyleTags(normalizeTravelStyleTags(travelStyleTags));
+        original.setPartnerPriority(partnerPriority);
         original.setAgencyPrice(agencyPrice);
         original.setSupplierContact(supplierContact);
         original.setSupplierNotes(supplierNotes);
@@ -302,6 +313,13 @@ public class PoiController {
 
         poiService.save(original);
         return "redirect:/poi/" + PID + "/edit";
+    }
+
+    private String normalizeTravelStyleTags(List<String> tags) {
+        if (tags == null) return "";
+        return tags.stream().filter(java.util.Objects::nonNull)
+                .map(String::trim).filter(java.util.Set.of("親子旅遊", "奢華旅遊", "輕鬆旅遊", "美食旅遊", "自然景觀", "文化歷史", "購物行程", "冒險體驗", "銀髮慢遊")::contains)
+                .distinct().collect(java.util.stream.Collectors.joining("、"));
     }
 
     // POST /poi/{id}/delete → 刪除景點

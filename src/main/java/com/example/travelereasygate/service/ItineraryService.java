@@ -216,7 +216,8 @@ public class ItineraryService {
 
     public Itinerary createItineraryWithAiPlan(int AID, int createdBy, String title, String country, String region,
                                                int daysCount, LocalDate startDate, List<String> dayCities,
-                                               Set<Integer> flightDayNumbers) {
+                                               Set<Integer> flightDayNumbers, List<Integer> mustVisitPoiIds,
+                                               List<String> preferredStyles) {
         Itinerary itinerary = createItinerary(AID, createdBy, title, country, region, daysCount, startDate, dayCities);
 
         List<Poi> candidates;
@@ -247,6 +248,14 @@ public class ItineraryService {
             // 從 log 就能直接看到這次到底查了什麼條件、查到幾筆, 不用再靠猜的。
             LOGGER.info("AI 安排行程：查無候選景點, 建立空白行程 (ITID={}, AID={}, country={}, region={})",
                     itinerary.getITID(), AID, country, region);
+            try {
+                addNonDatabaseFallbackItems(itinerary.getITID(), country, region, flightDayNumbers, preferredStyles);
+                autoArrangeItinerary(itinerary.getITID(), "meal_time");
+                trimDaysExceedingCutoff(itineraryDayDAO.findByItinerary(itinerary.getITID()));
+            } catch (Exception e) {
+                LOGGER.warn("AI 安排行程：資料庫無景點時生成自訂候選失敗 (ITID={}): {}",
+                        itinerary.getITID(), e.toString(), e);
+            }
             return itinerary; // 這個國家在資料庫裡完全沒有景點, 保持空白行程讓使用者自己排
         }
         // 候選景點查詢有找到東西時也留一筆 log (跟上面查無候選那筆搭配), 這樣如果之後行程還是排不出來,
@@ -279,8 +288,12 @@ public class ItineraryService {
                     autoDayNumbers.add(day.getDayNumber());
                 }
             }
+            List<String> selectedCityTokens = splitCityTokens(region);
+            // 使用者選城市時的順序只當作路線起點；其餘城市依資料庫景點座標的城市中心做最近鄰排序，
+            // 避免選了 A、B、C 卻明顯應該走 A、C、B 時仍照選取順序逐段排天數。
+            List<String> routeOrderedCities = orderCityTokensByProximity(selectedCityTokens, candidates);
             Map<Integer, List<String>> autoAssignedCities =
-                    distributeCitiesAcrossDays(splitCityTokens(region), new ArrayList<>(autoDayNumbers));
+                    distributeCitiesAcrossDays(routeOrderedCities, new ArrayList<>(autoDayNumbers));
 
             Map<Integer, List<String>> cityTokensByDay = new HashMap<>();
             Map<Integer, List<Poi>> candidatesByDay = new HashMap<>();
@@ -311,23 +324,69 @@ public class ItineraryService {
                 candidatesByDay.put(day.getDayNumber(), dayCandidates);
             }
 
+            // 使用者指定的必排行程不能交由 AI 決定是否省略：先依 POI 所屬城市放入對應日候選；
+            // 無法比對城市時放到第一個有景點候選的非航班日，後續再強制併入 AI 結果。
+            Map<Integer, List<Integer>> requiredPidsByDay = new HashMap<>();
+            if (mustVisitPoiIds != null) {
+                for (Integer requiredPid : mustVisitPoiIds.stream().filter(java.util.Objects::nonNull).distinct().toList()) {
+                    Poi requiredPoi = candidates.stream().filter(p -> p.getPID() == requiredPid).findFirst().orElse(null);
+                    if (requiredPoi == null) continue;
+                    ItineraryDay destinationDay = days.stream().filter(d -> {
+                        List<String> tokens = cityTokensByDay.getOrDefault(d.getDayNumber(), List.of());
+                        return !tokens.isEmpty() && requiredPoi.getCity() != null
+                                && tokens.stream().anyMatch(token -> requiredPoi.getCity().contains(token));
+                    }).findFirst().orElseGet(() -> days.stream()
+                            .filter(d -> candidatesByDay.containsKey(d.getDayNumber())
+                                    && !candidatesByDay.get(d.getDayNumber()).isEmpty())
+                            .findFirst().orElse(null));
+                    if (destinationDay == null) continue;
+                    List<Poi> dayCandidates = candidatesByDay.get(destinationDay.getDayNumber());
+                    if (dayCandidates.stream().noneMatch(p -> p.getPID() == requiredPid)) dayCandidates.add(requiredPoi);
+                    requiredPidsByDay.computeIfAbsent(destinationDay.getDayNumber(), ignored -> new ArrayList<>()).add(requiredPid);
+                }
+            }
+
             // AI prompt 用的候選清單依類別各自再抽樣一次上限 (單一天候選數量通常已經比整個國家的候選少很多,
             // 但候選很多的大城市還是可能超過上限, 保險起見沿用跟原本一樣的抽樣邏輯, 見 buildAiCandidatePool)。
             // 逐天餐廳/飯店自動補位仍然用 candidatesByDay 裡完整的清單, 不受這個上限影響。
             Map<Integer, List<Poi>> aiPoolByDay = new HashMap<>();
             for (ItineraryDay day : days) {
-                aiPoolByDay.put(day.getDayNumber(), buildAiCandidatePool(candidatesByDay.get(day.getDayNumber())));
+                List<Poi> pool = buildAiCandidatePool(candidatesByDay.get(day.getDayNumber()));
+                for (Integer requiredPid : requiredPidsByDay.getOrDefault(day.getDayNumber(), List.of())) {
+                    candidatesByDay.get(day.getDayNumber()).stream().filter(p -> p.getPID() == requiredPid)
+                            .findFirst().ifPresent(p -> { if (pool.stream().noneMatch(x -> x.getPID() == requiredPid)) pool.add(p); });
+                }
+                // 合作廠商景點不受 AI 候選抽樣上限影響，確保 AI 能看到並優先考慮。
+                for (Poi poi : candidatesByDay.get(day.getDayNumber())) {
+                    if (poi.isPartnerPriority() && pool.stream().noneMatch(existing -> existing.getPID() == poi.getPID())) pool.add(poi);
+                }
+                aiPoolByDay.put(day.getDayNumber(), pool);
             }
 
-            Map<Integer, List<Integer>> plan = planDaysWithAiPerDay(country, days, cityTokensByDay, aiPoolByDay);
+            List<String> safeStyles = preferredStyles == null ? List.of() : preferredStyles.stream()
+                    .filter(java.util.Set.of("親子旅遊", "奢華旅遊", "輕鬆旅遊", "美食旅遊", "自然景觀", "文化歷史", "購物行程", "冒險體驗", "銀髮慢遊")::contains).distinct().toList();
+            if (!safeStyles.isEmpty()) {
+                for (ItineraryDay day : days) {
+                    List<Poi> pool = aiPoolByDay.get(day.getDayNumber());
+                    for (Poi poi : candidatesByDay.get(day.getDayNumber())) {
+                        String tags = poi.getTravelStyleTags() == null ? "" : poi.getTravelStyleTags();
+                        if (safeStyles.stream().anyMatch(tags::contains)
+                                && pool.stream().noneMatch(existing -> existing.getPID() == poi.getPID())) pool.add(poi);
+                    }
+                }
+            }
+            Map<Integer, List<Integer>> plan = planDaysWithAiPerDay(country, days, cityTokensByDay, aiPoolByDay, safeStyles);
             if (plan.isEmpty()) return itinerary; // AI 沒排出任何結果, 一樣退回空白行程
 
             Map<Integer, Poi> candidateByPid = new HashMap<>();
             for (Poi poi : candidates) candidateByPid.put(poi.getPID(), poi);
 
             for (ItineraryDay day : days) {
-                List<Integer> pids = plan.get(day.getDayNumber());
-                if (pids == null) continue;
+                List<Integer> pids = new ArrayList<>(plan.getOrDefault(day.getDayNumber(), List.of()));
+                for (Integer requiredPid : requiredPidsByDay.getOrDefault(day.getDayNumber(), List.of())) {
+                    if (!pids.contains(requiredPid)) pids.add(0, requiredPid);
+                }
+                if (pids.isEmpty()) continue;
                 // 防呆: 只採用「這天自己的 AI 候選池」裡出現過的 pid —— 就算 AI 沒有乖乖照系統提示詞的規則、
                 // 把別天的候選 pid 排進這天, 這裡也會直接濾掉, 不會讓景點錯誤地出現在不屬於它的城市那一天。
                 Set<Integer> allowedPids = aiPoolByDay.get(day.getDayNumber()).stream()
@@ -356,6 +415,8 @@ public class ItineraryService {
                             poi.getName(), poi.getSuggestedStayMin());
                 }
             }
+
+            addSparseDatabaseFallbackItems(days, candidatesByDay, flightDayNumbers, preferredStyles, daysCount);
 
             // AI 排出來的初稿不保證每天都有正確的三餐、剛好 1 間住宿——使用者反映過幾個常見的「怪」狀況：
             // (1) 明明候選餐廳數量足夠, AI 卻常常一天只排 1 餐, 不是每餐都排;
@@ -392,7 +453,7 @@ public class ItineraryService {
                 // 照系統提示詞只排 2 個, 只留前 2 個 (依原本排序當作午餐/晚餐), 其餘刪掉——確保最後結果一定是
                 // 「早餐 (預留) + 午餐 + 晚餐」剛好 3 筆。
                 List<ItineraryItem> realMeals = itineraryItemDAO.findByDay(day.getIDID()).stream()
-                        .filter(item -> "meal".equals(item.getItemType()) && item.getPID() != null)
+                        .filter(item -> "meal".equals(item.getItemType()) && !"breakfast".equals(item.getTimeSlot()))
                         .collect(java.util.stream.Collectors.toList());
                 if (realMeals.size() > 2) {
                     // Patch 84: 這裡要刪的這幾筆餐廳是透過上面 addItem() 加進來的 (line 354-357)——
@@ -524,6 +585,122 @@ public class ItineraryService {
         return itinerary;
     }
 
+    /** 資料庫沒有目的地 POI 時，請 AI 產生可地理編碼的自訂項目，避免直接留下空白天數。 */
+    private void addNonDatabaseFallbackItems(int ITID, String country, String region,
+                                             Set<Integer> flightDayNumbers, List<String> preferredStyles) throws Exception {
+        List<ItineraryDay> days = itineraryDayDAO.findByItinerary(ITID);
+        List<Integer> openDays = days.stream().map(ItineraryDay::getDayNumber)
+                .filter(n -> flightDayNumbers == null || !flightDayNumbers.contains(n)).toList();
+        Map<Integer, List<String>> autoCities = distributeCitiesAcrossDays(splitCityTokens(region), openDays);
+        StringBuilder dayLocations = new StringBuilder();
+        for (ItineraryDay day : days) {
+            if (flightDayNumbers != null && flightDayNumbers.contains(day.getDayNumber())) continue;
+            List<String> cities = splitCityTokens(day.getPlannedCities());
+            if (cities.isEmpty()) cities = autoCities.getOrDefault(day.getDayNumber(), splitCityTokens(region));
+            dayLocations.append("Day ").append(day.getDayNumber()).append(" 城市：")
+                    .append(cities.isEmpty() ? (region == null || region.isBlank() ? country : region) : String.join("、", cities))
+                    .append("\n");
+        }
+        String styles = preferredStyles == null || preferredStyles.isEmpty() ? "一般旅遊" : String.join("、", preferredStyles);
+        String prompt = "目的地國家：" + country + "\n旅遊風格：" + styles + "\n每天城市：\n" + dayLocations
+                + "請為每個列出的非交通日建立真實合理、可以在地圖搜尋的自訂行程。每一天至少安排 2 個景點、午餐、晚餐；"
+                + "除了最後一天外安排 1 間住宿。盡量使用不同地點，不要用『自由活動』或空白佔位文字。只回傳 JSON："
+                + "{\"days\":[{\"day\":1,\"items\":[{\"type\":\"attraction|meal|hotel\",\"name\":\"地點名稱\",\"stay_min\":60}]}]}";
+        String response = anthropicClient.complete("你是熟悉目的地的旅行規劃助手。只產生確實存在、可搜尋定位的公開景點、餐廳和飯店；回應必須是 JSON。",
+                prompt, 6000);
+        JsonNode root = objectMapper.readTree(extractJsonObject(stripCodeFence(response)));
+        Set<String> usedNames = new java.util.HashSet<>();
+        for (JsonNode dayNode : root.path("days")) {
+            int dayNumber = dayNode.path("day").asInt();
+            ItineraryDay day = days.stream().filter(d -> d.getDayNumber() == dayNumber).findFirst().orElse(null);
+            if (day == null || (flightDayNumbers != null && flightDayNumbers.contains(dayNumber))) continue;
+            for (JsonNode itemNode : dayNode.path("items")) {
+                String name = itemNode.path("name").asText("").trim();
+                String type = itemNode.path("type").asText("").trim().toLowerCase(java.util.Locale.ROOT);
+                if (name.isBlank() || !usedNames.add(name.toLowerCase(java.util.Locale.ROOT))) continue;
+                String itemType = switch (type) {
+                    case "meal", "restaurant" -> "meal";
+                    case "hotel", "lodging" -> "hotel";
+                    case "attraction", "poi" -> "attraction";
+                    default -> null;
+                };
+                if (itemType == null || ("hotel".equals(itemType) && dayNumber == daysCount(days))) continue;
+                int stay = Math.max(30, Math.min(600, itemNode.path("stay_min").asInt(60)));
+                addCustomItem(day.getIDID(), itemType, name, stay, null);
+            }
+        }
+    }
+
+    private int daysCount(List<ItineraryDay> days) {
+        return days.stream().mapToInt(ItineraryDay::getDayNumber).max().orElse(0);
+    }
+
+    /** 某城市資料庫種類不足時，AI 只補不足的類別，避免用同一間餐廳或空白項目重複填滿。 */
+    private void addSparseDatabaseFallbackItems(List<ItineraryDay> days, Map<Integer, List<Poi>> candidatesByDay,
+                                                Set<Integer> flightDayNumbers, List<String> preferredStyles,
+                                                int totalDays) throws Exception {
+        Map<Integer, Map<String, Integer>> deficits = new LinkedHashMap<>();
+        for (ItineraryDay day : days) {
+            int dayNumber = day.getDayNumber();
+            if (flightDayNumbers != null && flightDayNumbers.contains(dayNumber)) continue;
+            List<Poi> candidates = candidatesByDay.getOrDefault(dayNumber, List.of());
+            if (candidates.isEmpty()) continue;
+            List<ItineraryItem> existing = itineraryItemDAO.findByDay(day.getIDID());
+            Map<String, Integer> missing = new LinkedHashMap<>();
+            long attractionPool = candidates.stream().filter(p -> "景點".equals(p.getCategory())).count();
+            long attractionCount = existing.stream().filter(i -> "attraction".equals(i.getItemType())).count();
+            if (attractionPool < 2 && attractionCount < 2) missing.put("attraction", (int) (2 - attractionCount));
+            long restaurantPool = candidates.stream().filter(p -> "餐廳".equals(p.getCategory())).count();
+            long mealCount = existing.stream().filter(i -> "meal".equals(i.getItemType())
+                    && !"breakfast".equals(i.getTimeSlot())).count();
+            if (restaurantPool < 2 && mealCount < 2) missing.put("meal", (int) (2 - mealCount));
+            long hotelPool = candidates.stream().filter(p -> "飯店".equals(p.getCategory())).count();
+            boolean hasHotel = existing.stream().anyMatch(i -> "hotel".equals(i.getItemType()));
+            if (dayNumber < totalDays && hotelPool == 0 && !hasHotel) missing.put("hotel", 1);
+            if (!missing.isEmpty()) deficits.put(dayNumber, missing);
+        }
+        if (deficits.isEmpty()) return;
+
+        StringBuilder request = new StringBuilder("目的地：").append(days.isEmpty() ? "" : itineraryDAO.findById(days.get(0).getITID()).getCountry())
+                .append("\n旅行風格：").append(preferredStyles == null || preferredStyles.isEmpty()
+                        ? "一般旅遊" : String.join("、", preferredStyles)).append("\n需要補足的日期與類別：\n");
+        for (Map.Entry<Integer, Map<String, Integer>> entry : deficits.entrySet()) {
+            ItineraryDay day = days.stream().filter(d -> d.getDayNumber() == entry.getKey()).findFirst().orElse(null);
+            request.append("Day ").append(entry.getKey()).append("，城市：")
+                    .append(day == null ? "目的地" : (day.getPlannedCities() == null ? "目的地" : day.getPlannedCities()))
+                    .append("，需要：").append(entry.getValue()).append("\n");
+        }
+        String response = anthropicClient.complete(
+                "你是熟悉當地的旅行規劃助手。僅推薦真實存在、可用 Google 地圖搜尋的景點、餐廳和飯店；同一天不要重複同一家店。只輸出 JSON。",
+                request + "依照每一天指定的城市和缺少數量補上自訂項目。只回傳格式："
+                        + "{\"days\":[{\"day\":1,\"items\":[{\"type\":\"attraction|meal|hotel\",\"name\":\"地點\",\"stay_min\":60}]}]}", 3500);
+        JsonNode root = objectMapper.readTree(extractJsonObject(stripCodeFence(response)));
+        Set<String> existingNames = days.stream().flatMap(d -> itineraryItemDAO.findByDay(d.getIDID()).stream())
+                .map(ItineraryItem::getCustomName).filter(java.util.Objects::nonNull)
+                .map(n -> n.toLowerCase(java.util.Locale.ROOT)).collect(java.util.stream.Collectors.toSet());
+        for (JsonNode dayNode : root.path("days")) {
+            int dayNumber = dayNode.path("day").asInt();
+            Map<String, Integer> missing = deficits.get(dayNumber);
+            ItineraryDay day = days.stream().filter(d -> d.getDayNumber() == dayNumber).findFirst().orElse(null);
+            if (day == null || missing == null) continue;
+            for (JsonNode itemNode : dayNode.path("items")) {
+                String rawType = itemNode.path("type").asText("").toLowerCase(java.util.Locale.ROOT);
+                String type = switch (rawType) {
+                    case "attraction", "poi" -> "attraction";
+                    case "meal", "restaurant" -> "meal";
+                    case "hotel", "lodging" -> "hotel";
+                    default -> null;
+                };
+                if (type == null || missing.getOrDefault(type, 0) <= 0) continue;
+                String name = itemNode.path("name").asText("").trim();
+                if (name.isBlank() || !existingNames.add(name.toLowerCase(java.util.Locale.ROOT))) continue;
+                int stay = Math.max(30, Math.min(600, itemNode.path("stay_min").asInt(60)));
+                addCustomItem(day.getIDID(), type, name, stay, null);
+                missing.compute(type, (key, count) -> count == null ? 0 : count - 1);
+            }
+        }
+    }
+
     // 把資料庫裡的 POI 分類 (中文: 景點/餐廳/飯店/休息站/機場/交通/購物, 使用者要求資料庫維持中文,
     // 不要轉成英文) 轉成行程項目的分類 (attraction/meal/hotel/..., 這個是 itinerary_item.item_type
     // 欄位, 跟 poi.category 是兩個獨立的欄位, item_type 維持英文), 跟前端地圖上「點灰色建議標記
@@ -628,6 +805,61 @@ public class ItineraryService {
                 .filter(s -> !s.isEmpty())
                 .distinct()
                 .collect(java.util.stream.Collectors.toList());
+    }
+
+    private List<String> orderCityTokensByProximity(List<String> tokens, List<Poi> candidates) {
+        if (tokens == null || tokens.size() < 3 || candidates == null || candidates.isEmpty()) {
+            return tokens == null ? List.of() : tokens;
+        }
+        Map<String, double[]> centers = new LinkedHashMap<>();
+        for (String token : tokens) {
+            double latSum = 0, lngSum = 0;
+            int count = 0;
+            for (Poi poi : candidates) {
+                if (poi.getCity() == null || !poi.getCity().contains(token)
+                        || poi.getLatitude() == null || poi.getLongitude() == null) continue;
+                latSum += poi.getLatitude().doubleValue();
+                lngSum += poi.getLongitude().doubleValue();
+                count++;
+            }
+            if (count > 0) centers.put(token, new double[]{latSum / count, lngSum / count});
+        }
+        if (centers.size() < 3) return tokens;
+
+        List<String> ordered = new ArrayList<>();
+        List<String> remaining = new ArrayList<>(tokens);
+        // 固定使用者第一個選取的城市當起點，對應行程出發地；後續城市依最近中心點排序。
+        String current = remaining.remove(0);
+        ordered.add(current);
+        while (!remaining.isEmpty()) {
+            double[] currentCenter = centers.get(current);
+            if (currentCenter == null) {
+                ordered.addAll(remaining);
+                break;
+            }
+            String nearest = null;
+            double bestDistance = Double.MAX_VALUE;
+            for (String candidate : remaining) {
+                double[] center = centers.get(candidate);
+                if (center == null) continue;
+                double distance = haversineCoordinatesKm(currentCenter[0], currentCenter[1], center[0], center[1]);
+                if (distance < bestDistance) { bestDistance = distance; nearest = candidate; }
+            }
+            if (nearest == null) { ordered.addAll(remaining); break; }
+            ordered.add(nearest);
+            remaining.remove(nearest);
+            current = nearest;
+        }
+        return ordered;
+    }
+
+    private double haversineCoordinatesKm(double lat1, double lng1, double lat2, double lng2) {
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double h = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return 2 * 6371.0 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
     }
 
     // 依「這天指定的城市」token 清單, 從候選景點裡篩出 city 欄位包含任一個 token 的地點
@@ -1116,7 +1348,8 @@ public class ItineraryService {
     // 在 JSON 前後夾帶解說文字甚至拒答」的問題, 也讓沒有指定城市的天 (candidates 是空陣列) 保證拿到
     // pids=[] 的結果, 不會被排入任何行程。
     private Map<Integer, List<Integer>> planDaysWithAiPerDay(String country, List<ItineraryDay> days,
-                                                             Map<Integer, List<String>> cityTokensByDay, Map<Integer, List<Poi>> candidatesByDay) throws Exception {
+                                                             Map<Integer, List<String>> cityTokensByDay, Map<Integer, List<Poi>> candidatesByDay,
+                                                             List<String> preferredStyles) throws Exception {
         String system = """
             你是旅遊行程規劃助手, 負責幫旅行社從「已有的景點/餐廳/飯店資料庫」裡挑選並安排出一份多天的行程初稿。
             使用者已經先幫每一天指定好「這天要去哪個/哪些城市」, 並且已經依城市把候選景點/餐廳/飯店篩好、
@@ -1134,6 +1367,8 @@ public class ItineraryService {
             - category=飯店 的每天恰好安排 1 個 (行程最後一天例外, 不需要安排飯店, 因為當天直接離開/返程)。
             - 同一個 pid 不要在同一天重複出現; 每個地點只放在最適合的一天就好, 不要漏掉候選清單裡看起來
               明顯必去的知名景點。
+            - 標記 partner_priority=true 的合作廠商景點應優先安排；若同天有多筆，挑最適合路線與主題者，不要重複或硬塞不合理地點。
+            - 如果候選項目有 style_tags 且符合使用者指定旅行風格，優先安排這些候選；不要為了風格犧牲城市範圍、營業時間與路線合理性。
             - 如果同一天指定了不只一個城市, 這天的 candidates 裡已經涵蓋這幾個城市的地點; 請依使用者指定
               城市的先後順序安排造訪順序 (先安排先指定的城市, 再安排後指定的城市)。
             - 只能輸出一個 JSON 物件, 不要有任何其他文字 (不要加開頭問候語、不要加結尾說明、不要用 markdown
@@ -1145,6 +1380,9 @@ public class ItineraryService {
 
         StringBuilder userContent = new StringBuilder();
         userContent.append("國家: ").append(country != null ? country : "未指定");
+        if (preferredStyles != null && !preferredStyles.isEmpty()) {
+            userContent.append("\n優先旅行風格: ").append(String.join("、", preferredStyles));
+        }
         userContent.append("\n總天數: ").append(days.size());
         userContent.append("\n逐天城市與候選清單:\n");
         for (ItineraryDay day : days) {
@@ -1170,6 +1408,8 @@ public class ItineraryService {
                 userContent.append("{\"pid\":").append(poi.getPID())
                         .append(",\"name\":\"").append(poi.getName() != null ? poi.getName().replace("\"", "") : "")
                         .append("\",\"category\":\"").append(poi.getCategory() != null ? poi.getCategory() : "景點")
+                        .append("\",\"style_tags\":\"").append(poi.getTravelStyleTags() != null ? poi.getTravelStyleTags() : "")
+                        .append("\",\"partner_priority\":").append(poi.isPartnerPriority())
                         .append("\",\"stay_min\":").append(poi.getSuggestedStayMin() != null ? poi.getSuggestedStayMin() : 60)
                         .append("}");
             }
@@ -1718,6 +1958,35 @@ public class ItineraryService {
     // 給看板顯示「兩點之間拉車距離/時間」與迴頭路警示用
     public List<com.example.travelereasygate.entity.RouteSegment> getRoutes(int IDID) {
         return routeSegmentDAO.findByDay(IDID);
+    }
+
+    /** 依新增項目插入每日路線所增加的最短距離，推薦最順路的日期。 */
+    public Map<String, Object> recommendDayForCoordinates(int ITID, double latitude, double longitude) {
+        Itinerary itinerary = itineraryDAO.findById(ITID);
+        if (itinerary == null) return Map.of();
+        int bestDay = -1;
+        double bestExtraKm = Double.MAX_VALUE;
+        for (ItineraryDay day : itineraryDayDAO.findByItinerary(ITID)) {
+            List<ItineraryItem> items = itineraryItemDAO.findByDay(day.getIDID());
+            double dayBest = Double.MAX_VALUE;
+            List<double[]> coords = items.stream().filter(i -> !"transport".equals(i.getItemType()))
+                    .map(this::resolveItemCoordinates).filter(java.util.Objects::nonNull).toList();
+            if (coords.isEmpty()) continue;
+            if (coords.size() == 1) {
+                dayBest = haversineKm(coords.get(0)[0], coords.get(0)[1], latitude, longitude);
+            } else {
+                for (int i = 0; i < coords.size() - 1; i++) {
+                    double[] a = coords.get(i), b = coords.get(i + 1);
+                    double extra = haversineKm(a[0], a[1], latitude, longitude)
+                            + haversineKm(latitude, longitude, b[0], b[1])
+                            - haversineKm(a[0], a[1], b[0], b[1]);
+                    dayBest = Math.min(dayBest, extra);
+                }
+            }
+            if (dayBest < bestExtraKm) { bestExtraKm = dayBest; bestDay = day.getDayNumber(); }
+        }
+        return bestDay < 0 ? Map.of() : Map.of("dayNumber", bestDay,
+                "extraDistanceKm", BigDecimal.valueOf(Math.max(0, bestExtraKm)).setScale(1, java.math.RoundingMode.HALF_UP));
     }
 
     // 更新這個行程匯出企劃書時要套用的模板風格 (wenqing/luxury/corporate/default)
@@ -2507,7 +2776,6 @@ public class ItineraryService {
         // 12:00 開始的午餐」這種時間倒退的狀況。早餐維持原本行為不變 (固定 08:00、固定插在最前面)——
         // 這次沒有回報過早餐有類似問題, 範圍先只收斂在午餐/晚餐。
         List<ItineraryItem> arranged = new ArrayList<>(anchors);
-        List<ItineraryItem> mealsToDelete = new ArrayList<>(); // Patch 74: 見上面 dayCutoff 說明
         for (ItineraryItem meal : mealsToPlace) {
             int insertIndex;
             java.time.LocalTime start;
@@ -2520,12 +2788,13 @@ public class ItineraryService {
                 java.time.LocalTime estimatedArrival = estimateArrivalTime(arranged, dayStart, insertIndex, meal);
                 start = estimatedArrival.isAfter(target) ? estimatedArrival : target;
 
-                // Patch 74: 早餐 (上面 if 分支) 排在最前面、代表出發前, 不受這個限制; 午餐/晚餐這裡
-                // 算出來的開始時間如果已經到了/超過回程班機的機場緩衝時間點, 代表排出來的位置已經在
-                // 回程班機當天要去機場之後——不能硬塞, 直接刪除這筆, 不要進 arranged。
+                // 排序操作不得刪除使用者建立的餐廳。若估算位置超過回程航班緩衝時間，移到航班前並保留。
                 if (dayCutoff != null && !start.isBefore(dayCutoff)) {
-                    mealsToDelete.add(meal);
-                    continue;
+                    int flightIndex = arranged.indexOf(departureFlightForCutoff);
+                    insertIndex = flightIndex >= 0 ? flightIndex : arranged.size();
+                    int duration = meal.getStayDurationMin() != null
+                            ? meal.getStayDurationMin() : defaultStayMinutes(meal.getItemType());
+                    start = dayCutoff.minusMinutes(duration);
                 }
             }
             int mealDur = meal.getStayDurationMin() != null ? meal.getStayDurationMin() : defaultStayMinutes(meal.getItemType());
@@ -2541,21 +2810,6 @@ public class ItineraryService {
             item.setSortOrder(i);
             itineraryItemDAO.save(item);
         }
-        if (!mealsToDelete.isEmpty()) {
-            // Patch 84: 使用者提供的 Railway 部署 log 顯示這裡實際跑出
-            // DataIntegrityViolationException（route_segment 的外鍵 from_item_id 擋住刪除）——這一天
-            // 如果先前已經呼叫過 recalculateRoutes() 算過拉車距離 (route_segment 表已經有連到這個項目的
-            // 快取列), 直接 itineraryItemDAO.deleteById() 會被那個外鍵擋下來。這個地雷 removeItem()
-            // (使用者在看板上手動刪除單一項目那個既有方法) 其實早就踩過、也已經修好了, 只是那次的修法
-            // 沒有同步套用到這裡——見 removeItem() 的註解「route_segment 的外鍵沒設 CASCADE, 有算過拉車
-            // 距離的項目直接刪會被擋」, 這裡比照同一套做法: 刪除項目之前先清掉這天的路段快取, 讓刪除本身
-            // 不會被外鍵擋住; 下面的 recalculateRoutes() 本來就會重新算出一份新的, 不會少算。
-            routeSegmentDAO.deleteByDay(IDID);
-            for (ItineraryItem meal : mealsToDelete) {
-                itineraryItemDAO.deleteById(meal.getIIID());
-            }
-        }
-
         recalculateRoutes(IDID);
     }
 

@@ -53,6 +53,8 @@ CREATE TABLE poi (
     suggested_stay_min INT DEFAULT 60,   -- 建議停留時間(分鐘)
     open_hours VARCHAR(255),             -- 可先存文字, 之後再拆表
     description TEXT,
+    travel_style_tags TEXT,
+    partner_priority BOOLEAN NOT NULL DEFAULT FALSE,
     star_rating DECIMAL(2,1),            -- 飯店用: 星等
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (AID) REFERENCES agency(AID)

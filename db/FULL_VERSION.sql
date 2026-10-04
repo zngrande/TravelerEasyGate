@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS poi (
     suggested_stay_min INT DEFAULT 60,
     open_hours VARCHAR(255),
     description TEXT,
+    travel_style_tags TEXT,
+    partner_priority BOOLEAN NOT NULL DEFAULT FALSE,
     star_rating DECIMAL(2,1),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (AID) REFERENCES agency(AID)

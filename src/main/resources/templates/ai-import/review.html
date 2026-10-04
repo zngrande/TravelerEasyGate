@@ -217,8 +217,9 @@
         }
         /* datetime-picker 會把隱藏的原生時間欄包成 .dtp-input-wrap。
            強制包裝層填滿欄位，否則圖示按鈕只有圖示寬度、看起來像時間輸入框消失。 */
-        .edit-form .dtp-input-wrap { display: block !important; width: 100% !important; }
-        .edit-form .dtp-trigger { width: 100%; }
+        .edit-form .edit-grid > div { min-width: 0; }
+        .edit-form .dtp-input-wrap { display: block !important; width: 100% !important; min-width: 0; }
+        .edit-form .dtp-trigger { display: flex; width: 100%; min-width: 0; box-sizing: border-box; }
         .matched-tag { font-size: 11px; background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 10px; }
         .unmatched-tag { font-size: 11px; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; }
         .note { color: var(--text-gray); font-size: 12px; margin-top: 4px; }
@@ -434,11 +435,11 @@
                             </div>
                             <div>
                                 <label>出發時間</label>
-                                <input type="time" name="departureTime" th:value="${item.departureTime}" />
+                                <input type="time" name="departureTime" th:value="${item.departureTime}" data-dtp-step="5" step="300" />
                             </div>
                             <div>
                                 <label>抵達時間</label>
-                                <input type="time" name="arrivalTime" th:value="${item.arrivalTime}" />
+                                <input type="time" name="arrivalTime" th:value="${item.arrivalTime}" data-dtp-step="5" step="300" />
                             </div>
                         </div>
 

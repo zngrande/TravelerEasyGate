@@ -14,6 +14,7 @@ public interface PoiDAO {
     // (比對 poi.country OR poi.city, LIKE), location 是使用者用 country_city_code 自動完成選出來的
     // 顯示名稱 (見 PoiController.list())。location 為 null/空字串時行為跟上面三參數版一致。
     List<Poi> searchByKeyword(Integer AID, String keyword, String category, String location);
+    List<String> findDistinctCategories(Integer AID);
     void deleteById(int PID);
 
     // 「建立新行程」頁面「目的地國家/地區」欄位自動完成用: 只列出公司景點資料庫「實際存在」的國家/城市

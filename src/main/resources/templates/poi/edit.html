@@ -22,10 +22,12 @@
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        /* 表單控制項使用與頁面相同的字族、字級與行高，避免新增欄位落回瀏覽器預設字型。 */
+        button, input, select, textarea { font: inherit; }
         html, body {
             width: 100%;
-            height: 100vh;
-            overflow: hidden; /* 整頁不捲動, 太長的內容改成各自區塊內部自己捲 */
+            min-height: 100%;
+            overflow-x: hidden;
         }
         body {
             font-family: 'Noto Sans TC', sans-serif;
@@ -36,12 +38,13 @@
         }
         a { text-decoration: none; color: inherit; }
 
-        /* 主內容工作區 (100% 滿版, 固定滿版高度不捲動) */
+        /* 主內容工作區；桌面版兩欄各自捲動，窄版則改為整頁自然捲動。 */
         .main-content {
             margin-left: var(--sidebar-width);
             width: calc(100vw - var(--sidebar-width));
             flex: 1;
             padding: 24px 36px;
+            min-height: 100vh;
             height: 100vh;
             overflow: hidden;
             display: flex;
@@ -77,7 +80,7 @@
            讓左右兩欄都能各自在內部捲動、不會把整頁撐高需要滾動。 */
         .poi-grid-layout {
             display: grid;
-            grid-template-columns: 1fr 400px;
+            grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
             gap: 24px;
             align-items: stretch;
             width: 100%;
@@ -127,6 +130,33 @@
         .form-row { display: flex; gap: 16px; }
         .form-row > .form-group { flex: 1; margin-bottom: 16px; }
         .form-label { display: block; font-size: 12.5px; font-weight: 600; color: #475569; margin-bottom: 5px; }
+        .poi-tag-options { display: flex; gap: 14px; flex-wrap: wrap; }
+        .poi-tag-option {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--text-dark);
+            font-size: 12.5px;
+            font-weight: 500;
+            line-height: 1.5;
+            cursor: pointer;
+        }
+        .poi-tag-option input { margin: 0; accent-color: var(--primary-blue); }
+        .poi-partner-option {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #92400e;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 8px;
+            padding: 9px 12px;
+            font-size: 13.5px;
+            font-weight: 600;
+            line-height: 1.5;
+            cursor: pointer;
+        }
+        .poi-partner-option input { width: 16px; height: 16px; margin: 0; accent-color: #f59e0b; }
         .form-control {
             width: 100%;
             padding: 9px 12px;
@@ -250,7 +280,7 @@
         .btn-close-panel { background: none; border: none; color: var(--text-gray); font-size: 13px; cursor: pointer; padding: 2px; }
         .btn-close-panel:hover { color: var(--text-dark); }
         /* 圖片跟資源庫兩個面板內容本來就短, 不用撐滿剩餘高度, 不然下面會空一大塊 */
-        #panelImages, #panelResource { flex: none; }
+        #panelImages, #panelResource { overflow-y: auto; overscroll-behavior: contain; }
 
         /* 危險操作固定顯示在最下面, 不放進手風琴裡 (刪除是重要操作, 不希望被摺疊藏起來) */
         .danger-strip {
@@ -262,7 +292,11 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            gap: 14px;
         }
+        .danger-strip > div { flex: 1; min-width: 0; }
+        .danger-strip form { flex: 0 0 auto; }
+        .danger-strip .btn-danger { min-width: 76px; white-space: nowrap; flex-shrink: 0; }
 
         /* 圖片庫區塊：改成一次顯示一張、用左右箭頭翻頁的輪播 */
         .img-carousel {
@@ -315,7 +349,29 @@
         .empty-text a { color: var(--primary-blue); font-weight: 600; text-decoration: underline; }
 
         @media (max-width: 1200px) {
-            .poi-grid-layout { grid-template-columns: 1fr; }
+            html, body { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; }
+            body { display: block; }
+            .main-content {
+                width: auto;
+                min-height: 100vh;
+                height: auto;
+                overflow: visible;
+                padding: 24px;
+            }
+            .poi-grid-layout { grid-template-columns: minmax(0, 1fr); flex: none; }
+            .form-card { height: auto; min-height: 620px; }
+            .form-scroll > form { min-height: 560px; }
+            .tools-col { height: auto; min-height: 0; overflow: visible; }
+            .accordion-panel { flex: 1 1 auto; max-height: 70vh; }
+        }
+        @media (max-width: 700px) {
+            .main-content { padding: 16px; }
+            .page-header { align-items: flex-start; gap: 12px; }
+            .page-title { font-size: 18px; }
+            .card { padding: 18px; }
+            .form-row { flex-direction: column; gap: 0; }
+            .form-row > .form-group { margin-bottom: 12px; }
+            .danger-strip { align-items: flex-start; }
         }
     </style>
 </head>
@@ -414,6 +470,27 @@
                         <i class="fa-solid fa-circle-info"></i> 經緯度留空存檔時，系統將自動根據名稱＋城市＋國家重新查詢地理座標。
                     </div>
 
+                    <div class="form-group">
+                        <label class="form-label">行程風格標籤（可複選）</label>
+                        <div class="poi-tag-options">
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="親子旅遊" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '親子旅遊')}" /> 親子旅遊</label>
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="奢華旅遊" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '奢華旅遊')}" /> 奢華旅遊</label>
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="輕鬆旅遊" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '輕鬆旅遊')}" /> 輕鬆旅遊</label>
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="美食旅遊" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '美食旅遊')}" /> 美食旅遊</label>
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="自然景觀" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '自然景觀')}" /> 自然景觀</label>
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="文化歷史" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '文化歷史')}" /> 文化歷史</label>
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="購物行程" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '購物行程')}" /> 購物行程</label>
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="冒險體驗" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '冒險體驗')}" /> 冒險體驗</label>
+                            <label class="poi-tag-option"><input type="checkbox" name="travelStyleTags" value="銀髮慢遊" th:checked="${poi != null and poi.travelStyleTags != null and #strings.contains(poi.travelStyleTags, '銀髮慢遊')}" /> 銀髮慢遊</label>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 4px;">
+                        <label class="poi-partner-option">
+                            <input type="checkbox" name="partnerPriority" value="true" th:checked="${poi != null and poi.partnerPriority}" />
+                            ★ 合作廠商優先安排
+                        </label>
+                        <div class="hint-text">AI 安排行程時，會優先考慮此景點；仍會依城市、行程天數及路線適合度判斷。</div>
+                    </div>
                     <div class="form-group form-group-grow" style="margin-bottom: 0;">
                         <label class="form-label">介紹說明</label>
                         <textarea name="description" class="form-control" rows="3" th:text="${poi?.description}" placeholder="輸入景點特色、行程提醒或景點介紹..."></textarea>

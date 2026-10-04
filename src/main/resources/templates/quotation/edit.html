@@ -291,6 +291,7 @@
                                 th:if="${!ms.pureTierRule}"
                                 th:value="${ms.MSID}"
                                 th:selected="${quotation.isPresetFormulaModeActive() and quotation.MSID == ms.MSID}"
+                                th:attr="data-rule-name=${ms.name},data-basic=${ms.readableBasicFormula},data-trade=${ms.readableTradeFormula},data-retail=${ms.readableRetailFormula},data-rebate=${ms.readableRebateFormula}"
                                 th:text="${ms.name}"></option>
                         <option value="__custom__" th:selected="${!quotation.isPresetFormulaModeActive()}">自填</option>
                     </select>
@@ -317,7 +318,7 @@
                          所以下拉選單下面這裡改成把①②③④都列出來, 格式統一是「①層名稱：規則名稱 算式」,
                          跟①原本的呈現方式一樣, 只是每一層都有、不是只有①。沒設定該層公式就照舊 fallback
                          顯示這張報價單自己的舊制%／自填金額設定。 -->
-                    <div class="item-note" style="margin-top:6px;" th:if="${quotation.isPresetFormulaModeActive()}">
+                    <div class="item-note" id="qActiveFormulaSummary" style="margin-top:6px;">
                         <div th:if="${activePreset != null and activePreset.basicFormula != null}">
                             ①基本報價：<span th:text="${activePreset.name}"></span> <span th:text="${activePreset.readableBasicFormula}"></span>
                         </div>
@@ -912,6 +913,7 @@
                                     th:if="${ms.npFormula != null or ms.teamFormula != null}"
                                     th:value="${ms.MSID}"
                                     th:selected="${quotation.isTierPresetFormulaModeActive() and quotation.tierMSID == ms.MSID}"
+                                    th:attr="data-rule-name=${ms.name},data-np=${ms.readableNpFormula},data-team=${ms.readableTeamFormula}"
                                     th:text="${ms.name}"></option>
                             <option value="__custom__" th:selected="${!quotation.isTierPresetFormulaModeActive()}">自填</option>
                         </select>
@@ -926,7 +928,7 @@
                              readableNpFormula/readableTeamFormula (跟①的 readableBasicFormula 同一套轉換,
                              見 MarginSetting#getReadableNpFormula()/getReadableTeamFormula())，並且放在
                              「選擇計算方式」下拉選單正下方, 跟①②③④卡片同一種版面順序。 -->
-                        <div class="item-note" style="margin-top:6px;" th:if="${quotation.isTierPresetFormulaModeActive()}">
+                        <div class="item-note" id="gActiveFormulaSummary" style="margin-top:6px;">
                             <div th:if="${activeTierPreset != null and activeTierPreset.npFormula != null}">
                                 ⑤NP：<span th:text="${activeTierPreset.name}"></span> <span th:text="${activeTierPreset.readableNpFormula}"></span>
                             </div>
@@ -1553,6 +1555,24 @@
         var msIdInput = document.getElementById('qinput-marginSettingId');
         if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
         if (msIdInput) msIdInput.value = isCustom ? '' : sel.value;
+        var summary = document.getElementById('qActiveFormulaSummary');
+        if (summary) {
+            summary.replaceChildren();
+            var selected = sel && sel.selectedOptions ? sel.selectedOptions[0] : null;
+            if (isCustom) {
+                var customLine = document.createElement('div');
+                customLine.textContent = '目前選擇：自填公式（下方試算會即時更新）';
+                summary.appendChild(customLine);
+            } else if (selected) {
+                [['①基本報價', 'basic'], ['②同業價', 'trade'], ['③直售價', 'retail'], ['④退傭', 'rebate']].forEach(function (part) {
+                    var line = document.createElement('div');
+                    line.style.marginTop = '4px';
+                    var formula = selected.dataset[part[1]];
+                    line.textContent = part[0] + '：' + (formula ? selected.dataset.ruleName + ' ' + formula : '規則未設定，沿用本單原設定');
+                    summary.appendChild(line);
+                });
+            }
+        }
     }
 
     // ---------- NP／團費成本「選擇計算方式」下拉選單: 跟上面 toggleQuotationFormulaMode() 同一套邏輯, 但完全
@@ -1571,6 +1591,24 @@
         var msIdInput = document.getElementById('ginput-tierMarginSettingId');
         if (modeInput) modeInput.value = isCustom ? 'custom' : 'preset';
         if (msIdInput) msIdInput.value = isCustom ? '' : sel.value;
+        var summary = document.getElementById('gActiveFormulaSummary');
+        if (summary) {
+            summary.replaceChildren();
+            var selected = sel && sel.selectedOptions ? sel.selectedOptions[0] : null;
+            if (isCustom) {
+                var customLine = document.createElement('div');
+                customLine.textContent = '目前選擇：自填級距公式（NP／團費成本試算會即時更新）';
+                summary.appendChild(customLine);
+            } else if (selected) {
+                [['⑤NP', 'np'], ['⑥團費成本', 'team']].forEach(function (part) {
+                    var line = document.createElement('div');
+                    line.style.marginTop = '4px';
+                    var formula = selected.dataset[part[1]];
+                    line.textContent = part[0] + '：' + (formula ? selected.dataset.ruleName + ' ' + formula : '規則未設定，沿用下方自填公式');
+                    summary.appendChild(line);
+                });
+            }
+        }
     }
 
     // ---------- 整團人數級距報價結果: 雜項/NP/團費成本的計算公式建構器 (跟上面①②③④同一套邏輯,
@@ -1966,7 +2004,14 @@
                 alert('連線失敗：' + err.message);
             }
 
-            await refreshPageContent();
+            const refreshed = await refreshPageContent();
+
+            // 資料已送到伺服器，但片段請求可能遇到登入逾時、伺服器錯誤或回傳非報價頁 HTML。
+            // 不要讓舊表單永遠停在「處理中」；整頁重新載入可顯示伺服器實際儲存結果。
+            if (!refreshed) {
+                window.location.reload();
+                return;
+            }
 
             // 成功時整個 #pageContent（含這顆按鈕）已被新內容取代, 不需還原;
             // 失敗時節點還在原地, 才需要把按鈕復原成可再次操作的狀態
@@ -1983,22 +2028,23 @@
 
         async function refreshPageContent() {
             const current = document.getElementById('pageContent');
-            if (!current) return;
+            if (!current) return false;
             const scrollY = window.scrollY; // 換內容時保住捲動位置, 避免畫面跳回頂端
 
             let html;
             try {
                 const res = await fetch(current.dataset.fragmentUrl);
+                if (!res.ok) return false;
                 html = await res.text();
             } catch (err) {
                 console.error('重新整理報價內容失敗', err);
-                return;
+                return false;
             }
 
             const wrapper = document.createElement('div');
             wrapper.innerHTML = html;
             const newContent = wrapper.querySelector('#pageContent');
-            if (!newContent) return;
+            if (!newContent) return false;
 
             const swap = () => {
                 newContent.classList.add('is-entering');
@@ -2028,6 +2074,7 @@
             } else {
                 swap();
             }
+            return true;
         }
     })();
 </script>

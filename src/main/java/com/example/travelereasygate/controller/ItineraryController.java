@@ -88,6 +88,59 @@ public class ItineraryController {
         return "itinerary/new";
     }
 
+    @GetMapping("/poi-options")
+    @ResponseBody
+    public List<Map<String, Object>> itineraryPoiOptions(@RequestParam List<String> countries, HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        if (AID == null) return List.of();
+        return countries.stream().filter(c -> c != null && !c.isBlank()).distinct()
+                .flatMap(country -> poiService.listForItinerary(AID, country, null).stream())
+                .collect(java.util.stream.Collectors.toMap(Poi::getPID, p -> p, (a, b) -> a))
+                .values().stream().map(p -> {
+                    Map<String, Object> row = new HashMap<>();
+                    row.put("PID", p.getPID()); row.put("name", p.getName()); row.put("category", p.getCategory());
+                    row.put("country", p.getCountry()); row.put("city", p.getCity());
+                    row.put("latitude", p.getLatitude()); row.put("longitude", p.getLongitude());
+                    return row;
+                }).toList();
+    }
+
+    @GetMapping("/{ITID}/recommend-day")
+    @ResponseBody
+    public ResponseEntity<?> recommendDay(@PathVariable int ITID, @RequestParam double latitude,
+                                          @RequestParam double longitude, HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        Itinerary itinerary = itineraryService.getItinerary(ITID);
+        if (AID == null) return ResponseEntity.status(401).body("尚未登入");
+        if (itinerary == null || itinerary.getAID() != AID) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(itineraryService.recommendDayForCoordinates(ITID, latitude, longitude));
+    }
+
+    @GetMapping("/{ITID}/recommend-day-by-place")
+    @ResponseBody
+    public ResponseEntity<?> recommendDayByPlace(@PathVariable int ITID, @RequestParam String place,
+                                                 @RequestParam(required = false) String locationHint,
+                                                 HttpSession session) {
+        Integer AID = (Integer) session.getAttribute("AID");
+        Itinerary itinerary = itineraryService.getItinerary(ITID);
+        if (AID == null) return ResponseEntity.status(401).body("尚未登入");
+        if (itinerary == null || itinerary.getAID() != AID) return ResponseEntity.notFound().build();
+        String country = itinerary.getCountry();
+        String query = String.join(" ", place == null ? "" : place,
+                itinerary.getRegion() == null ? "" : itinerary.getRegion()).trim();
+        GoogleMapsClient.GeocodeResult geo = locationHint != null && !locationHint.isBlank()
+                ? googleMapsClient.resolveLocationHint(locationHint) : null;
+        if (geo == null) geo = googleMapsClient.findPlace(query, country);
+        if (geo == null) geo = googleMapsClient.geocode(query, country);
+        if (geo == null) return ResponseEntity.ok(Map.of("available", false));
+        Map<String, Object> result = new HashMap<>(itineraryService.recommendDayForCoordinates(ITID, geo.latitude, geo.longitude));
+        if (result.isEmpty()) return ResponseEntity.ok(Map.of("available", false));
+        result.put("available", true);
+        result.put("latitude", geo.latitude);
+        result.put("longitude", geo.longitude);
+        return ResponseEntity.ok(result);
+    }
+
     // GET /itinerary/{id}/edit-basic → 編輯行程基本資料 (共用「建立新行程」同一份表單, editMode=true)
     // 使用者要求: 名稱/國家/地區/天數/出發日期都要能改, 存檔後不會重新安排行程 (每天已經排好的內容不動),
     // 也不會動到已經加入看板的去程/回程班機項目, 所以這裡不用像 create() 一樣還要處理一大串班機欄位。
@@ -250,6 +303,8 @@ public class ItineraryController {
                                    @RequestParam int daysCount,
                                    @RequestParam(required = false) String startDate,
                                    @RequestParam(required = false) List<String> dayCities,
+                                   @RequestParam(required = false) List<Integer> mustVisitPoiIds,
+                                   @RequestParam(required = false) List<String> travelStyles,
                                    @RequestParam(required = false) List<String> outFlightNo,
                                    @RequestParam(required = false) List<String> outDepAirport,
                                    @RequestParam(required = false) List<String> outDepTime,
@@ -280,7 +335,8 @@ public class ItineraryController {
         Set<Integer> flightDayNumbers = itineraryService.computeFlightDayNumbers(daysCount,
                 outFlightNo, outDepAirport, outDepTime, outArrAirport, outArrTime, outDepDay,
                 retFlightNo, retDepAirport, retDepTime, retArrAirport, retArrTime, retDepDay);
-        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount, parsedDate, dayCities, flightDayNumbers);
+        Itinerary itinerary = itineraryService.createItineraryWithAiPlan(AID, UID, title, country, region, daysCount,
+                parsedDate, dayCities, flightDayNumbers, mustVisitPoiIds, travelStyles);
 
         // 這個提示是「AI 有沒有真的排到景點資料庫裡的東西」, 一定要在插入去程/回程班機之前判斷 ——
         // 不然只要有填班機資訊, hasAnyItem() 就會一直是 true (班機本身也算一筆項目), 提示永遠不會跳出來,
@@ -408,6 +464,7 @@ public class ItineraryController {
         // 所以這裡再彙整每一天、每個項目自己 AI 判斷出來的國家 (item_country, 比較精確), 兩邊聯集起來
         // 一起丟給 PoiDAO 篩選 (PoiDAO 那邊會再拆解、用 IN 比對), 才不會因為合併字串 exact match 不到而整包篩不出東西。
         java.util.LinkedHashSet<String> countrySet = new java.util.LinkedHashSet<>();
+        java.util.LinkedHashSet<String> regionSet = new java.util.LinkedHashSet<>();
         if (itinerary != null && itinerary.getCountry() != null && !itinerary.getCountry().isBlank()) {
             for (String token : itinerary.getCountry().split("[、,，/|]")) {
                 if (!token.trim().isEmpty()) countrySet.add(token.trim());
@@ -418,11 +475,21 @@ public class ItineraryController {
                 if (item.getItemCountry() != null && !item.getItemCountry().isBlank()) {
                     countrySet.add(item.getItemCountry().trim());
                 }
+                if (item.getItemRegion() != null && !item.getItemRegion().isBlank()) {
+                    for (String token : item.getItemRegion().split("[、,，/|\\s]+")) {
+                        if (!token.isBlank()) regionSet.add(token.trim());
+                    }
+                }
             }
         }
         String mergedCountries = String.join("、", countrySet);
         // 多國行程時「地區」通常只對應某一國, 混進多國查詢容易誤篩, 交給 PoiDAO 自行判斷是否要套用
-        String regionFilter = itinerary != null ? itinerary.getRegion() : null;
+        if (itinerary != null && itinerary.getRegion() != null && !itinerary.getRegion().isBlank()) {
+            for (String token : itinerary.getRegion().split("[、,，/|\\s]+")) {
+                if (!token.isBlank()) regionSet.add(token.trim());
+            }
+        }
+        String regionFilter = regionSet.isEmpty() ? null : String.join("、", regionSet);
 
         model.addAttribute("poiList", poiService.listForItinerary(AID, mergedCountries, regionFilter));
         // 給前端畫「國家篩選標籤」用: 這個行程目前橫跨哪些國家 (只有 2 個以上才需要顯示切換標籤)
@@ -556,8 +623,7 @@ public class ItineraryController {
     public ResponseEntity<?> addDay(@PathVariable("id") int ITID, HttpSession session) {
         String err = checkEditPermission(session, ITID);
         if (err != null) return ResponseEntity.status(403).body(err);
-        itineraryService.addBlankDay(ITID);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(itineraryService.addBlankDay(ITID));
     }
 
     // POST /itinerary/{id}/duplicate → 首頁「複製行程」按鈕: 整份行程 (含每天/每個項目/拉車距離/報價元件)
@@ -741,22 +807,6 @@ public class ItineraryController {
         String err = checkEditPermissionByDay(session, IDID);
         if (err != null) return ResponseEntity.status(403).body(err);
         itineraryService.autoArrangeDay(IDID, mode);
-        // Patch 75: 使用者反映「已經有班機的行程, 在看板按這兩顆自動整理按鈕之後, 景點還是會排到
-        // 班機時間之後」——追查後發現 autoArrangeDay() 只會重新排「餐食」的時間 (patch 74 已經讓這部分
-        // 正確反映班機真正佔用的時間), 但完全不會動到景點類項目的順序, 也不會刪除排到班機時間之後、
-        // 明顯不可能發生的景點。這個清理工作原本只有「建立行程」流程結束時會呼叫一次
-        // (trimItemsAroundFlights()), 使用者在看板上按這兩顆按鈕重排時完全沒有觸發到, 才會一直看到
-        // 舊資料裡「行程排到晚上, 但班機中午就飛走了」這種結果。補上呼叫: 這裡只查得到 IDID, 用
-        // getItineraryIdByDay() 反查回 ITID 才能呼叫這個以整個行程為單位的方法; 找不到 (理論上不會
-        // 發生, 上面 checkEditPermissionByDay() 已經確認過這個 IDID 存在) 就跳過, 不讓例外擋掉整個
-        // 自動整理動作。
-        Integer ITIDForTrim = itineraryService.getItineraryIdByDay(IDID);
-        if (ITIDForTrim != null) {
-            itineraryService.trimItemsAroundFlights(ITIDForTrim);
-            // Patch 78: 見 ItineraryService.trimDaysExceedingCutoff() 說明——一樣要放在
-            // trimItemsAroundFlights() 之後, 用清理過班機後的最新狀態重新檢查每天是否還是超過 20:30。
-            itineraryService.trimDaysExceedingCutoff(ITIDForTrim);
-        }
         return ResponseEntity.ok().build();
     }
 
@@ -768,10 +818,6 @@ public class ItineraryController {
         String err = checkEditPermission(session, ITID);
         if (err != null) return ResponseEntity.status(403).body(err);
         itineraryService.autoArrangeItinerary(ITID, mode);
-        // Patch 75: 見上面 /day/{IDID}/auto-arrange 端點的說明, 這裡是同一個問題的「整個行程」版本。
-        itineraryService.trimItemsAroundFlights(ITID);
-        // Patch 78: 見 ItineraryService.trimDaysExceedingCutoff() 說明。
-        itineraryService.trimDaysExceedingCutoff(ITID);
         return ResponseEntity.ok().build();
     }
 

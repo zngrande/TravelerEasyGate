@@ -91,6 +91,7 @@ public class PoiService {
             copy.setSupplierContact(poi.getSupplierContact());
             copy.setSupplierNotes(poi.getSupplierNotes());
             copy.setDescription(description);
+            copy.setTravelStyleTags(poi.getTravelStyleTags());
             Poi saved = overrideSharedPoi(AID, poi, copy);
 
             if (IIID != null) {
@@ -127,6 +128,10 @@ public class PoiService {
     // poi/list.html「國家 / 城市」自動完成篩選欄位用: 在 keyword/category 的基礎上再多一個 location 條件
     public List<Poi> search(int AID, String keyword, String category, String location) {
         return poiDAO.searchByKeyword(AID, keyword, category, location);
+    }
+
+    public List<String> listCategories(int AID) {
+        return poiDAO.findDistinctCategories(AID);
     }
 
     /**

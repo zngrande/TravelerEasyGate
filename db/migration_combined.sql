@@ -268,3 +268,7 @@ ALTER TABLE quotation_line ADD CONSTRAINT fk_qline_source_item
 -- 行程項目被刪除時只解除連結、不連帶刪除報價明細, 避免已經填好的成本資料無聲消失
 
 CREATE INDEX idx_qline_source_item ON quotation_line(source_item_id);
+
+-- 景點/餐廳/飯店旅行風格標籤，供 AI 行程自動編排偏好排序使用。
+ALTER TABLE poi ADD COLUMN travel_style_tags TEXT NULL;
+ALTER TABLE poi ADD COLUMN partner_priority BOOLEAN NOT NULL DEFAULT FALSE;

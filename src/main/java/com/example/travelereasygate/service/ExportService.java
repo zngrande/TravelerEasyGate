@@ -227,7 +227,7 @@ public class ExportService {
                                 XWPFParagraph routeP = doc.createParagraph();
                                 routeP.setIndentationLeft(500);
                                 XWPFRun routeRun = routeP.createRun();
-                                String prefix = route.isBacktrack() ? "⚠ 疑似迴頭路 · " : "🚗 ";
+                                String prefix = route.isBacktrack() ? "⚠ 疑似回頭路 · " : "🚗 ";
                                 routeRun.setText(prefix + "約 " + route.getDistanceKm() + " 公里，車程約 "
                                         + route.getDurationMin() + " 分鐘");
                                 routeRun.setFontSize(9);

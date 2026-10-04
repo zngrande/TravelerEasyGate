@@ -48,6 +48,7 @@
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        button, input, select, textarea { font-family: inherit; }
         html, body { height: 100%; }
         body {
             font-family: 'Noto Sans TC', sans-serif;
@@ -1068,6 +1069,19 @@
         .export-modal-actions button:not(.cancel):hover { background: #1d4ed8; }
         .export-modal-actions button.cancel { background: #f1f5f9; color: #475569; }
         .export-modal-actions button.cancel:hover { background: #e2e8f0; }
+        .board-notice-overlay {
+            position: fixed; inset: 0; z-index: 1200; display: flex;
+            align-items: center; justify-content: center; padding: 20px;
+            background: rgba(15,23,42,0.45); backdrop-filter: blur(2px);
+        }
+        .board-notice-modal {
+            width: min(420px, 100%); padding: 22px 24px; border-radius: 14px;
+            background: #fff; box-shadow: 0 18px 45px rgba(15,23,42,0.2);
+        }
+        .board-notice-modal h3 { margin: 0 0 10px; color: var(--text-dark); font-size: 16px; }
+        .board-notice-modal p { margin: 0; color: #475569; font-size: 13.5px; line-height: 1.7; white-space: pre-line; }
+        .board-notice-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+        .board-notice-actions button { min-width: 84px; padding: 8px 16px; border: 0; border-radius: 8px; background: var(--primary-blue); color: #fff; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 
         /* 地圖大圖彈窗: 放大版靜態地圖圖片本身。原本這裡左側還有一個「顯示景點資料庫內容」面板
            (.bigmap-modal-left/.bigmap-db-toggle/.bigmap-db-list), 但使用者原本要的是這個按鈕要放在
@@ -1410,6 +1424,10 @@
                                style="width:100%; padding:6px 10px; font-size:12.5px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box;" />
                         <input type="text" id="poiSearchRegion" placeholder="搜尋地區/城市..." oninput="renderPoiQuickList()"
                                style="width:100%; padding:6px 10px; font-size:12.5px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box;" />
+                        <select id="poiSearchCategory" onchange="renderPoiQuickList()"
+                                style="width:100%; padding:6px 10px; font-size:12.5px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box; background:#fff; color:var(--text-dark);">
+                            <option value="">全部類型</option>
+                        </select>
                         <input type="text" id="poiSearchKeyword" placeholder="搜尋景點名稱..." oninput="renderPoiQuickList()"
                                style="width:100%; padding:6px 10px; font-size:12.5px; border:1px solid var(--border-color); border-radius:6px; box-sizing:border-box;" />
                     </div>
@@ -1518,13 +1536,10 @@
             const newTitle = input.value.trim();
             if (!shouldSave || !newTitle || newTitle === currentTitle) return;
 
-            fetch(`/itinerary/${itineraryId}/title?title=` + encodeURIComponent(newTitle), { method: 'POST' })
-                .then(res => {
-                    if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
-                    displayEl.textContent = '－ ' + newTitle;
-                    displayEl.dataset.currentTitle = newTitle;
-                })
-                .catch(err => alert('更新行程名稱失敗：' + err.message));
+            pendingItineraryTitle = newTitle;
+            displayEl.textContent = '－ ' + newTitle;
+            displayEl.dataset.currentTitle = newTitle;
+            markDirty();
         }
 
         input.addEventListener('blur', () => finish(true));
@@ -1540,15 +1555,11 @@
     function toggleItineraryLock() {
         const btn = document.getElementById('lockToggleBtn');
         const currentlyLocked = btn.dataset.locked === 'true';
-        const url = `/itinerary/${itineraryId}/${currentlyLocked ? 'unlock' : 'lock'}`;
-        fetch(url, { method: 'POST' })
-            .then(res => {
-                if (!res.ok) {
-                    return res.text().then(msg => { throw new Error(msg); });
-                }
-                window.location.reload();
-            })
-            .catch(err => alert('操作失敗：' + err.message));
+        if (pendingLockInitial == null) pendingLockInitial = currentlyLocked;
+        pendingLockState = !currentlyLocked;
+        btn.dataset.locked = String(pendingLockState);
+        btn.querySelector('span').textContent = pendingLockState ? '儲存時鎖定' : '儲存時解鎖';
+        markDirty();
     }
 
     // 頂部「上一步」按鈕: 功能是「復原」, 跟 Word 的上一步/復原一樣 —— 放棄目前所有還沒儲存的變更
@@ -1564,42 +1575,30 @@
         const btn = document.getElementById('undoBtn');
         if (btn) { btn.disabled = true; btn.textContent = '復原中...'; }
 
-        for (const iiid of pendingAdds) {
-            const idid = findDayOfItem(iiid);
-            if (idid == null) continue;
-            try {
-                await fetch(`/itinerary/day/${idid}/items/${iiid}`, { method: 'DELETE' });
-            } catch (err) {
-                // 刪除新增項目失敗也繼續復原流程, 不要卡住使用者; 重新整理後如果項目還在,
-                // 代表這筆刪除真的失敗了, 使用者可以在畫面上再手動刪一次
-            }
-        }
-
         window.location.reload();
     }
 
     // 天數旁邊的「+」: 直接在最後面加一天空白天 (不影響既有天數的內容/排序), 存檔後直接整頁重新整理讓新的
     // Day 分頁跟 dayCitiesContainer 等其他依賴天數的地方都拿到最新資料, 作法比照上面 lock/unlock 的 fetch + reload。
     function addDayDirect() {
+        pendingDayAdds++;
         const btn = document.getElementById('addDayBtn');
-        if (btn) btn.disabled = true;
-        fetch(`/itinerary/${itineraryId}/add-day`, { method: 'POST' })
-            .then(res => {
-                if (!res.ok) {
-                    return res.text().then(msg => { throw new Error(msg); });
-                }
-                window.location.reload();
-            })
-            .catch(err => {
-                alert('新增天數失敗：' + err.message);
-                if (btn) btn.disabled = false;
-            });
+        if (btn) {
+            btn.innerHTML = `<i class="fa-solid fa-plus"></i> 待新增 ${pendingDayAdds} 天`;
+            btn.title = '已暫存新增天數，按「儲存編輯」後建立';
+        }
+        markDirty();
     }
 
     // Day 分頁上的小叉叉: 刪除整天 (連同底下所有已排的行程項目)。先即時查一次這天目前有幾個項目,
     // 有內容的話警告訊息裡要講清楚「第X天有N個行程項目, 一併會被刪除」, 讓使用者不會誤刪還有排東西的天。
     // 刪除成功後面的天數會自動往前遞補一位 (見 ItineraryService.deleteDay()), 直接重整頁面拿最新結果。
     function deleteDayDirect(idid, dayNumber) {
+        if (pendingDeletedDays.has(Number(idid))) return;
+        if (document.querySelectorAll('.day-tab').length <= 1) {
+            alert('行程至少需要保留一天。');
+            return;
+        }
         const dayLabel = '第 ' + dayNumber + ' 天';
         fetch(`/itinerary/day/${idid}/items`)
             .then(res => res.ok ? res.json() : [])
@@ -1611,12 +1610,16 @@
                     : `確定要刪除${dayLabel}嗎？此動作無法復原。`;
                 if (!confirm(msg)) return;
 
-                fetch(`/itinerary/day/${idid}`, { method: 'DELETE' })
-                    .then(res => {
-                        if (!res.ok) throw new Error('HTTP ' + res.status);
-                        window.location.reload();
-                    })
-                    .catch(err => alert('刪除這一天失敗：' + err.message));
+                pendingDeletedDays.add(Number(idid));
+                Object.values(pendingNewItems).filter(item => Number(item.IDID) === Number(idid)).forEach(item => delete pendingNewItems[item.IIID]);
+                document.getElementById(`tab-${idid}`)?.remove();
+                document.getElementById(`panel-${idid}`)?.remove();
+                if (pendingDayOrder) pendingDayOrder = pendingDayOrder.filter(dayId => Number(dayId) !== Number(idid));
+                markDirty();
+                if (Number(currentDayId) === Number(idid)) {
+                    const nextTab = document.querySelector('.day-tab');
+                    if (nextTab) switchDay(Number(nextTab.dataset.idid));
+                }
             });
     }
 
@@ -1631,24 +1634,18 @@
 
         if (currentlyCompleted) {
             if (!confirm('確定要把這個行程退回草稿嗎？退回後就可以繼續編輯內容。')) return;
-            fetch(`/itinerary/${itineraryId}/revert-to-draft`, { method: 'POST' })
-                .then(res => {
-                    if (!res.ok) {
-                        return res.text().then(msg => { throw new Error(msg); });
-                    }
-                    window.location.reload();
-                })
-                .catch(err => alert('退回草稿失敗：' + err.message));
+            if (pendingCompleteInitial == null) pendingCompleteInitial = currentlyCompleted;
+            pendingCompleteState = false;
+            btn.dataset.completed = 'false';
+            btn.querySelector('span').textContent = '儲存時退回草稿';
+            markDirty();
         } else {
             if (!confirm('確定要把這個行程標記為已完成嗎？完成後如果需要再編輯內容，要先按「退回草稿」。')) return;
-            fetch(`/itinerary/${itineraryId}/complete`, { method: 'POST' })
-                .then(res => {
-                    if (!res.ok) {
-                        return res.text().then(msg => { throw new Error(msg); });
-                    }
-                    window.location.reload();
-                })
-                .catch(err => alert('標記完成失敗：' + err.message));
+            if (pendingCompleteInitial == null) pendingCompleteInitial = currentlyCompleted;
+            pendingCompleteState = true;
+            btn.dataset.completed = 'true';
+            btn.querySelector('span').textContent = '儲存時完成行程';
+            markDirty();
         }
     }
 
@@ -1700,7 +1697,22 @@
     let pendingDeletes = new Set(); // 已標記移除、還沒送出的 iiid
     let pendingDayOrder = null; // 拖拉 Day 分頁後的新 IDID 順序, null 代表天數順序沒有異動
     let pendingItemOrder = {};  // idid -> 拖拉這一天項目順序後的新 IIID 陣列, 這個 idid 沒有 key 代表這天順序沒有異動
-    let pendingAdds = new Set(); // 這次編輯session新增、還沒按「儲存編輯」確認的 iiid (其實已經寫進資料庫, 見上方說明)
+    let pendingNewItems = {}; // 暫存的新項目，直到按「儲存編輯」才呼叫新增 API
+    let nextTemporaryItemId = -1;
+    let pendingDayStartTimes = {};
+    let pendingRouteModes = {};
+    let pendingOptionSelections = {};
+    let pendingImageExportStates = {};
+    let pendingPoiLinks = new Set();
+    let pendingImageUploads = {};
+    let pendingItineraryTitle = null;
+    let pendingDeletedDays = new Set();
+    let pendingDayAdds = 0;
+    let pendingLockState = null;
+    let pendingLockInitial = null;
+    let pendingCompleteState = null;
+    let pendingCompleteInitial = null;
+    let pendingArrangeMode = null;
     let hasUnsavedChanges = false;
 
     function markDirty() {
@@ -1746,6 +1758,10 @@
         let items = raw
             .filter(it => !pendingDeletes.has(it.IIID))
             .map(it => pendingEdits[it.IIID] ? Object.assign({}, it, pendingEdits[it.IIID]) : it);
+        const staged = Object.values(pendingNewItems).filter(it => Number(it.IDID) === Number(idid))
+            .filter(it => !pendingDeletes.has(it.IIID))
+            .map(it => pendingEdits[it.IIID] ? Object.assign({}, it, pendingEdits[it.IIID]) : it);
+        items = items.concat(staged);
 
         // 這一天有暫存中、還沒儲存的拖曳排序的話, 依那個順序重新排列 (拖曳當下還沒被刪除的項目才會出現在
         // pendingItemOrder 裡; 萬一有遺漏或對不上的項目 (理論上不會發生, 保險起見), 照原順序接在後面)
@@ -1823,11 +1839,9 @@
         savedRoutes.forEach(r => { savedModeByPair[r.fromItemId + '-' + r.toItemId] = r.transportMode; });
 
         const result = [];
-        let prevBearing = null;
         for (let i = 0; i < chain.length - 1; i++) {
             const from = chain[i], to = chain[i + 1];
             if (from.latitude == null || from.longitude == null || to.latitude == null || to.longitude == null) {
-                prevBearing = null;
                 continue;
             }
             const fromLat = parseFloat(from.latitude), fromLng = parseFloat(from.longitude);
@@ -1840,9 +1854,20 @@
             const rawMinutes = (distanceKm / avgSpeed) * 60;
             const durationMin = previewRoundToNearest10(rawMinutes * PREVIEW_SAFETY_MULTIPLIER);
 
-            const currentBearing = previewBearing(fromLat, fromLng, toLat, toLng);
-            const backtrack = prevBearing != null && previewAngleDiff(prevBearing, currentBearing) > PREVIEW_BACKTRACK_ANGLE_THRESHOLD;
-            prevBearing = currentBearing;
+            // 跟後端 RouteService 使用相同定義：ABC 中若 C 比 B 明顯更靠近 A，
+            // 就在 B→C 這段提醒使用者檢查是否改成 ACB。
+            let backtrack = false;
+            if (i > 0) {
+                const previous = chain[i - 1];
+                if (previous.latitude != null && previous.longitude != null) {
+                    const aToB = previewHaversineKm(
+                        parseFloat(previous.latitude), parseFloat(previous.longitude), fromLat, fromLng);
+                    const aToC = previewHaversineKm(
+                        parseFloat(previous.latitude), parseFloat(previous.longitude), toLat, toLng);
+                    const savedKm = aToB - aToC;
+                    backtrack = savedKm >= 5 && aToC <= aToB * 0.8;
+                }
+            }
 
             result.push({
                 fromItemId: from.IIID,
@@ -1862,7 +1887,7 @@
     // 換成沒有互動的純顯示 (預估階段還沒有真正的 RSID 可以呼叫 updateSegmentTransportMode 存檔切換,
     // 硬要顯示成可以選的下拉選單反而會誤導使用者以為選了會生效)。
     function buildRouteInfoHtml(route, idid) {
-        const icon = route.backtrack ? '⚠️ 疑似迴頭路 · ' : (route.transportMode === 'walking' ? '🚶 ' : '🚗 ');
+        const icon = route.backtrack ? '⚠️ 疑似回頭路 · ' : (route.transportMode === 'walking' ? '🚶 ' : '🚗 ');
         if (route.estimated) {
             const modeText = route.transportMode === 'walking' ? '🚶 走路' : '🚗 開車';
             return `<span>${icon}</span>約 ${route.distanceKm} 公里 · 約 ${route.durationMin} 分鐘`
@@ -1876,6 +1901,8 @@
     }
 
     function findDayOfItem(iiid) {
+        const staged = pendingNewItems[iiid];
+        if (staged) return Number(staged.IDID);
         for (const idid of Object.keys(dayCache)) {
             if ((dayCache[idid].items || []).some(it => it.IIID === iiid)) return Number(idid);
         }
@@ -1885,11 +1912,35 @@
     // 給「選擇匯出照片」用: 從目前已經抓過的各天快取裡找出這個項目的資料本體 (拿它的 PID, 也方便切換
     // 圖片排除狀態後直接更新快取裡的 excludedImageIds, 不用整天重新打 API)。找不到就回傳 null。
     function findItemByIiid(iiid) {
+        if (pendingNewItems[iiid]) return pendingNewItems[iiid];
         for (const idid of Object.keys(dayCache)) {
             const found = (dayCache[idid].items || []).find(it => it.IIID === iiid);
             if (found) return found;
         }
         return null;
+    }
+
+    function getCarryOverHotelPreview(idid) {
+        const isHotelPendingRemoval = hotel => hotel && (pendingDeletes.has(Number(hotel.IIID))
+            || pendingDeletedDays.has(Number(findDayOfItem(Number(hotel.IIID)))));
+        const tabs = Array.from(document.querySelectorAll('.day-tab'));
+        const currentIndex = tabs.findIndex(tab => Number(tab.dataset.idid) === Number(idid));
+        if (currentIndex <= 0) {
+            const cached = dayCache[idid]?.carryOverHotel || null;
+            return cached && !isHotelPendingRemoval(cached) ? cached : null;
+        }
+        const previousDayId = Number(tabs[currentIndex - 1].dataset.idid);
+        if (!dayCache[previousDayId]) {
+            const cached = dayCache[idid]?.carryOverHotel || null;
+            return cached && !isHotelPendingRemoval(cached) ? cached : null;
+        }
+        const previousItems = buildDisplayItems(previousDayId);
+        const lastItem = previousItems[previousItems.length - 1];
+        if (!lastItem || lastItem.itemType !== 'hotel' || lastItem.latitude == null || lastItem.longitude == null) return null;
+        const firstToday = buildDisplayItems(idid)[0];
+        if (firstToday && ((lastItem.PID != null && Number(lastItem.PID) === Number(firstToday.PID))
+            || (lastItem.customName && lastItem.customName === firstToday.customName))) return null;
+        return lastItem;
     }
 
     function switchDay(idid) {
@@ -2108,7 +2159,7 @@
 
         // 前一天最後一項如果是住宿, 顯示成一列淡色的提示卡片放在今天清單最前面, 當作今天的預設出發點
         // (不是今天真正的行程項目, 沒有編輯/移除按鈕; 後面接著它到今天第一個項目的拉車距離/時間, 可以切換走路/開車)
-        const carryOverHotel = dayCache[idid] && dayCache[idid].carryOverHotel;
+        const carryOverHotel = getCarryOverHotelPreview(idid);
         if (carryOverHotel) {
             const carryRow = document.createElement('div');
             carryRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;margin-bottom:2px;font-size:12.5px;color:#115e59;background:#f0fdfa;border:1px dashed #99f6e4;border-radius:12px;';
@@ -2220,7 +2271,7 @@
                     </div>
                 </div>
                 <div class="item-row-right">
-                    ${canAddToPoi ? `<button class="btn-action add-poi" onclick="addToPoiDatabase(${idid}, ${item.IIID})">＋ 加入景點資料庫</button>` : ''}
+                    ${canAddToPoi ? `<button class="btn-action add-poi" onclick="addToPoiDatabase(${idid}, ${item.IIID}, this)">＋ 加入景點資料庫</button>` : ''}
                     ${item.itemType !== 'transport' ? `<button class="btn-action maptoggle ${showOnMapChecked ? '' : 'off'}" onclick="toggleShowOnMap(${idid}, ${item.IIID})" title="${showOnMapChecked ? '目前顯示在地圖上，點擊隱藏' : '目前沒有顯示在地圖上，點擊顯示'}">
                         <i class="fa-solid fa-map-location-dot"></i>
                     </button>` : ''}
@@ -2560,14 +2611,30 @@
     // 還沒存檔的編輯, 既有的 beforeunload 保護 (見 hasUnsavedChanges) 會先跳出瀏覽器原生的「確定要離開
     // 嗎」提示, 不會沒有預警就把還沒存檔的東西整頁蓋掉。
     function autoArrangeItinerary(mode) {
-        fetch(`/itinerary/${itineraryId}/auto-arrange?mode=${encodeURIComponent(mode || 'all_last')}`, { method: 'POST' })
-            .then(res => {
-                if (!res.ok) {
-                    return res.text().then(msg => { throw new Error(`HTTP ${res.status}: ${msg}`); });
+        pendingArrangeMode = mode || 'all_last';
+        // 預覽順序只更新前端快取；真正的自動整理 API 延後到「儲存編輯」才呼叫。
+        document.querySelectorAll('.day-tab').forEach(tab => {
+            const idid = Number(tab.dataset.idid);
+            const items = buildDisplayItems(idid);
+            if (!items.length) return;
+            let ordered;
+            if (pendingArrangeMode === 'all_last') {
+                ordered = items.filter(it => it.itemType !== 'meal').concat(items.filter(it => it.itemType === 'meal'));
+            } else {
+                const hotels = items.filter(it => it.itemType === 'hotel');
+                const meals = items.filter(it => it.itemType === 'meal').sort((a, b) => (a.startTime || '23:59').localeCompare(b.startTime || '23:59'));
+                const anchors = items.filter(it => it.itemType !== 'meal' && it.itemType !== 'hotel');
+                ordered = anchors.slice();
+                for (const meal of meals) {
+                    const at = meal.startTime ? ordered.findIndex(it => it.startTime && it.startTime >= meal.startTime) : -1;
+                    ordered.splice(at < 0 ? ordered.length : at, 0, meal);
                 }
-                window.location.reload();
-            })
-            .catch(err => alert('自動整理失敗：' + err.message));
+                ordered = meals.filter(it => it.timeSlot === 'breakfast').concat(ordered.filter(it => it.timeSlot !== 'breakfast'), hotels);
+            }
+            pendingItemOrder[idid] = ordered.map(it => it.IIID);
+        });
+        markDirty();
+        if (currentDayId) renderDay(currentDayId);
     }
 
     const defaultStayMin = { attraction: 90, meal: 60, hotel: 0, transport: 0, optional: 60, free_time: 60 };
@@ -2710,7 +2777,7 @@
                     <div class="timeline-node-dot"></div>
                     <div class="timeline-node-card travel ${route.backtrack ? 'backtrack' : ''}">
                         <div class="timeline-card-header">
-                            <span>${route.backtrack ? '⚠️ 迴頭路' : (route.transportMode === 'walking' ? '🚶 走路' : '🚗 開車')}</span>
+                            <span>${route.backtrack ? '⚠️ 回頭路' : (route.transportMode === 'walking' ? '🚶 走路' : '🚗 開車')}</span>
                             <span>${route.durationMin} 分鐘</span>
                         </div>
                     </div>
@@ -2722,35 +2789,24 @@
     }
 
     function updateStartTime(idid, value) {
-        // 使用者要求「行程鎖定後不能再編輯」——這支 API 之前完全沒檢查回應就直接重新整理畫面,
-        // 行程被鎖定時後端會擋下來, 但畫面上完全看不出剛剛改的出發時間其實沒有存到, 補上失敗提示。
-        fetch(`/itinerary/day/${idid}/start-time`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'startTime=' + encodeURIComponent(value)
-        }).then(res => {
-            if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
-            return loadDay(idid);
-        }).catch(err => alert('更新出發時間失敗：' + err.message));
+        pendingDayStartTimes[idid] = value;
+        markDirty();
+        renderDay(idid);
     }
 
     // 手動覆寫「單一段」的通勤方式 (走路/開車), 只重算這一段, 不影響同一天其他段落。
     // 特地加了錯誤處理: 之前失敗時前端完全沒反應, 讓人以為選了沒生效, 現在失敗會直接跳提示。
     function updateSegmentTransportMode(rsid, mode, idid) {
-        fetch(`/itinerary/day/${idid}/segments/${rsid}/mode`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'mode=' + encodeURIComponent(mode)
-        }).then(res => {
-            if (!res.ok) {
-                return res.text().then(msg => { throw new Error(`HTTP ${res.status}: ${msg}`); });
-            }
-            return loadDay(idid);
-        }).catch(err => alert('切換交通方式失敗：' + err.message));
+        const route = (dayCache[idid]?.routes || []).find(r => Number(r.RSID) === Number(rsid));
+        pendingRouteModes[rsid] = { mode, dayId: Number(idid), fromItemId: route?.fromItemId, toItemId: route?.toItemId };
+        if (route) route.transportMode = mode;
+        markDirty();
+        renderDay(idid);
     }
 
     let googleMapsReady = false;
     let mapInstance = null; // 整頁只維護一個地圖實例 (之前用 mapInstances[idid] 各天各自存一份, 但整頁其實只有一個 DOM 容器, 導致切換天數時新舊實例互相打架、開大圖連結對不上目前這天)
+    let mapRenderVersion = 0;
     let mapInfoWindow = null;
     const allPoisForMap = /*[[${poiList}]]*/ [];
 
@@ -2786,19 +2842,31 @@
     const FLIGHT_MARKER_COLOR = '#0369a1'; // 跟 --tag-flight 同一個藍色, 底色跟項目清單的飛機圖示同色系
     const STANDARD_MARKER_COLOR = '#ea4335'; // 跟 Google 地圖內建預設標記接近的紅色
 
-    // 景點資料庫快選面板: 依國家/地區/景點名稱關鍵字 (三個欄位皆為部分比對、大小寫不拘, 同時輸入時要三個條件都符合) 篩選 allPoisForMap 並重畫清單
+    // 依目前資料庫實際存在的分類產生下拉選項。
+    function populatePoiCategoryFilter() {
+        const select = document.getElementById('poiSearchCategory');
+        if (!select) return;
+        const categories = [...new Set(allPoisForMap.map(poi => String(poi.category || '').trim()).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+        select.replaceChildren(new Option('全部類型', ''));
+        categories.forEach(category => select.add(new Option(category, category)));
+    }
+
+    // 景點資料庫快選面板: 依國家/地區/類型/景點名稱條件篩選 allPoisForMap 並重畫清單
     function renderPoiQuickList() {
         const wrap = document.getElementById('poiListWrap');
         if (!wrap) return;
 
         const countryKw = (document.getElementById('poiSearchCountry').value || '').trim().toLowerCase();
         const regionKw = (document.getElementById('poiSearchRegion').value || '').trim().toLowerCase();
+        const categoryFilter = document.getElementById('poiSearchCategory').value || '';
         const nameKw = (document.getElementById('poiSearchKeyword').value || '').trim().toLowerCase();
 
         const filtered = allPoisForMap.filter(poi => {
             const country = (poi.country || '').toLowerCase();
             const city = (poi.city || '').toLowerCase();
             const name = (poi.name || '').toLowerCase();
+            if (categoryFilter && String(poi.category || '').trim() !== categoryFilter) return false;
             if (countryKw && !country.includes(countryKw)) return false;
             if (regionKw && !city.includes(regionKw)) return false;
             if (nameKw && !name.includes(nameKw)) return false;
@@ -2821,6 +2889,7 @@
         `).join('');
     }
 
+    populatePoiCategoryFilter();
     renderPoiQuickList(); // 頁面載入時先畫一次全部景點 (等同原本沒有搜尋功能時的預設清單)
 
     // POI 資料庫用中文分類，行程項目則使用 meal/hotel/attraction 等英文類型。
@@ -2831,6 +2900,18 @@
         if (value.includes('飯店') || value.includes('住宿') || value.includes('旅館')) return 'hotel';
         if (value.includes('交通') || value.includes('機場')) return 'transport';
         return 'attraction';
+    }
+
+    function showBoardNotice(title, message) {
+        const overlay = document.getElementById('boardNoticeOverlay');
+        document.getElementById('boardNoticeTitle').textContent = title;
+        document.getElementById('boardNoticeMessage').textContent = message;
+        overlay.style.display = 'flex';
+        document.getElementById('boardNoticeOk').focus();
+    }
+
+    function closeBoardNotice() {
+        document.getElementById('boardNoticeOverlay').style.display = 'none';
     }
 
     let exportFormatPending = 'b2c';
@@ -2986,8 +3067,10 @@
     async function renderMap(idid) {
         const wrap = document.getElementById('mapWrap');
         if (!wrap) return;
-
+        const renderVersion = ++mapRenderVersion;
         const data = await fetch(`/itinerary/day/${idid}/map`).then(r => r.json());
+        // 快速新增/刪除或切換日期時，舊請求可能晚於新請求回來；丟棄過期結果避免舊標記復活。
+        if (renderVersion !== mapRenderVersion || String(idid) !== String(currentDayId)) return;
         const linkEl = document.getElementById('staticmap-link');
 
         if (!data.configured) return;
@@ -3011,19 +3094,40 @@
         data.points.forEach(p => { pointsByIIID[p.iiid] = p; });
         const itemPoints = displayItemsForMap
             .filter(it => it.showOnMap !== false)
-            .map(it => pointsByIIID[it.IIID])
+            .map(it => {
+                const previewingSelectedOption = !!pendingOptionSelections[it.IIID];
+                if (previewingSelectedOption && it.latitude != null && it.longitude != null) {
+                    return { iiid: it.IIID, lat: Number(it.latitude), lng: Number(it.longitude), name: it.customName || it.name, itemType: it.itemType };
+                }
+                return pointsByIIID[it.IIID] || (it.latitude != null && it.longitude != null
+                    ? { iiid: it.IIID, lat: Number(it.latitude), lng: Number(it.longitude), name: it.customName || it.name, itemType: it.itemType }
+                    : null);
+            })
             .filter(p => p != null);
         // 前一天最後一項住宿 (carry-over hotel, 見 fetchDay/renderDay 的說明) 不屬於今天的項目清單, 上面用今天項目
         // 對應不到它, 所以另外接回隊伍最前面 —— 後端 /map 有這個點的話, 一定會是 data.points 裡第一個「iiid 不在
         // 今天項目清單中」的點, 用這個特徵抓出來就好, 不用另外呼叫一次 carry-over-hotel API。
-        const todayIIIDs = new Set(displayItemsForMap.map(it => it.IIID));
-        const carryOverPoint = data.points.find(p => !todayIIIDs.has(p.iiid));
-        const previousNightHotelIIID = carryOverPoint && carryOverPoint.itemType === 'hotel' ? carryOverPoint.iiid : null;
-        if (carryOverPoint) itemPoints.unshift(carryOverPoint);
+        // 只能以後端明確提供的 carryOverHotel 判斷前一晚住宿。舊寫法把「地圖回傳但不在今天清單的第一個點」
+        // 當成前一晚飯店；項目在前端標記刪除時，資料庫地圖 API 尚未刪除它，這條規則就會把已刪項目加回地圖。
+        const carryOverHotel = getCarryOverHotelPreview(idid);
+        const carryOverPoint = carryOverHotel
+            ? (data.points.find(p => Number(p.iiid) === Number(carryOverHotel.IIID) && p.itemType === 'hotel')
+                || { iiid: carryOverHotel.IIID, lat: Number(carryOverHotel.latitude), lng: Number(carryOverHotel.longitude),
+                    name: carryOverHotel.customName || carryOverHotel.name, itemType: 'hotel' })
+            : null;
+        const previousNightHotelIIID = carryOverPoint ? carryOverPoint.iiid : null;
+        if (carryOverPoint && !displayItemsForMap.some(it => Number(it.IIID) === Number(carryOverPoint.iiid))) {
+            itemPoints.unshift(carryOverPoint);
+        }
+        const previewRoutes = (dayCache[idid] && dayCache[idid].routes) || [];
+        itemPoints.forEach(point => {
+            const route = previewRoutes.find(r => Number(r.fromItemId) === Number(point.iiid));
+            if (route) point.mode = route.transportMode;
+        });
         // 這個行程國家/地區相關、但「還沒排進今天」的公司 POI (地圖上顯示灰色小標記, 點了可以直接加入)
         // 注意: 排除名單要用「今天所有項目」(不管有沒有勾選顯示地圖), 不能只看目前顯示在地圖上的點,
         // 不然關掉顯示地圖的項目反而會被誤判成「還沒加入今天」, 又以灰色建議標記的身份跑回地圖上。
-        const allTodayItems = (dayCache[idid] && dayCache[idid].items) || itemPoints;
+        const allTodayItems = displayItemsForMap;
         const itemNames = new Set(allTodayItems.map(it => it.customName || it.name));
         // 只有開關打開時才把還沒排進今天的公司景點算進地圖，關閉時 suggestPois 是空陣列，
         // 下面所有用到 suggestPois 的地方 (畫灰點、判斷地圖是不是全空) 自然就都不會顯示，不用另外改。
@@ -3198,63 +3302,68 @@
         document.getElementById('bigMapModalOverlay').style.display = 'none';
     }
 
-    function addToCurrentDay(pid, name, itemType) {
-        if (!currentDayId) { alert('請先選擇一天'); return; }
-        const params = new URLSearchParams({ PID: pid, itemType, customName: name });
-        fetch(`/itinerary/day/${currentDayId}/items?` + params.toString(), { method: 'POST' })
-            .then(res => {
-                // 使用者要求「行程鎖定後不能再編輯」——後端這支新增項目 API 之前完全沒檢查鎖定狀態,
-                // 這裡補上 res.ok 檢查 (之前直接假設一定成功、跳過檢查直接當 JSON 解析, 行程被鎖定時
-                // 後端回傳的是純文字錯誤訊息, 不是合法 JSON, 會被 res.json() 拋出一個看不懂的
-                // "Unexpected token" 錯誤, 使用者搞不清楚到底發生什麼事)。
-                if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
-                return res.json();
-            })
-            .then(newItem => {
-                pendingAdds.add(newItem.IIID);
-                markDirty();
-                return loadDay(currentDayId);
-            })
-            .catch(err => alert('加入失敗：' + err.message));
+    function stageNewItem(idid, itemType, customName, payload = {}, coordinates = null) {
+        const tempId = nextTemporaryItemId--;
+        const staged = {
+            IIID: tempId, IDID: Number(idid), PID: payload.PID ?? null,
+            itemType, customName, name: customName,
+            stayDurationMin: payload.stayDurationMin ?? null, timeSlot: payload.timeSlot ?? null,
+            showOnMap: itemType !== 'meal', latitude: coordinates?.latitude ?? null, longitude: coordinates?.longitude ?? null,
+            note: '', sortOrder: buildDisplayItems(idid).length,
+            fromLocation: null, toLocation: null, startTime: null, endTime: null
+        };
+        pendingNewItems[tempId] = { ...staged, ...payload, IIID: tempId, IDID: Number(idid), itemType, customName, name: customName };
+        pendingItemOrder[idid] = buildDisplayItems(idid).map(it => it.IIID);
+        markDirty();
+        renderDay(idid);
+        return pendingNewItems[tempId];
     }
 
-    // 從「推薦這中間順路的景點/餐廳」面板按下＋加入時用這個, 跟 addToCurrentDay 的差別是:
-    // 後端 addItem 預設一律把新項目加到當天最後面 (sort_order = 目前最大值 + 1), 所以這裡在新增成功、
-    // 拿到新項目的 IIID 之後, 再組一份「把新項目插到 fromIIID 跟 toIIID 中間」的順序, 立即存檔
-    // (新增本身跟 addToCurrentDay 一樣沒辦法只在瀏覽器端暫存, 一樣用 pendingAdds 記住讓儲存/上一步按鈕亮起來,
-    // 詳見上方「暫存編輯機制」的說明; 插入排序這個動作也是新增流程的一部分, 一起立即存檔, 跟使用者拖曳既有
-    // 項目排序 [pendingItemOrder, 先暫存等按「儲存編輯」] 是兩件不同的事, 不要混為一談)。
+    function addToCurrentDay(pid, name, itemType) {
+        if (!currentDayId) { alert('請先選擇一天'); return; }
+        const poi = allPoisForMap.find(p => Number(p.PID) === Number(pid));
+        const added = stageNewItem(currentDayId, itemType, name, { PID: Number(pid) }, poi || null);
+        showRecommendedDay(added, currentDayId).catch(err => console.warn('推薦安排日期失敗', err));
+    }
+
+    async function showRecommendedDay(item, addedDayId) {
+        const url = item.latitude != null && item.longitude != null
+            ? `/itinerary/${itineraryId}/recommend-day?latitude=${encodeURIComponent(item.latitude)}&longitude=${encodeURIComponent(item.longitude)}`
+            : `/itinerary/${itineraryId}/recommend-day-by-place?place=${encodeURIComponent(item.customName || item.name || '')}&locationHint=${encodeURIComponent(item.locationHint || '')}`;
+        const recommendation = await fetch(url)
+            .then(res => res.ok ? res.json() : null);
+        if (!recommendation || !recommendation.dayNumber) {
+            showBoardNotice('無法推薦安排日期', '項目已暫存在看板，按「儲存編輯」後才會新增；目前無法定位此項目，因此沒有足夠資料推薦安排日期。');
+            return;
+        }
+        if (item.latitude == null && recommendation.latitude != null && recommendation.longitude != null) {
+            item.latitude = recommendation.latitude;
+            item.longitude = recommendation.longitude;
+            if (pendingNewItems[item.IIID]) {
+                pendingNewItems[item.IIID].latitude = recommendation.latitude;
+                pendingNewItems[item.IIID].longitude = recommendation.longitude;
+            }
+            renderDay(addedDayId);
+        }
+        const label = document.querySelector(`#tab-${addedDayId} .day-tab-label`)?.textContent || '';
+        const addedDayNumber = parseInt(label.replace(/\D/g, ''), 10) || 0;
+        if (recommendation.dayNumber !== addedDayNumber) {
+            showBoardNotice('景點安排建議', `已新增到 Day ${addedDayNumber}。依每日路線估算，安排在 Day ${recommendation.dayNumber} 會更順（新增路程約 ${recommendation.extraDistanceKm} 公里）。`);
+        }
+    }
+
     function addSuggestedBetween(idid, fromIIID, toIIID, pid, name, itemType) {
-        const params = new URLSearchParams({ PID: pid, itemType, customName: name });
-        fetch(`/itinerary/day/${idid}/items?` + params.toString(), { method: 'POST' })
-            .then(res => {
-                // 見 addToCurrentDay() 同樣的補強說明: 行程鎖定時後端回的是純文字, 要先檢查 res.ok
-                // 才能決定要不要當 JSON 解析, 不然會拋出看不懂的 JSON 解析錯誤。
-                if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
-                return res.json();
-            })
-            .then(newItem => {
-                pendingAdds.add(newItem.IIID);
-                markDirty();
-                return fetchDay(idid).then(() => {
-                    const order = (dayCache[idid].items || []).map(it => it.IIID).filter(id => id !== newItem.IIID);
-                    const insertAt = order.indexOf(fromIIID);
-                    if (insertAt === -1) {
-                        order.push(newItem.IIID); // 保險: 找不到 fromIIID (理論上不會發生) 就照舊排最後面
-                    } else {
-                        order.splice(insertAt + 1, 0, newItem.IIID);
-                    }
-                    return fetch(`/itinerary/day/${idid}/reorder`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ order })
-                    });
-                }).then(res => {
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    return fetchDay(idid);
-                }).then(() => renderDay(idid));
-            })
-            .catch(err => alert('加入失敗：' + err.message));
+        const poi = allPoisForMap.find(p => Number(p.PID) === Number(pid));
+        const added = stageNewItem(idid, itemType, name, { PID: Number(pid) }, poi || null);
+        const order = buildDisplayItems(idid).map(it => it.IIID);
+        const addIndex = order.indexOf(added.IIID);
+        const fromIndex = order.indexOf(Number(fromIIID));
+        if (fromIndex >= 0 && addIndex >= 0) {
+            order.splice(addIndex, 1);
+            order.splice(fromIndex + 1, 0, added.IIID);
+            pendingItemOrder[idid] = order;
+        }
+        renderDay(idid);
     }
 
     function addCustomItem() {
@@ -3265,37 +3374,26 @@
         const rawName = nameInput.value.trim();
         if (!rawName) { alert('請輸入名稱'); return; }
 
-        const params = new URLSearchParams({ itemType: typeSelect.value, rawName });
-        if (hintInput.value.trim()) params.set('locationHint', hintInput.value.trim());
-
-        fetch(`/itinerary/day/${currentDayId}/items/custom?` + params.toString(), { method: 'POST' })
-            .then(res => {
-                // 同上: 行程鎖定時要先檢查 res.ok 才能決定要不要當 JSON 解析
-                if (!res.ok) return res.text().then(msg => { throw new Error(msg); });
-                return res.json();
-            })
-            .then(newItem => {
-                pendingAdds.add(newItem.IIID);
-                markDirty();
-                nameInput.value = '';
-                hintInput.value = '';
-                toggleAccordion(null);
-                return loadDay(currentDayId);
-            })
-            .catch(err => alert('新增失敗：' + err.message));
+        const addedDayId = currentDayId;
+        const added = stageNewItem(addedDayId, typeSelect.value, rawName, {
+            rawName, locationHint: hintInput.value.trim() || null
+        });
+        nameInput.value = '';
+        hintInput.value = '';
+        toggleAccordion(null);
+        showRecommendedDay(added, addedDayId).catch(err => console.warn('推薦安排日期失敗', err));
     }
 
     async function selectItemOption(idid, iiid, selectEl) {
         const optionId = selectEl.value;
-        // 使用者要求「行程鎖定後不能再編輯」——這支 API 之前完全沒檢查回應就直接重新整理畫面,
-        // 行程被鎖定時後端會擋下來, 但畫面上完全看不出剛剛那次點擊其實沒有生效, 補上失敗提示。
-        const res = await fetch(`/itinerary/day/${idid}/items/${iiid}/select-option?optionId=${optionId}`, { method: 'POST' });
-        if (!res.ok) {
-            const msg = await res.text();
-            alert('切換候選點失敗：' + msg);
-            return;
-        }
-        loadDay(idid);
+        const option = (dayCache[idid]?.optionsMap?.[iiid] || []).find(o => Number(o.IIOID) === Number(optionId));
+        if (!option) return;
+        pendingOptionSelections[iiid] = { optionId: Number(optionId), dayId: Number(idid) };
+        const item = (dayCache[idid]?.items || []).find(it => Number(it.IIID) === Number(iiid));
+        if (item) { item.customName = option.name; item.latitude = option.latitude; item.longitude = option.longitude; }
+        (dayCache[idid].optionsMap[iiid] || []).forEach(o => { o.selected = Number(o.IIOID) === Number(optionId); });
+        markDirty();
+        renderDay(idid);
     }
 
     function toggleItemEdit(iiid) {
@@ -3518,25 +3616,12 @@
         if (uploadInput) {
             uploadInput.onchange = () => {
                 if (uploadInput.files.length === 0) return;
-                const formData = new FormData();
-                for (const file of uploadInput.files) formData.append('files', file);
-                formData.append('poiId', pid);
-
-                thumbsEl.innerHTML = '<span style="font-size:11px;color:#7c3aed;">⏳ 上傳中...</span>';
-                fetch('/images/upload-ajax', { method: 'POST', body: formData })
-                    .then(res => {
-                        if (!res.ok) throw new Error('HTTP ' + res.status);
-                        return res.json();
-                    })
-                    .then(result => {
-                        if (result.errors && result.errors.length > 0) {
-                            alert('部分圖片上傳失敗：\n' + result.errors.join('\n'));
-                        }
-                        // 上傳完重新載入縮圖 (不管有沒有部分失敗, 都重新整理看目前實際狀態), 保留原本的排除設定
-                        // (新上傳的圖片沒有被排除過, 預設就是會輸出, 一開起就有綠框)
-                        return loadItemImages(pid, iiid, idid, excludedImageIds);
-                    })
-                    .catch(err => { thumbsEl.innerHTML = '<span style="font-size:11px;color:#ef4444;">上傳失敗</span>'; alert('上傳圖片失敗：' + err.message); });
+                const queued = pendingImageUploads[iiid] || { dayId: Number(idid), poiId: Number(pid), files: [] };
+                queued.files.push(...Array.from(uploadInput.files));
+                pendingImageUploads[iiid] = queued;
+                uploadInput.value = '';
+                thumbsEl.innerHTML = `<span style="font-size:11px;color:#7c3aed;">已暫存 ${queued.files.length} 張圖片，按「儲存編輯」後上傳</span>`;
+                markDirty();
             };
         }
     }
@@ -3545,36 +3630,40 @@
     // 既有的「上傳圖片」也是選了就直接送出), 不需要另外按「儲存編輯」才生效。預設 (沒點過) 是全部輸出,
     // 第一次點是把這張加進排除清單 (取消綠框), 再點一次移回輸出 (變回綠框)。
     function toggleItemImageExport(idid, iiid, iaid) {
-        fetch(`/itinerary/day/${idid}/items/${iiid}/toggle-image-export?IAID=${iaid}`, { method: 'POST' })
-            .then(res => {
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                const item = findItemByIiid(iiid);
-                if (item) {
-                    const excludedSet = new Set((item.excludedImageIds || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).map(Number));
-                    if (!excludedSet.delete(Number(iaid))) excludedSet.add(Number(iaid));
-                    item.excludedImageIds = Array.from(excludedSet).join(','); // 同步更新快取, 下次重畫這個項目時勾選狀態才會對
-                    loadItemImages(item.PID, iiid, idid, item.excludedImageIds);
-                }
-            })
-            .catch(err => alert('設定圖片是否輸出失敗：' + err.message));
+        const item = findItemByIiid(iiid);
+        if (!item) return;
+        const excludedSet = new Set((item.excludedImageIds || '').split(',').map(s => s.trim()).filter(Boolean).map(Number));
+        const key = `${iiid}:${iaid}`;
+        const previous = pendingImageExportStates[key];
+        const initiallyIncluded = previous ? previous.initiallyIncluded : !excludedSet.has(Number(iaid));
+        const currentlyIncluded = !excludedSet.has(Number(iaid));
+        const include = !currentlyIncluded;
+        if (include) excludedSet.delete(Number(iaid)); else excludedSet.add(Number(iaid));
+        item.excludedImageIds = Array.from(excludedSet).join(',');
+        pendingImageExportStates[key] = { dayId: Number(idid), itemId: Number(iiid), imageId: Number(iaid), initiallyIncluded, include };
+        markDirty();
+        loadItemImages(item.PID, iiid, idid, item.excludedImageIds);
     }
 
     function removeItem(idid, iiid) {
+        if (pendingNewItems[iiid]) {
+            delete pendingNewItems[iiid];
+            delete pendingEdits[iiid];
+            if (pendingItemOrder[idid]) pendingItemOrder[idid] = pendingItemOrder[idid].filter(id => id !== iiid);
+            markDirty();
+            renderDay(idid);
+            return;
+        }
         pendingDeletes.add(iiid);
         delete pendingEdits[iiid];
         markDirty();
         renderDay(idid);
     }
 
-    function addToPoiDatabase(idid, iiid) {
-        fetch(`/itinerary/day/${idid}/items/${iiid}/add-to-poi`, { method: 'POST' })
-            .then(res => {
-                if (!res.ok) {
-                    return res.text().then(msg => { throw new Error(msg); });
-                }
-                return loadDay(idid);
-            })
-            .catch(err => alert('加入失敗：' + err.message));
+    function addToPoiDatabase(idid, iiid, button) {
+        pendingPoiLinks.add(Number(iiid));
+        if (button) button.textContent = '✓ 儲存時加入資料庫';
+        markDirty();
     }
 
     // ---------------- Day 分頁拖曳排序 (改順序後只先暫存, 按「儲存編輯」才真的送出) ----------------
@@ -3736,12 +3825,70 @@
         const btn = document.getElementById('saveEditsBtn');
         btn.disabled = true;
         btn.innerHTML = '⏳ 儲存中...';
+        const createdItemsForRollback = [];
+        const createdDaysForRollback = [];
+        const tempToReal = {};
+        const stagedItemsForSave = Object.values(pendingNewItems).map(item => ({ ...item }));
 
         try {
+            // 需要解鎖/退回草稿時先執行，後續行程修改 API 才有權限寫入。
+            if (pendingLockState === false) {
+                const res = await fetch(`/itinerary/${itineraryId}/unlock`, { method: 'POST' });
+                if (!res.ok) throw new Error(`解鎖行程失敗 (HTTP ${res.status})`);
+            }
+            if (pendingCompleteState === false) {
+                const res = await fetch(`/itinerary/${itineraryId}/revert-to-draft`, { method: 'POST' });
+                if (!res.ok) throw new Error(`退回草稿失敗 (HTTP ${res.status})`);
+            }
+            // 0) 新增項目先暫存在瀏覽器；只有按下「儲存編輯」才建立資料庫記錄。
+            for (const staged of stagedItemsForSave) {
+                const params = new URLSearchParams({ itemType: staged.itemType });
+                let url;
+                if (staged.PID != null) {
+                    params.set('PID', staged.PID);
+                    params.set('customName', staged.customName);
+                    url = `/itinerary/day/${staged.IDID}/items?${params}`;
+                } else {
+                    params.set('rawName', staged.rawName || staged.customName);
+                    if (staged.locationHint) params.set('locationHint', staged.locationHint);
+                    url = `/itinerary/day/${staged.IDID}/items/custom?${params}`;
+                }
+                const res = await fetch(url, { method: 'POST' });
+                if (!res.ok) throw new Error(`新增項目失敗 (HTTP ${res.status})`);
+                const savedItem = await res.json();
+                tempToReal[staged.IIID] = Number(savedItem.IIID);
+                createdItemsForRollback.push({ IDID: Number(staged.IDID), IIID: Number(savedItem.IIID) });
+                const cache = dayCache[staged.IDID] || (dayCache[staged.IDID] = { items: [], routes: [], optionsMap: {} });
+                cache.items.push(savedItem);
+            }
+            if (Object.keys(tempToReal).length) {
+                const remappedEdits = {};
+                Object.entries(pendingEdits).forEach(([id, edit]) => { remappedEdits[tempToReal[id] || id] = edit; });
+                pendingEdits = remappedEdits;
+                Object.keys(pendingItemOrder).forEach(idid => {
+                    pendingItemOrder[idid] = pendingItemOrder[idid].map(id => tempToReal[id] || id);
+                });
+                const remappedOptions = {};
+                Object.entries(pendingOptionSelections).forEach(([id, selection]) => {
+                    const mappedId = tempToReal[id] || id;
+                    remappedOptions[mappedId] = { ...selection, itemId: Number(mappedId) };
+                });
+                pendingOptionSelections = remappedOptions;
+                pendingPoiLinks = new Set(Array.from(pendingPoiLinks, id => Number(tempToReal[id] || id)));
+                pendingNewItems = {};
+            }
+
+            const daysDeleted = pendingDeletedDays.size > 0;
+            // 先刪除整天再重排剩餘天數；否則刪除 Day 1 時，先把 Day 2 改成 Day 1 會被刪除流程再減一次。
+            for (const idid of pendingDeletedDays) {
+                const res = await fetch(`/itinerary/day/${idid}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error(`刪除行程日失敗 (HTTP ${res.status})`);
+            }
             // 1) 先送出刪除
             for (const iiid of pendingDeletes) {
                 const idid = findDayOfItem(iiid);
                 if (idid == null) continue;
+                if (pendingDeletedDays.has(Number(idid))) continue;
                 const res = await fetch(`/itinerary/day/${idid}/items/${iiid}`, { method: 'DELETE' });
                 if (!res.ok) throw new Error(`刪除項目失敗 (HTTP ${res.status})`);
             }
@@ -3753,6 +3900,7 @@
                 const edit = pendingEdits[iiid];
                 const idid = findDayOfItem(iiid);
                 if (idid == null) continue;
+                if (pendingDeletedDays.has(Number(idid))) continue;
                 const params = new URLSearchParams({ customName: edit.customName, showOnMap: edit.showOnMap });
                 if (edit.stayDurationMin != null) params.set('stayDurationMin', edit.stayDurationMin);
                 // commuteDurationMin 是數字型 (Integer) 參數, 不能跟下面的 setIfPresent 一樣送空字串
@@ -3803,10 +3951,61 @@
                 }
             }
 
+            // 出發時間、候選點與路段交通方式都先在畫面暫存，按儲存後才寫回後端。
+            for (const [idid, startTime] of Object.entries(pendingDayStartTimes)) {
+                if (pendingDeletedDays.has(Number(idid))) continue;
+                const res = await fetch(`/itinerary/day/${idid}/start-time`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'startTime=' + encodeURIComponent(startTime)
+                });
+                if (!res.ok) throw new Error(`儲存出發時間失敗 (HTTP ${res.status})`);
+            }
+            for (const [iiid, selection] of Object.entries(pendingOptionSelections)) {
+                if (pendingDeletedDays.has(Number(selection.dayId))) continue;
+                const res = await fetch(`/itinerary/day/${selection.dayId}/items/${iiid}/select-option?optionId=${selection.optionId}`, { method: 'POST' });
+                if (!res.ok) throw new Error(`儲存候選點失敗 (HTTP ${res.status})`);
+            }
+            for (const selection of Object.values(pendingRouteModes)) {
+                if (pendingDeletedDays.has(Number(selection.dayId))) continue;
+                const latestRoutes = await fetch(`/itinerary/day/${selection.dayId}/routes`).then(r => r.ok ? r.json() : []);
+                const current = latestRoutes.find(r => Number(r.fromItemId) === Number(selection.fromItemId)
+                    && Number(r.toItemId) === Number(selection.toItemId));
+                if (!current) continue;
+                const res = await fetch(`/itinerary/day/${selection.dayId}/segments/${current.RSID}/mode`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'mode=' + encodeURIComponent(selection.mode)
+                });
+                if (!res.ok) throw new Error(`儲存路段交通方式失敗 (HTTP ${res.status})`);
+            }
+            for (const state of Object.values(pendingImageExportStates)) {
+                if (pendingDeletedDays.has(Number(state.dayId))) continue;
+                if (state.include === state.initiallyIncluded) continue;
+                const res = await fetch(`/itinerary/day/${state.dayId}/items/${state.itemId}/toggle-image-export?IAID=${state.imageId}`, { method: 'POST' });
+                if (!res.ok) throw new Error(`儲存圖片匯出設定失敗 (HTTP ${res.status})`);
+            }
+            for (const iiid of pendingPoiLinks) {
+                const idid = findDayOfItem(iiid);
+                if (idid == null || pendingDeletedDays.has(Number(idid)) || pendingDeletes.has(Number(iiid))) continue;
+                const res = await fetch(`/itinerary/day/${idid}/items/${iiid}/add-to-poi`, { method: 'POST' });
+                if (!res.ok) throw new Error(`加入景點資料庫失敗 (HTTP ${res.status})`);
+            }
+            for (const [iiid, upload] of Object.entries(pendingImageUploads)) {
+                if (pendingDeletedDays.has(Number(upload.dayId)) || pendingDeletes.has(Number(iiid))) continue;
+                const formData = new FormData();
+                upload.files.forEach(file => formData.append('files', file));
+                formData.append('poiId', upload.poiId);
+                const res = await fetch('/images/upload-ajax', { method: 'POST', body: formData });
+                if (!res.ok) throw new Error(`圖片上傳失敗 (HTTP ${res.status})`);
+                const result = await res.json();
+                if (result.errors && result.errors.length) throw new Error(result.errors.join('、'));
+                delete pendingImageUploads[iiid];
+            }
+
             // 3) 送出天內項目的新排序 (每個有異動過排序的 idid 各呼叫一次既有的 reorder API;
             //    要濾掉已經在這次一起被刪除的項目, 不然送出去的順序裡會有後端已經不認得的 IIID)
             for (const key of Object.keys(pendingItemOrder)) {
                 const idid = Number(key);
+                if (pendingDeletedDays.has(idid)) continue;
                 const order = pendingItemOrder[key].filter(iiid => !pendingDeletes.has(iiid));
                 const res = await fetch(`/itinerary/day/${idid}/reorder`, {
                     method: 'POST',
@@ -3827,23 +4026,64 @@
                 if (!res.ok) throw new Error(`儲存天數順序失敗 (HTTP ${res.status})`);
             }
 
+            const daysAdded = pendingDayAdds > 0;
+            for (let i = 0; i < pendingDayAdds; i++) {
+                const res = await fetch(`/itinerary/${itineraryId}/add-day`, { method: 'POST' });
+                if (!res.ok) throw new Error(`新增天數失敗 (HTTP ${res.status})`);
+                const createdDay = await res.json();
+                if (createdDay?.IDID != null) createdDaysForRollback.push(Number(createdDay.IDID));
+            }
+
+            const arrangeRequested = pendingArrangeMode != null;
+            if (arrangeRequested) {
+                const res = await fetch(`/itinerary/${itineraryId}/auto-arrange?mode=${encodeURIComponent(pendingArrangeMode)}`, { method: 'POST' });
+                if (!res.ok) throw new Error(`套用餐廳排序失敗 (HTTP ${res.status})`);
+                pendingArrangeMode = null;
+            }
+            if (pendingItineraryTitle != null) {
+                const res = await fetch(`/itinerary/${itineraryId}/title?title=${encodeURIComponent(pendingItineraryTitle)}`, { method: 'POST' });
+                if (!res.ok) throw new Error(`儲存行程名稱失敗 (HTTP ${res.status})`);
+                pendingItineraryTitle = null;
+            }
+            if (pendingCompleteState === true) {
+                const res = await fetch(`/itinerary/${itineraryId}/complete`, { method: 'POST' });
+                if (!res.ok) throw new Error(`完成行程失敗 (HTTP ${res.status})`);
+            }
+            if (pendingLockState === true) {
+                const res = await fetch(`/itinerary/${itineraryId}/lock`, { method: 'POST' });
+                if (!res.ok) throw new Error(`鎖定行程失敗 (HTTP ${res.status})`);
+            }
+
             // 記錄哪些天有異動過, 存檔完要重新抓這些天的最新資料
             const affectedDays = new Set();
-            for (const iiid of pendingDeletes) { const d = findDayOfItem(iiid); if (d != null) affectedDays.add(d); }
-            for (const key of Object.keys(pendingEdits)) { const d = findDayOfItem(Number(key)); if (d != null) affectedDays.add(d); }
-            for (const key of Object.keys(pendingItemOrder)) { affectedDays.add(Number(key)); }
+            for (const created of createdItemsForRollback) if (!pendingDeletedDays.has(created.IDID)) affectedDays.add(created.IDID);
+            for (const iiid of pendingDeletes) { const d = findDayOfItem(iiid); if (d != null && !pendingDeletedDays.has(Number(d))) affectedDays.add(d); }
+            for (const key of Object.keys(pendingEdits)) { const d = findDayOfItem(Number(key)); if (d != null && !pendingDeletedDays.has(Number(d))) affectedDays.add(d); }
+            for (const key of Object.keys(pendingItemOrder)) { if (!pendingDeletedDays.has(Number(key))) affectedDays.add(Number(key)); }
+            const itineraryStateChanged = pendingLockInitial != null || pendingCompleteInitial != null;
 
-            // 清空暫存狀態 (pendingAdds 裡的新增項目本來就已經真的存進資料庫了, 這裡不用再送什麼 API,
-            // 單純把它們從「暫存中」名單移除、視為已確認即可)
+            // 清空已成功送出的暫存狀態
             pendingEdits = {};
             pendingDeletes = new Set();
             pendingDayOrder = null;
             pendingItemOrder = {};
-            pendingAdds = new Set();
+            pendingNewItems = {};
+            pendingDayStartTimes = {};
+            pendingRouteModes = {};
+            pendingOptionSelections = {};
+            pendingImageExportStates = {};
+            pendingPoiLinks = new Set();
+            pendingImageUploads = {};
+            pendingDeletedDays = new Set();
+            pendingDayAdds = 0;
+            pendingLockState = null;
+            pendingLockInitial = null;
+            pendingCompleteState = null;
+            pendingCompleteInitial = null;
             hasUnsavedChanges = false;
 
-            if (dayOrderChanged) {
-                // 天數順序改變後 Day 編號都要重新算, 整頁重整最保險, 讓伺服器重新產生正確的頁面結構
+            if (dayOrderChanged || arrangeRequested || daysDeleted || daysAdded || itineraryStateChanged) {
+                // 天數順序或跨天餐廳排序套用後，重載取得伺服器端最終排序。
                 location.reload();
             } else {
                 // 沒有動到天數順序的話留在目前畫面, 只重新抓有異動過的天的最新資料就好
@@ -3857,6 +4097,29 @@
                 updateSaveButton();
             }
         } catch (err) {
+            for (const idid of createdDaysForRollback.reverse()) {
+                try { await fetch(`/itinerary/day/${idid}`, { method: 'DELETE' }); } catch (_) { }
+            }
+            // 避免部分新增成功、後續存檔步驟失敗後，使用者重試時重複新增。
+            for (const created of createdItemsForRollback.reverse()) {
+                try { await fetch(`/itinerary/day/${created.IDID}/items/${created.IIID}`, { method: 'DELETE' }); } catch (_) { }
+            }
+            for (const created of createdItemsForRollback) {
+                const items = dayCache[created.IDID]?.items || [];
+                dayCache[created.IDID].items = items.filter(it => Number(it.IIID) !== created.IIID);
+            }
+            // 建立失敗時保留前端暫存項目，清除剛才為新增項目建立的實際 ID 對應。
+            for (const [tempId, realId] of Object.entries(tempToReal || {})) {
+                if (pendingEdits[realId]) { pendingEdits[tempId] = pendingEdits[realId]; delete pendingEdits[realId]; }
+                Object.keys(pendingItemOrder).forEach(idid => {
+                    pendingItemOrder[idid] = pendingItemOrder[idid].map(id => Number(id) === Number(realId) ? Number(tempId) : id);
+                });
+            }
+            pendingPoiLinks = new Set(Array.from(pendingPoiLinks, id => {
+                const tempId = Object.keys(tempToReal).find(key => Number(tempToReal[key]) === Number(id));
+                return tempId == null ? id : Number(tempId);
+            }));
+            pendingNewItems = Object.fromEntries(stagedItemsForSave.map(item => [item.IIID, item]));
             alert('儲存失敗，請稍後再試：' + err.message);
             btn.disabled = false;
             updateSaveButton();
@@ -3865,6 +4128,14 @@
 
     if (currentDayId) loadDay(currentDayId);
 </script>
+
+<div id="boardNoticeOverlay" class="board-notice-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="boardNoticeTitle" onclick="if(event.target===this) closeBoardNotice()">
+    <div class="board-notice-modal">
+        <h3 id="boardNoticeTitle">景點安排建議</h3>
+        <p id="boardNoticeMessage"></p>
+        <div class="board-notice-actions"><button id="boardNoticeOk" type="button" onclick="closeBoardNotice()">知道了</button></div>
+    </div>
+</div>
 
 <!-- 匯出勾選視窗 -->
 <div id="exportModalOverlay" class="export-modal-overlay" style="display:none;" onclick="if(event.target===this) closeExportModal()">

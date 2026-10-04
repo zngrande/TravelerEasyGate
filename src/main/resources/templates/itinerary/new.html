@@ -22,6 +22,8 @@
             --sidebar-width: 260px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        /* 原生 input/select/button 預設會使用瀏覽器 UI 字型，統一繼承本頁字體以確保新增元件一致。 */
+        button, input, select, textarea { font: inherit; }
         body { font-family: 'Noto Sans TC', sans-serif; background-color: var(--bg-gray); color: var(--text-dark); display: flex; min-height: 100vh; }
         a { text-decoration: none; color: inherit; }
 
@@ -36,6 +38,8 @@
         .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
         .form-row .form-group { margin-bottom: 0; }
         .form-label { display: block; font-size: 13.5px; font-weight: 600; color: #334155; margin-bottom: 8px; }
+        .choice-label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dark); font-family: inherit; font-size: 13.5px; font-weight: 500; line-height: 1.5; cursor: pointer; }
+        .choice-label input { width: 15px; height: 15px; margin: 0; accent-color: var(--primary-blue); flex: 0 0 auto; }
         .form-control {
             width: 100%; padding: 11px 14px; font-size: 14px;
             border: 1px solid var(--border-color); border-radius: 8px; outline: none;
@@ -331,6 +335,12 @@
             background: #f1f5f9;
             border-radius: 8px;
         }
+        .must-visit-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 220px); gap: 8px; margin-bottom: 8px; }
+        .must-visit-filters input, .must-visit-filters select {
+            width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border-color);
+            border-radius: 8px; background: #fff; color: var(--text-dark); font: inherit; font-size: 13px;
+        }
+        @media (max-width: 700px) { .must-visit-filters { grid-template-columns: 1fr; } }
 
         /* 錯誤警告區塊 (編輯行程基本資料儲存失敗時顯示), 樣式跟 poi/list.html 等其他頁面一致 */
         .alert-error {
@@ -382,6 +392,21 @@
         @keyframes ai-spin { to { transform: rotate(360deg); } }
         .ai-loading-title { font-size: 15px; font-weight: 700; color: var(--text-dark); }
         .ai-loading-sub { font-size: 12.5px; color: var(--text-gray); line-height: 1.6; }
+        .itinerary-dialog-overlay {
+            position: fixed; inset: 0; z-index: 2500; display: none;
+            align-items: center; justify-content: center; padding: 20px;
+            background: rgba(15,23,42,0.48); backdrop-filter: blur(2px);
+        }
+        .itinerary-dialog {
+            width: min(440px, 100%); padding: 24px; border: 1px solid var(--border-color);
+            border-radius: 16px; background: #fff; box-shadow: 0 20px 50px rgba(15,23,42,0.22);
+        }
+        .itinerary-dialog h2 { margin: 0 0 10px; color: var(--text-dark); font-size: 17px; }
+        .itinerary-dialog-message { color: #475569; font-size: 13.5px; line-height: 1.7; white-space: pre-line; }
+        .itinerary-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+        .itinerary-dialog-actions button { min-width: 84px; padding: 9px 14px; border: 0; border-radius: 8px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+        .itinerary-dialog-cancel { color: #475569; background: #f1f5f9; }
+        .itinerary-dialog-confirm { color: #fff; background: var(--primary-blue); }
     </style>
 </head>
 <body>
@@ -609,6 +634,33 @@
                     </div>
                     <div id="dayCitiesContainer"><!-- 由 renderDayCitiesRows() 依天數動態產生 --></div>
                 </div>
+                <div class="day-cities-section" th:style="${isAiMode} ? 'margin-top:18px;' : 'margin-top:18px;display:none;'">
+                    <div class="context-section-label"><i class="fa-solid fa-star" style="color:#f59e0b;"></i> 必排行程（選填）</div>
+                    <div class="context-hint" style="margin-bottom:10px;">勾選後會強制排進行程，並依景點所在城市安排到合適日期。</div>
+                    <div class="must-visit-filters">
+                        <input id="mustVisitPoiNameFilter" type="search" placeholder="搜尋景點名稱..." aria-label="搜尋必排行程名稱">
+                        <select id="mustVisitPoiCategoryFilter" aria-label="依類型篩選必排行程">
+                            <option value="">全部類型</option>
+                        </select>
+                    </div>
+                    <div id="mustVisitPoiOptions" style="max-height:220px;overflow:auto;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:#fff;color:var(--text-gray);font-size:13px;">請先選擇目的地國家。</div>
+                    <div id="mustVisitPoiSelectedHidden"></div>
+                </div>
+                <div class="day-cities-section" th:style="${isAiMode} ? 'margin-top:18px;' : 'margin-top:18px;display:none;'">
+                    <div class="context-section-label"><i class="fa-solid fa-wand-magic-sparkles" style="color:#8b5cf6;"></i> 行程風格（可複選）</div>
+                    <div class="context-hint" style="margin-bottom:10px;">AI 會優先挑選符合風格的資料庫景點與餐廳。</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:12px;">
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="親子旅遊"> 親子旅遊</label>
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="奢華旅遊"> 奢華旅遊</label>
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="輕鬆旅遊"> 輕鬆旅遊</label>
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="美食旅遊"> 美食旅遊</label>
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="自然景觀"> 自然景觀</label>
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="文化歷史"> 文化歷史</label>
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="購物行程"> 購物行程</label>
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="冒險體驗"> 冒險體驗</label>
+                        <label class="choice-label"><input type="checkbox" name="travelStyles" value="銀髮慢遊"> 銀髮慢遊</label>
+                    </div>
+                </div>
             </div>
 
             <div class="btn-row">
@@ -643,7 +695,41 @@
     </div>
 </div>
 
+<div class="itinerary-dialog-overlay" id="itineraryDialogOverlay" role="dialog" aria-modal="true" aria-labelledby="itineraryDialogTitle" onclick="if(event.target===this) resolveItineraryDialog(false)">
+    <div class="itinerary-dialog">
+        <h2 id="itineraryDialogTitle"></h2>
+        <div id="itineraryDialogMessage" class="itinerary-dialog-message"></div>
+        <div class="itinerary-dialog-actions">
+            <button type="button" id="itineraryDialogCancel" class="itinerary-dialog-cancel" onclick="resolveItineraryDialog(false)">取消</button>
+            <button type="button" id="itineraryDialogConfirm" class="itinerary-dialog-confirm" onclick="resolveItineraryDialog(true)">確定</button>
+        </div>
+    </div>
+</div>
+
 <script>
+    let itineraryDialogResolver = null;
+    function showItineraryDialog(title, message, confirmMode) {
+        const overlay = document.getElementById('itineraryDialogOverlay');
+        document.getElementById('itineraryDialogTitle').textContent = title;
+        document.getElementById('itineraryDialogMessage').textContent = message;
+        document.getElementById('itineraryDialogCancel').style.display = confirmMode ? '' : 'none';
+        document.getElementById('itineraryDialogConfirm').textContent = confirmMode ? '繼續' : '知道了';
+        overlay.style.display = 'flex';
+        document.getElementById('itineraryDialogConfirm').focus();
+        return new Promise(resolve => { itineraryDialogResolver = resolve; });
+    }
+
+    function resolveItineraryDialog(confirmed) {
+        const overlay = document.getElementById('itineraryDialogOverlay');
+        if (!overlay || overlay.style.display === 'none') return;
+        overlay.style.display = 'none';
+        if (itineraryDialogResolver) {
+            const resolve = itineraryDialogResolver;
+            itineraryDialogResolver = null;
+            resolve(confirmed);
+        }
+    }
+
     // 「目的地國家」「地區/城市」多選元件 (checkbox + 標籤/chip), 選項來源是 country_city_code 參考表,
     // 同時即時比對公司景點資料庫 (GET /poi/countries、/poi/cities?country=, Patch 17 新增) 標示「清單裡
     // 有、但景點資料庫還沒有相對應資料」的項目 (⚠ 警示), 詳細設計理由見上方 .ms-wrap CSS 註解。
@@ -1131,7 +1217,10 @@
             // getSelected(), 要跟著重繪 (renderDayCitiesRows 會保留仍然有效的既有選擇, 見該函式說明)。
             // 這個函式在 renderDayCitiesRows() 定義之前就先掛上, 沒關係——function 宣告會整個 hoist 到
             // 這個 DOMContentLoaded callback 的最上面, 呼叫當下一定已經存在。
-            function () { if (typeof renderDayCitiesRows === 'function') renderDayCitiesRows(); }
+            function () {
+                if (typeof renderDayCitiesRows === 'function') renderDayCitiesRows();
+                refreshMustVisitPoiOptions(countryMs.getSelected());
+            }
         );
 
         // 地區欄位是否啟用, 依「目的地國家」有沒有選任何一個決定: 一個都沒選就停用; 只要選了一個 (含
@@ -1160,7 +1249,136 @@
                 regionInput.placeholder = '例：東京 (可複選，留空代表整個國家)';
                 regionWrap.classList.remove('ms-disabled');
             }
+            refreshMustVisitPoiOptions(selectedCountries);
         }
+
+        let mustVisitPoiLoadToken = 0;
+        let mustVisitPoiData = [];
+        const mustVisitSelectedIds = new Set();
+        function syncMustVisitSelectedInputs() {
+            const hidden = document.getElementById('mustVisitPoiSelectedHidden');
+            const visibleChecked = new Set(Array.from(document.querySelectorAll('#mustVisitPoiOptions input[name="mustVisitPoiIds"]:checked')).map(el => el.value));
+            hidden.replaceChildren();
+            mustVisitSelectedIds.forEach(id => {
+                if (visibleChecked.has(id)) return;
+                const input = document.createElement('input');
+                input.type = 'hidden'; input.name = 'mustVisitPoiIds'; input.value = id;
+                hidden.appendChild(input);
+            });
+        }
+
+        function renderMustVisitPoiOptions() {
+            const container = document.getElementById('mustVisitPoiOptions');
+            const categorySelect = document.getElementById('mustVisitPoiCategoryFilter');
+            if (!container) return;
+            const previousCategory = categorySelect.value;
+            const categories = [...new Set(mustVisitPoiData.map(poi => String(poi.category || '').trim()).filter(Boolean))]
+                .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            categorySelect.replaceChildren(new Option('全部類型', ''));
+            categories.forEach(category => categorySelect.add(new Option(category, category)));
+            categorySelect.value = categories.includes(previousCategory) ? previousCategory : '';
+            const nameKeyword = document.getElementById('mustVisitPoiNameFilter').value.trim().toLocaleLowerCase();
+            const categoryFilter = categorySelect.value;
+            const filtered = mustVisitPoiData.filter(poi =>
+                (!nameKeyword || String(poi.name || '').toLocaleLowerCase().includes(nameKeyword))
+                && (!categoryFilter || String(poi.category || '').trim() === categoryFilter))
+                .sort((a, b) => Number(mustVisitSelectedIds.has(String(b.PID))) - Number(mustVisitSelectedIds.has(String(a.PID))));
+            container.replaceChildren();
+            if (!filtered.length) {
+                container.textContent = mustVisitPoiData.length ? '找不到符合條件的景點。' : '目前選取的目的地沒有可選景點。';
+                syncMustVisitSelectedInputs();
+                return;
+            }
+            filtered.forEach(poi => {
+                const label = document.createElement('label');
+                label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox'; checkbox.name = 'mustVisitPoiIds'; checkbox.value = poi.PID;
+                checkbox.checked = mustVisitSelectedIds.has(String(poi.PID));
+                checkbox.addEventListener('change', () => {
+                    if (checkbox.checked) mustVisitSelectedIds.add(checkbox.value);
+                    else mustVisitSelectedIds.delete(checkbox.value);
+                    const scrollTop = container.scrollTop;
+                    renderMustVisitPoiOptions();
+                    container.scrollTop = scrollTop;
+                });
+                const text = document.createElement('span');
+                text.textContent = poi.name + '（' + (poi.category || '景點') + (poi.city ? '・' + poi.city : '') + '）';
+                label.append(checkbox, text); container.appendChild(label);
+            });
+            syncMustVisitSelectedInputs();
+        }
+
+        document.getElementById('mustVisitPoiNameFilter').addEventListener('input', renderMustVisitPoiOptions);
+        document.getElementById('mustVisitPoiCategoryFilter').addEventListener('change', renderMustVisitPoiOptions);
+
+        function refreshMustVisitPoiOptions(selectedCountries) {
+            const container = document.getElementById('mustVisitPoiOptions');
+            if (!container) return;
+            container.querySelectorAll('input[name="mustVisitPoiIds"]:checked').forEach(el => mustVisitSelectedIds.add(el.value));
+            if (!selectedCountries.length) {
+                mustVisitPoiData = [];
+                mustVisitSelectedIds.clear();
+                container.textContent = '請先選擇目的地國家。';
+                syncMustVisitSelectedInputs();
+                return;
+            }
+            const token = ++mustVisitPoiLoadToken;
+            container.textContent = '正在載入該國家/地區的景點…';
+            const query = selectedCountries.map(c => 'countries=' + encodeURIComponent(c.label)).join('&');
+            fetch('/itinerary/poi-options?' + query).then(res => res.ok ? res.json() : Promise.reject(new Error('載入失敗')))
+                .then(pois => {
+                    if (token !== mustVisitPoiLoadToken) return;
+                    const cities = regionMs.getSelected().map(c => c.label);
+                    const filtered = pois.filter(p => !cities.length || cities.some(city => (p.city || '').includes(city)));
+                    mustVisitPoiData = filtered;
+                    const availableIds = new Set(filtered.map(poi => String(poi.PID)));
+                    mustVisitSelectedIds.forEach(id => { if (!availableIds.has(id)) mustVisitSelectedIds.delete(id); });
+                    renderMustVisitPoiOptions();
+                }).catch(() => { if (token === mustVisitPoiLoadToken) container.textContent = '景點清單載入失敗，請稍後重試。'; });
+        }
+
+        function calculateCityCenterDistanceKm(a, b) {
+            const radians = value => value * Math.PI / 180;
+            const dLat = radians(b.latitude - a.latitude);
+            const dLon = radians(b.longitude - a.longitude);
+            const h = Math.sin(dLat / 2) ** 2 + Math.cos(radians(a.latitude)) * Math.cos(radians(b.latitude)) * Math.sin(dLon / 2) ** 2;
+            return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+        }
+
+        async function getGeographicSpreadWarning() {
+            const countries = countryMs.getSelected();
+            const cities = regionMs.getSelected();
+            if (cities.length < 2 || countries.length === 0) return '';
+            const query = countries.map(country => 'countries=' + encodeURIComponent(country.label)).join('&');
+            const pois = await fetch('/itinerary/poi-options?' + query).then(res => res.ok ? res.json() : []);
+            const centers = cities.map(city => {
+                const matches = pois.filter(poi => String(poi.city || '').includes(city.label)
+                    && poi.latitude != null && poi.longitude != null
+                    && poi.latitude !== '' && poi.longitude !== ''
+                    && Number.isFinite(Number(poi.latitude)) && Number.isFinite(Number(poi.longitude)));
+                if (!matches.length) return null;
+                return {
+                    label: city.label,
+                    latitude: matches.reduce((sum, poi) => sum + Number(poi.latitude), 0) / matches.length,
+                    longitude: matches.reduce((sum, poi) => sum + Number(poi.longitude), 0) / matches.length
+                };
+            }).filter(Boolean);
+            if (centers.length < 2) return '';
+
+            let farthest = null;
+            for (let i = 0; i < centers.length; i++) {
+                for (let j = i + 1; j < centers.length; j++) {
+                    const distance = calculateCityCenterDistanceKm(centers[i], centers[j]);
+                    if (!farthest || distance > farthest.distance) farthest = { from: centers[i], to: centers[j], distance };
+                }
+            }
+            const days = parseInt(document.getElementById('daysCountInput').value, 10) || 1;
+            const distanceLimit = days <= 7 ? 500 : (days <= 10 ? 800 : 1200);
+            if (!farthest || farthest.distance < distanceLimit) return '';
+            return `「${farthest.from.label}」與「${farthest.to.label}」相距約 ${Math.round(farthest.distance)} 公里（直線估算）。以 ${days} 天行程來看，跨區移動可能較不順，請確認是否仍要安排這些城市。`;
+        }
+
         onCountryChanged([]); // 初始狀態: 國家還沒選, 地區欄位先停用
 
         // 編輯行程基本資料 (editMode): 表單一開始就要帶入這個行程目前已經存的國家/地區, 不能讓使用者
@@ -1413,13 +1631,39 @@
             // 「目的地國家」改成用 hidden input 存值 (多選, 見上面 createMultiSelect), HTML5 的 required
             // 屬性對 type=hidden 的欄位不會生效 (瀏覽器表單驗證本來就不管隱藏欄位), 所以這裡手動檢查,
             // 一個國家都沒選就擋下送出並提示。
-            formEl.addEventListener('submit', function (e) {
+            let confirmedResubmit = false;
+            formEl.addEventListener('submit', async function (e) {
+                if (confirmedResubmit) {
+                    confirmedResubmit = false;
+                    return;
+                }
                 const countryHidden = document.getElementById('countryHidden');
                 if (!countryHidden.value.trim()) {
                     e.preventDefault();
-                    alert('請至少選擇一個目的地國家');
+                    await showItineraryDialog('尚未選擇目的地', '請至少選擇一個目的地國家。', false);
                     document.getElementById('destPickerQueryA').focus();
                     return;
+                }
+
+                const submitter = e.submitter;
+                const isAiSubmit = !!(submitter && submitter.classList.contains('btn-ai-plan'));
+                if (isAiSubmit) e.preventDefault(); // 需先非同步檢查城市距離，再決定是否顯示確認視窗
+                const confirmationLines = [];
+                // AI 排程時先告知資料庫目前沒有內容的國家/城市；使用者可選擇返回修改，或確認後仍建立行程。
+                // 這些警示是在選項加入時一起保留的，不需要額外等 API 或攔截建立後才發現行程空白。
+                if (isAiSubmit) {
+                    const noDataCountries = countryMs.getSelected().filter(function (item) { return item.warn; });
+                    const noDataCities = regionMs.getSelected().filter(function (item) { return item.warn; });
+                    const warnings = noDataCountries.map(function (item) { return item.label; })
+                        .concat(noDataCities.map(function (item) { return item.label; }));
+                    if (warnings.length) confirmationLines.push('以下目的地目前沒有景點資料庫內容，AI 可能無法安排或需要手動補充：\n'
+                        + Array.from(new Set(warnings)).join('、') + '\n仍要繼續安排行程嗎？');
+                    try {
+                        const geographicWarning = await getGeographicSpreadWarning();
+                        if (geographicWarning) confirmationLines.push(geographicWarning);
+                    } catch (error) {
+                        console.warn('無法檢查目的地城市距離', error);
+                    }
                 }
 
                 // 編輯行程基本資料、把天數改少時: 後端現在會真的刪除最後面多出來的天 (連同裡面已經排的
@@ -1444,14 +1688,23 @@
                             removedDayLines.push('第 ' + d + ' 天' + (count > 0 ? '（有 ' + count + ' 個行程項目）' : '（空白）'));
                         }
 
-                        const warningPrefix = anyHasItems ? '⚠️ 注意，裡面有已經排好的行程內容！\n\n' : '';
-                        const msg = '確定要把天數從 ' + originalDaysCount + ' 天改成 ' + newDaysCount + ' 天嗎？\n\n'
+                        const warningPrefix = anyHasItems ? '⚠️ 注意，移除的天數內有已排好的行程內容。\n\n' : '';
+                        confirmationLines.push('確定要把天數從 ' + originalDaysCount + ' 天改成 ' + newDaysCount + ' 天嗎？\n\n'
                             + warningPrefix + '將會刪除：\n' + removedDayLines.join('\n')
-                            + '\n\n此動作無法復原。';
-                        if (!confirm(msg)) {
-                            e.preventDefault();
-                        }
+                            + '\n\n此動作無法復原。');
                     }
+                }
+
+                if (confirmationLines.length) {
+                    e.preventDefault();
+                    const approved = await showItineraryDialog('請確認行程設定', confirmationLines.join('\n\n'), true);
+                    if (approved) {
+                        confirmedResubmit = true;
+                        formEl.requestSubmit(submitter || undefined);
+                    }
+                } else if (isAiSubmit) {
+                    confirmedResubmit = true;
+                    formEl.requestSubmit(submitter || undefined);
                 }
             });
 

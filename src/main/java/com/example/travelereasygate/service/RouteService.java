@@ -23,8 +23,8 @@ import java.util.List;
  * 通勤時間規則: 以 Google 回傳的時間 (或 fallback 估算值) 為基準,
  *   乘以 1.5 倍當作實際安全通勤時間緩衝, 再四捨五入到最接近的 10 分鐘
  *
- * 迴頭路判斷: 比較「上一段路線」跟「這一段路線」的方位角, 如果轉向角度超過閾值 (預設 120 度),
- *   代表這一段路是往回走的方向, 標記為疑似迴頭路
+ * 迴頭路判斷: 看連續三點 A→B→C。若 C 比 B 明顯更接近 A，代表 B→C 這段把行程帶回剛經過的區域，
+ *   在 B、C 之間標示「疑似迴頭路」，提醒使用者 A→C→B 可能更順。
  */
 @Service
 public class RouteService {
@@ -33,7 +33,8 @@ public class RouteService {
 
     private static final double SAFETY_MULTIPLIER = 1.5;
     private static final int ROUND_TO_MINUTES = 10;
-    private static final double BACKTRACK_ANGLE_THRESHOLD = 120.0; // 度數, 轉向角度超過這個就當迴頭路
+    private static final double BACKTRACK_MIN_SAVING_KM = 5.0;
+    private static final double BACKTRACK_MIN_SAVING_RATIO = 0.20;
     // route_segment.distance_km 資料庫欄位是 DECIMAL(6,2), 存得下的最大值是 9999.99——使用者反映
     // 「AI 解析行程草稿, 轉成正式就系統發生錯誤」, 追查 Railway log 發現 /ai-import/{id}/confirm
     // 丟出 DataIntegrityViolationException: Data truncation: Out of range value for column
@@ -78,15 +79,13 @@ public class RouteService {
     public void calculateAndSaveSegments(int IDID, List<ItineraryItem> items, String transportMode,
                                           java.util.Map<String, String> segmentOverrides) {
         boolean forcedDayMode = transportMode != null && !"auto".equalsIgnoreCase(transportMode);
-        Double prevBearing = null;
-
         for (int i = 0; i < items.size() - 1; i++) {
             ItineraryItem from = items.get(i);
             ItineraryItem to = items.get(i + 1);
 
             double[] fromCoord = resolveCoordinates(from);
             double[] toCoord = resolveCoordinates(to);
-            if (fromCoord == null || toCoord == null) { prevBearing = null; continue; }
+            if (fromCoord == null || toCoord == null) continue;
 
             double fromLat = fromCoord[0], fromLng = fromCoord[1];
             double toLat = toCoord[0], toLng = toCoord[1];
@@ -122,17 +121,26 @@ public class RouteService {
             if (distanceKm > MAX_STORABLE_DISTANCE_KM) {
                 LOGGER.warn("兩個行程項目間的距離超過可儲存範圍, 已略過這段路線計算 (IDID={}, fromIIID={}, toIIID={}, distanceKm={})",
                         IDID, from.getIIID(), to.getIIID(), distanceKm);
-                prevBearing = null;
                 continue;
             }
 
             // 通勤安全緩衝: 1.5倍後四捨五入到最近的10分鐘
             int bufferedMin = roundToNearest10(rawMinutes * SAFETY_MULTIPLIER);
 
-            // 迴頭路判斷: 跟上一段的方位角比較轉向角度
-            double currentBearing = bearing(fromLat, fromLng, toLat, toLng);
-            boolean backtrack = prevBearing != null && angleDiff(prevBearing, currentBearing) > BACKTRACK_ANGLE_THRESHOLD;
-            prevBearing = currentBearing;
+            // 使用者定義的「回頭路」是排列順序不佳：A-B-C 中，若 C 明顯比 B 更靠近 A，
+            // 表示先去 B 再去 C 會折返；在 B、C 中間提示可考慮改成 A-C-B。
+            // 相鄰對座標缺漏時不跨過缺漏點比較，避免不連續項目造成誤報。
+            boolean backtrack = false;
+            if (i > 0) {
+                double[] previousCoord = resolveCoordinates(items.get(i - 1));
+                if (previousCoord != null) {
+                    double previousToFromKm = haversineKm(previousCoord[0], previousCoord[1], fromLat, fromLng);
+                    double previousToNextKm = haversineKm(previousCoord[0], previousCoord[1], toLat, toLng);
+                    double savedKm = previousToFromKm - previousToNextKm;
+                    backtrack = savedKm >= BACKTRACK_MIN_SAVING_KM
+                            && previousToNextKm <= previousToFromKm * (1.0 - BACKTRACK_MIN_SAVING_RATIO);
+                }
+            }
 
             RouteSegment segment = new RouteSegment(
                     IDID, from.getIIID(), to.getIIID(),

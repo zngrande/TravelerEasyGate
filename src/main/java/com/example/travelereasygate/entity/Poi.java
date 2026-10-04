@@ -51,6 +51,12 @@ public class Poi {
     @Column(name = "description")
     private String description;
 
+    @Column(name = "travel_style_tags", columnDefinition = "TEXT")
+    private String travelStyleTags; // 以頓號分隔: 親子旅遊 / 奢華旅遊 / 輕鬆旅遊
+
+    @Column(name = "partner_priority", nullable = false)
+    private boolean partnerPriority = false; // 合作廠商優先安排
+
     @Column(name = "star_rating")
     private BigDecimal starRating;
 
@@ -142,6 +148,12 @@ public class Poi {
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+
+    public String getTravelStyleTags() { return travelStyleTags; }
+    public void setTravelStyleTags(String travelStyleTags) { this.travelStyleTags = travelStyleTags; }
+
+    public boolean isPartnerPriority() { return partnerPriority; }
+    public void setPartnerPriority(boolean partnerPriority) { this.partnerPriority = partnerPriority; }
 
     public BigDecimal getStarRating() { return starRating; }
     public void setStarRating(BigDecimal starRating) { this.starRating = starRating; }

@@ -137,6 +137,13 @@ public class PoiDAOImpl implements PoiDAO {
         return query.getResultList();
     }
 
+    @Override
+    public List<String> findDistinctCategories(Integer AID) {
+        return em.createQuery("SELECT DISTINCT p.category FROM Poi p WHERE " + SHARED_OR_OWN_CLAUSE
+                        + "AND p.category IS NOT NULL AND p.category <> '' ORDER BY p.category ASC", String.class)
+                .setParameter("aid", AID).getResultList();
+    }
+
     // 「建立新行程」頁面「目的地國家」欄位自動完成用。原本這個欄位是純自由文字, 跟後端 findByAgencyAndCountry()
     // 一樣拿去比對, 但完全不保證使用者打的地名資料庫裡真的有——這正是使用者建立「義大利/羅馬、威尼斯、比薩、
     // 米蘭」行程時, AI 完全找不到符合景點、只能建立空白行程的根本原因: 打的地名資料庫裡根本沒有這筆資料可以比對。
